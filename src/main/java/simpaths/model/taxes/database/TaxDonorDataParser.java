@@ -357,7 +357,6 @@ public class TaxDonorDataParser {
             stat.execute(
                 // make copy of person table, using tuid
                 "DROP TABLE IF EXISTS TEMP CASCADE;"
-                + "CREATE TABLE TEMP AS (SELECT TUID, WEIGHT FROM " + personTableName + ");"
 
                 // extract only unique values of tuid
                 +"DROP TABLE IF EXISTS " + taxUnitTableName + " CASCADE;"

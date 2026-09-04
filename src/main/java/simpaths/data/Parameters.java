@@ -1250,7 +1250,7 @@ public class Parameters {
         coeffCovarianceUnemploymentU1d = ExcelAssistant.loadCoefficientMap(Parameters.getInputDirectory() + "reg_unemployment.xlsx", "U1d", 1);
 
         //Financial distress
-        coeffCovarianceFinancialDistress = ExcelAssistant.loadCoefficientMap(Parameters.getInputDirectory() + "reg_financial_distress.xlsx", countryString, 1);
+        coeffCovarianceFinancialDistress = safeReadExcel(Parameters.getInputDirectory() + "reg_financial_distress.xlsx", "FinDis", 1);
 
         //Health and Wellbeing regressors
         loadDHMParameters(true);

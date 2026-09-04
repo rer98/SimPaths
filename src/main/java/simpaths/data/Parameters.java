@@ -590,10 +590,11 @@ public class Parameters {
     private static MultiKeyCoefficientMap coeffCovarianceEmploymentSelectionFemales, coeffCovarianceEmploymentSelectionFemalesNE, coeffCovarianceEmploymentSelectionFemalesE;
     private static MultiKeyCoefficientMap coeffLabourSupplyUtilityMales;
     private static MultiKeyCoefficientMap coeffLabourSupplyUtilityFemales;
+    private static MultiKeyCoefficientMap coeffLabourSupplyUtilityMalesWithDependent; //For use with couples where only male is flexible in labour supply (so has a dependent)
+    private static MultiKeyCoefficientMap coeffLabourSupplyUtilityFemalesWithDependent;
     private static MultiKeyCoefficientMap coeffLabourSupplyUtilityACMales; //Adult children, male
     private static MultiKeyCoefficientMap coeffLabourSupplyUtilityACFemales; //Adult children, female
     private static MultiKeyCoefficientMap coeffLabourSupplyUtilityCouples;
-    private static MultiKeyCoefficientMap coeffLabourSupplyUtilitySingleDep;
 
     // coefficients for Covid-19 labour supply models below
     // Initialisation
@@ -842,6 +843,10 @@ public class Parameters {
 
     private static LinearRegression regLabourSupplyUtilityMales;
     private static LinearRegression regLabourSupplyUtilityFemales;
+
+    private static LinearRegression regLabourSupplyUtilityMalesWithDependent;
+    private static LinearRegression regLabourSupplyUtilityFemalesWithDependent;
+
     private static LinearRegression regLabourSupplyUtilitySingleDep;
     private static LinearRegression regLabourSupplyUtilityACMales;
     private static LinearRegression regLabourSupplyUtilityACFemales;
@@ -1333,6 +1338,7 @@ public class Parameters {
                     {"coeffCovarianceDLS1", coeffCovarianceDLS1},
                     {"coeffCovarianceDLS2Males", coeffCovarianceDLS2Males},
                     {"coeffCovarianceDLS2Females", coeffCovarianceDLS2Females},
+                    {"coeffCovarianceFinancialDistress", coeffCovarianceFinancialDistress},
                     // {"coeffCovarianceSocialCareS1b", coeffCovarianceSocialCareS1b}, // retired process
                     {"coeffCovarianceSocialCareS2a", coeffCovarianceSocialCareS2a},
                     {"coeffCovarianceSocialCareS2b", coeffCovarianceSocialCareS2b},
@@ -1399,21 +1405,22 @@ public class Parameters {
             //Health
             coeffCovarianceHealthH1 = bootstrapWithTrace("coeffCovarianceHealthH1", coeffCovarianceHealthH1);//Note that this overrides the original coefficient map with bootstrapped values
             coeffCovarianceHealthH2 = bootstrapWithTrace("coeffCovarianceHealthH2", coeffCovarianceHealthH2);
-            coeffCovarianceHM1Level = bootstrapWithTrace("coeffCovarianceHM1Level", coeffCovarianceHM1Level);
-            coeffCovarianceHM2LevelMales = bootstrapWithTrace("coeffCovarianceHM2LevelMales", coeffCovarianceHM2LevelMales);
-            coeffCovarianceHM2LevelFemales = bootstrapWithTrace("coeffCovarianceHM2LevelFemales", coeffCovarianceHM2LevelFemales);
-            coeffCovarianceHM1Case = bootstrapWithTrace("coeffCovarianceHM1Case", coeffCovarianceHM1Case);
-            coeffCovarianceHM2CaseMales = bootstrapWithTrace("coeffCovarianceHM2CaseMales", coeffCovarianceHM2CaseMales);
-            coeffCovarianceHM2CaseFemales = bootstrapWithTrace("coeffCovarianceHM2CaseFemales", coeffCovarianceHM2CaseFemales);
-            coeffCovarianceDHE_MCS1 = bootstrapWithTrace("coeffCovarianceDHE_MCS1", coeffCovarianceDHE_MCS1);
-            coeffCovarianceDHE_MCS2Males = bootstrapWithTrace("coeffCovarianceDHE_MCS2Males", coeffCovarianceDHE_MCS2Males);
-            coeffCovarianceDHE_MCS2Females = bootstrapWithTrace("coeffCovarianceDHE_MCS2Females", coeffCovarianceDHE_MCS2Females);
-            coeffCovarianceDHE_PCS1 = bootstrapWithTrace("coeffCovarianceDHE_PCS1", coeffCovarianceDHE_PCS1);
-            coeffCovarianceDHE_PCS2Males = bootstrapWithTrace("coeffCovarianceDHE_PCS2Males", coeffCovarianceDHE_PCS2Males);
-            coeffCovarianceDHE_PCS2Females = bootstrapWithTrace("coeffCovarianceDHE_PCS2Females", coeffCovarianceDHE_PCS2Females);
-            coeffCovarianceDLS1 = bootstrapWithTrace("coeffCovarianceDLS1", coeffCovarianceDLS1);
-            coeffCovarianceDLS2Males = bootstrapWithTrace("coeffCovarianceDLS2Males", coeffCovarianceDLS2Males);
-            coeffCovarianceDLS2Females = bootstrapWithTrace("coeffCovarianceDLS2Females", coeffCovarianceDLS2Females);
+            // coeffCovarianceHM1Level = bootstrapWithTrace("coeffCovarianceHM1Level", coeffCovarianceHM1Level);
+            // coeffCovarianceHM2LevelMales = bootstrapWithTrace("coeffCovarianceHM2LevelMales", coeffCovarianceHM2LevelMales);
+            // coeffCovarianceHM2LevelFemales = bootstrapWithTrace("coeffCovarianceHM2LevelFemales", coeffCovarianceHM2LevelFemales);
+            // coeffCovarianceHM1Case = bootstrapWithTrace("coeffCovarianceHM1Case", coeffCovarianceHM1Case);
+            // coeffCovarianceHM2CaseMales = bootstrapWithTrace("coeffCovarianceHM2CaseMales", coeffCovarianceHM2CaseMales);
+            // coeffCovarianceHM2CaseFemales = bootstrapWithTrace("coeffCovarianceHM2CaseFemales", coeffCovarianceHM2CaseFemales);
+            // coeffCovarianceDHE_MCS1 = bootstrapWithTrace("coeffCovarianceDHE_MCS1", coeffCovarianceDHE_MCS1);
+            // coeffCovarianceDHE_MCS2Males = bootstrapWithTrace("coeffCovarianceDHE_MCS2Males", coeffCovarianceDHE_MCS2Males);
+            // coeffCovarianceDHE_MCS2Females = bootstrapWithTrace("coeffCovarianceDHE_MCS2Females", coeffCovarianceDHE_MCS2Females);
+            // coeffCovarianceDHE_PCS1 = bootstrapWithTrace("coeffCovarianceDHE_PCS1", coeffCovarianceDHE_PCS1);
+            // coeffCovarianceDHE_PCS2Males = bootstrapWithTrace("coeffCovarianceDHE_PCS2Males", coeffCovarianceDHE_PCS2Males);
+            // coeffCovarianceDHE_PCS2Females = bootstrapWithTrace("coeffCovarianceDHE_PCS2Females", coeffCovarianceDHE_PCS2Females);
+            // coeffCovarianceDLS1 = bootstrapWithTrace("coeffCovarianceDLS1", coeffCovarianceDLS1);
+            // coeffCovarianceDLS2Males = bootstrapWithTrace("coeffCovarianceDLS2Males", coeffCovarianceDLS2Males);
+            // coeffCovarianceDLS2Females = bootstrapWithTrace("coeffCovarianceDLS2Females", coeffCovarianceDLS2Females);
+            coeffCovarianceFinancialDistress = bootstrapWithTrace("coeffCovarianceFinancialDistress", coeffCovarianceFinancialDistress);
 
             //Social care
             // coeffCovarianceSocialCareS1b = RegressionUtils.bootstrap(coeffCovarianceSocialCareS1b); // retired process
@@ -1674,8 +1681,8 @@ public class Parameters {
         validationPsychDistressByAgeHigh = ExcelAssistant.loadCoefficientMap(Parameters.getInputDirectory() + "validation_statistics.xlsx", "psychDistressByAgeGroupHiEd", 1);
 
         //Benefits receipt
-        validationUniversalCredit = ExcelAssistant.loadCoefficientMap(Parameters.getInputDirectory() + "validation_statistics.xlsx", countryString + "_benefitsUC", 1, 1);
-        validationLegacyBenefits = ExcelAssistant.loadCoefficientMap(Parameters.getInputDirectory() + "validation_statistics.xlsx", countryString + "_benefitsNonUC", 1, 1);
+        validationUniversalCredit = ExcelAssistant.loadCoefficientMap(Parameters.getInputDirectory() + "validation_statistics.xlsx", "benefitsUC", 1, 1);
+        validationLegacyBenefits = ExcelAssistant.loadCoefficientMap(Parameters.getInputDirectory() + "validation_statistics.xlsx", "benefitsNonUC", 1, 1);
 
         //Employment by gender
         validationEmploymentByGender = ExcelAssistant.loadCoefficientMap(Parameters.getInputDirectory() + "validation_statistics.xlsx", "employmentByGender", 1);
@@ -1703,7 +1710,7 @@ public class Parameters {
 
         //Hourly wages by education and gender (for employed persons)
         validationLhwByGenderAndEducation = ExcelAssistant.loadCoefficientMap(Parameters.getInputDirectory() + "validation_statistics.xlsx", "lhwByGenderAndEdu", 1);
-        validationLhwByGender = ExcelAssistant.loadCoefficientMap(Parameters.getInputDirectory() + "validation_statistics.xlsx", countryString + "_lhwByGender", 1, 2);
+        validationLhwByGender = ExcelAssistant.loadCoefficientMap(Parameters.getInputDirectory() + "validation_statistics.xlsx", "lhwByGender", 1, 2);
 
         //Hours worked weekly by education and demSex (for employed persons)
         hourlyWageByGenderAndEducation = ExcelAssistant.loadCoefficientMap(Parameters.getInputDirectory() + "validation_statistics.xlsx", "hourlywageByGenderAndEdu", 1);
@@ -2170,6 +2177,13 @@ public class Parameters {
         return regLabourSupplyUtilityMales;
     }
 
+    public static LinearRegression getRegLabourSupplyUtilityFemalesWithDependent() {
+        return regLabourSupplyUtilityFemalesWithDependent;
+    }
+
+    public static LinearRegression getRegLabourSupplyUtilityMalesWithDependent() {
+        return regLabourSupplyUtilityMalesWithDependent;
+    }
 
     public static LinearRegression getRegLabourSupplyUtilitySingleDep() {
         return regLabourSupplyUtilitySingleDep;
@@ -3420,13 +3434,16 @@ public class Parameters {
         return coeffLabourSupplyUtilityFemales;
     }
 
+    public static MultiKeyCoefficientMap getCoeffLabourSupplyUtilityMalesWithDependent() {
+        return coeffLabourSupplyUtilityMalesWithDependent;
+    }
+
+    public static MultiKeyCoefficientMap getCoeffLabourSupplyUtilityFemalesWithDependent() {
+        return coeffLabourSupplyUtilityFemalesWithDependent;
+    }
 
     public static MultiKeyCoefficientMap getCoeffLabourSupplyUtilityCouples() {
         return coeffLabourSupplyUtilityCouples;
-    }
-
-    public static MultiKeyCoefficientMap getCoeffLabourSupplyUtilitySingleDep() {
-        return coeffLabourSupplyUtilitySingleDep;
     }
 
     public static double getLiquidWealthDiscount() {
@@ -3760,26 +3777,28 @@ public class Parameters {
         //Labour Supply coefficients from Zhechun's estimates on the EM input data
         coeffLabourSupplyUtilityMales = safeReadExcel(Parameters.getInputDirectory() + "reg_labourSupplyUtility.xlsx", "Single_Males", 1);
         coeffLabourSupplyUtilityFemales = safeReadExcel(Parameters.getInputDirectory() + "reg_labourSupplyUtility.xlsx", "Single_Females", 1);
-        coeffLabourSupplyUtilitySingleDep = safeReadExcel(Parameters.getInputDirectory() + "reg_labourSupplyUtility.xlsx", "SingleDep", 1);
+        coeffLabourSupplyUtilityMalesWithDependent = safeReadExcel(Parameters.getInputDirectory() + "reg_labourSupplyUtility_UC.xlsx", "Males_With_Dep", 1);
+        coeffLabourSupplyUtilityFemalesWithDependent = safeReadExcel(Parameters.getInputDirectory() + "reg_labourSupplyUtility_UC.xlsx", "Females_With_Dep", 1);
         coeffLabourSupplyUtilityACMales = safeReadExcel(Parameters.getInputDirectory() + "reg_labourSupplyUtility.xlsx", "SingleAC_Males", 1);
         coeffLabourSupplyUtilityACFemales = safeReadExcel(Parameters.getInputDirectory() + "reg_labourSupplyUtility.xlsx", "SingleAC_Females", 1);
         coeffLabourSupplyUtilityCouples = safeReadExcel(Parameters.getInputDirectory() + "reg_labourSupplyUtility.xlsx", "Couples", 1);
 
 
-//        if (bootstrap) {
-//            coeffLabourSupplyUtilityMales = safeBootstrap(coeffLabourSupplyUtilityMales);
-//            coeffLabourSupplyUtilityFemales = safeBootstrap(coeffLabourSupplyUtilityFemales); // Singular matrix
-//            coeffLabourSupplyUtilityMalesWithDependent = safeBootstrap(coeffLabourSupplyUtilityMalesWithDependent);
-//            coeffLabourSupplyUtilityFemalesWithDependent = safeBootstrap(coeffLabourSupplyUtilityFemalesWithDependent);
-//            coeffLabourSupplyUtilityACMales = safeBootstrap(coeffLabourSupplyUtilityACMales); // Singular matrix
-//            coeffLabourSupplyUtilityACFemales = safeBootstrap(coeffLabourSupplyUtilityACFemales); // Singular matrix
-//            coeffLabourSupplyUtilityCouples = safeBootstrap(coeffLabourSupplyUtilityCouples); // Singular matrix
-//        }
+        if (bootstrap) {
+        //     coeffLabourSupplyUtilityMales = safeBootstrap(coeffLabourSupplyUtilityMales);
+        //     coeffLabourSupplyUtilityFemales = safeBootstrap(coeffLabourSupplyUtilityFemales); // Singular matrix
+        //     coeffLabourSupplyUtilityMalesWithDependent = safeBootstrap(coeffLabourSupplyUtilityMalesWithDependent);
+        //     coeffLabourSupplyUtilityFemalesWithDependent = safeBootstrap(coeffLabourSupplyUtilityFemalesWithDependent);
+        //     coeffLabourSupplyUtilityACMales = safeBootstrap(coeffLabourSupplyUtilityACMales); // Singular matrix
+        //     coeffLabourSupplyUtilityACFemales = safeBootstrap(coeffLabourSupplyUtilityACFemales); // Singular matrix
+        //     coeffLabourSupplyUtilityCouples = safeBootstrap(coeffLabourSupplyUtilityCouples); // Singular matrix
+        }
 
         //Labour Supply regressions from Zhechun's estimates on the EM input data
         regLabourSupplyUtilityMales = new LinearRegression(coeffLabourSupplyUtilityMales);
         regLabourSupplyUtilityFemales = new LinearRegression(coeffLabourSupplyUtilityFemales);
-        regLabourSupplyUtilitySingleDep = new LinearRegression(coeffLabourSupplyUtilitySingleDep);
+        regLabourSupplyUtilityMalesWithDependent = new LinearRegression(coeffLabourSupplyUtilityMalesWithDependent);
+        regLabourSupplyUtilityFemalesWithDependent = new LinearRegression(coeffLabourSupplyUtilityFemalesWithDependent);
         regLabourSupplyUtilityACMales = new LinearRegression(coeffLabourSupplyUtilityACMales);
         regLabourSupplyUtilityACFemales = new LinearRegression(coeffLabourSupplyUtilityACFemales);
         regLabourSupplyUtilityCouples = new LinearRegression(coeffLabourSupplyUtilityCouples);

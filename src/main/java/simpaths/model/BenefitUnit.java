@@ -1744,7 +1744,7 @@ Contemporaneous values of dhhtp_c4 are required for validation. Update and outpu
                             regressionScore = Parameters.getRegLabourSupplyUtilityCouples().getScore(this, BenefitUnit.Regressors.class);
                         } else if (!female.atRiskOfWork()) { //Male has flexible labour supply, female doesn't
                             //Male is at risk of work and has dependent female
-                            regressionScore = Parameters.getRegLabourSupplyUtilitySingleDep().getScore(this, BenefitUnit.Regressors.class);
+                            regressionScore = Parameters.getRegLabourSupplyUtilityMalesWithDependent().getScore(this, BenefitUnit.Regressors.class);
 
                             var reg = Parameters.getRegLabourSupplyUtilitySingleDep();
                             double betaWomen = reg.getCoefficient("AlignmentFixedCostWomen");
@@ -1754,7 +1754,7 @@ Contemporaneous values of dhhtp_c4 are required for validation. Update and outpu
                         }
                     } else if (female.atRiskOfWork() && !male.atRiskOfWork()) { //Male not at risk of work - female must be at risk of work since only benefitUnits at risk are considered here
                         //Female is at risk of work and has dependent male
-                        regressionScore = Parameters.getRegLabourSupplyUtilitySingleDep().getScore(this, BenefitUnit.Regressors.class);
+                        regressionScore = Parameters.getRegLabourSupplyUtilityFemalesWithDependent().getScore(this, BenefitUnit.Regressors.class);
 
                         var reg = Parameters.getRegLabourSupplyUtilitySingleDep();
                         double betaMen = reg.getCoefficient("AlignmentFixedCostMen");
@@ -1969,9 +1969,9 @@ Contemporaneous values of dhhtp_c4 are required for validation. Update and outpu
                             regressionScore = Parameters.getRegLabourSupplyUtilityCouples().getScore(this, BenefitUnit.Regressors.class);
                         } else if (!female.atRiskOfWork()) { //Male has flexible labour supply, female doesn't
                             //Male is at risk of work and has dependent female
-                            regressionScore = Parameters.getRegLabourSupplyUtilitySingleDep().getScore(this, BenefitUnit.Regressors.class);
+                            regressionScore = Parameters.getRegLabourSupplyUtilityMalesWithDependent().getScore(this, BenefitUnit.Regressors.class);
 
-                            var reg = Parameters.getRegLabourSupplyUtilitySingleDep();
+                            var reg = Parameters.getRegLabourSupplyUtilityMalesWithDependent();
                             double betaWomen = reg.getCoefficient("AlignmentFixedCostWomen");
                             double xWomen = this.getDoubleValue(Enum.valueOf(BenefitUnit.Regressors.class, "AlignmentFixedCostWomen"));
 
@@ -1979,9 +1979,9 @@ Contemporaneous values of dhhtp_c4 are required for validation. Update and outpu
                         }
                     } else if (female.atRiskOfWork() && !male.atRiskOfWork()) { //Male not at risk of work - female must be at risk of work since only benefitUnits at risk are considered here
                         //Female is at risk of work and has dependent male
-                        regressionScore = Parameters.getRegLabourSupplyUtilitySingleDep().getScore(this, BenefitUnit.Regressors.class);
+                        regressionScore = Parameters.getRegLabourSupplyUtilityFemalesWithDependent().getScore(this, BenefitUnit.Regressors.class);
 
-                        var reg = Parameters.getRegLabourSupplyUtilitySingleDep();
+                        var reg = Parameters.getRegLabourSupplyUtilityFemalesWithDependent();
                         double betaMen = reg.getCoefficient("AlignmentFixedCostMen");
                         double xMen = this.getDoubleValue(Enum.valueOf(BenefitUnit.Regressors.class, "AlignmentFixedCostMen"));
 

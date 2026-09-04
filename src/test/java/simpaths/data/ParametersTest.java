@@ -1,6 +1,12 @@
 package simpaths.data;
 
 import microsim.data.MultiKeyCoefficientMap;
+import microsim.engine.SimulationEngine;
+import microsim.statistics.regression.LinearRegression;
+import microsim.statistics.regression.OrderedRegression;
+import microsim.statistics.regression.RegressionUtils;
+import org.junit.jupiter.api.*;
+import org.mockito.MockedStatic;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -148,3 +154,4 @@ class ParametersTest {
 
     }
 }
+

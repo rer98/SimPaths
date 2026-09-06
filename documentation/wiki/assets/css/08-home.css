@@ -115,6 +115,7 @@ html.sp-page-home .md-main .md-top {
   max-width: 64rem;
   color: #242a31;
   font-size: var(--sp-reading-copy-size);
+  font-weight: 520;
   line-height: var(--sp-reading-line-height);
   text-align: left;
   hyphens: none;
@@ -129,10 +130,6 @@ html.sp-page-home .md-main .md-top {
 .md-typeset .simpaths-home-intro-band__lede,
 .md-typeset .simpaths-home-intro-band__body:not(.simpaths-home-intro-band__body--bridge) {
   hyphens: none;
-}
-
-.md-typeset .simpaths-home-intro-band__body--bridge {
-  font-weight: 520;
 }
 
 .md-typeset .simpaths-capability-combination {

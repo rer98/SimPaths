@@ -50,7 +50,7 @@ extra_css:
   - assets/css/05-site-chrome.css?v=20260906-compact-footer-1
   - assets/css/06-page-sections.css?v=20260906-site-typography-2
   - assets/css/07-roadmap.css?v=20260906-site-typography-2
-  - assets/css/08-home.css?v=20260906-warm-use-simpaths-1
+  - assets/css/08-home.css?v=20260906-home-copy-weight-1
 
 extra_javascript:
   - assets/js/mathjax.js?v=20260831-math-svg-1

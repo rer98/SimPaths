@@ -102,9 +102,9 @@ class SitePaletteTest(unittest.TestCase):
                 rule = self.rule(filename, selector)
                 self.assertEqual(rule["color"], "#242a31")
                 self.assertNotIn("opacity", rule)
-        bridge = self.rule(filename, ".md-typeset .simpaths-home-intro-band__body--bridge")
-        self.assertNotIn("color", bridge)
-        self.assertNotIn("opacity", bridge)
+        for bridge in blocks(self.styles[filename], ".md-typeset .simpaths-home-intro-band__body--bridge"):
+            self.assertNotIn("color", bridge)
+            self.assertNotIn("opacity", bridge)
         for selector, colour in {
             ".md-typeset .simpaths-home-research-band .research-journal": "#526171",
             ".md-typeset .simpaths-home-research-band .research-authors": "#66717d",

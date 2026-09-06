@@ -643,6 +643,12 @@ test("homepage keeps its opening explanation together and links to the existing 
   const intro = page.locator('.simpaths-home-intro-band__lede');
   await expect(intro).toContainText("Its modular design supports analysis");
   await expect(page.locator('.simpaths-home-intro-band__body').first()).toContainText("Standardised assumptions and data sources");
+  const description = page.locator('.simpaths-home-intro-band__lede, .simpaths-home-intro-band__body');
+  await expect(description).toHaveCount(4);
+  for (const paragraph of await description.all()) {
+    await expect(paragraph).toHaveCSS('font-weight', '520');
+    await expect(paragraph).toHaveCSS('color', 'rgb(36, 42, 49)');
+  }
   const modules = page.locator('.simpaths-home-paths').getByRole('link', { name: 'Simulated modules', exact: true });
   await expect(modules).toHaveJSProperty('href', new URL('/overview/model-description/#simulated-modules', page.url()).href);
   await modules.click();

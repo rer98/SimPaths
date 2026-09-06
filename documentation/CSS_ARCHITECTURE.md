@@ -61,6 +61,9 @@ and individual funder/research accents.
 Homepage introductory paragraphs and feature descriptions use solid charcoal
 (#242a31), without separate faded lead/body colours. This is a text-only
 exception: retain the existing layout, heading scale and muted publication metadata.
+The introductory paragraphs share the 520 weight of the "The framework..."
+bridge sentence; feature descriptions keep their existing weight. Do not
+restore a lighter lead/body weight or increase their font size to compensate.
 
 The homepage's "Use SimPaths" and "Selected Research" sections share the warm
 background #f2f0e9 and charcoal headings. "Use SimPaths" keeps the navy #193449

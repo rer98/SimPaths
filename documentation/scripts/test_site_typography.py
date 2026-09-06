@@ -97,6 +97,19 @@ class SiteTypographyTest(unittest.TestCase):
                     self.assert_uses(filename, selector, "font-size", "--sp-reading-copy-size")
                     self.assert_uses(filename, selector, "line-height", "--sp-reading-line-height")
 
+    def test_homepage_intro_matches_the_framework_sentence_weight(self):
+        source = self.styles["08-home.css"]
+        for selector in (".md-typeset .simpaths-home-intro-band__lede",
+                         ".md-typeset .simpaths-home-intro-band__body"):
+            with self.subTest(selector=selector):
+                weights = [rule["font-weight"] for rule in blocks(source, selector)
+                           if "font-weight" in rule]
+                self.assertTrue(weights)
+                self.assertEqual(set(weights), {"520"})
+        for rule in blocks(source, ".md-typeset .simpaths-home-intro-band__body--bridge"):
+            if "font-weight" in rule:
+                self.assertEqual(rule["font-weight"], "520")
+
     def test_documentation_description_keeps_its_original_compact_scale(self):
         rules = blocks(self.styles["04-landing-components.css"], ".md-typeset .docs-index__intro")
         self.assertTrue(rules)

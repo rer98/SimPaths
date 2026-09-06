@@ -37,34 +37,127 @@ class SitePaletteTest(unittest.TestCase):
         self.assertEqual(light["--md-default-bg-color--light"], "#f4f3ef")
         self.assertNotIn("--md-default-fg-color", light)
 
-    def test_homepage_bands_keep_their_original_surfaces(self):
+    def test_homepage_bands_swap_surfaces_without_changing_cards_or_hero(self):
         expected = {
             ".simpaths-home-intro-band": "#fffefa",
-            ".simpaths-home-paths": "#f2f0e9",
+            ".simpaths-home-paths": "#193449",
             ".md-typeset .simpaths-home-paths__routes": "#dedad0",
             ".md-typeset .simpaths-home-paths__route": "#fffefa",
-            ".simpaths-home-research-band": "#193449",
-            ".simpaths-home-citation-band": "#e7dfd2",
+            ".simpaths-home-research-band": "#f2f0e9",
+            ".md-typeset .simpaths-home-research-band a.research-entry": "#fff",
         }
         for selector, colour in expected.items():
             with self.subTest(selector=selector):
                 self.assertEqual(self.rule("08-home.css", selector)["background"], colour)
         self.assertEqual(self.tokens["--sp-home-hero-bg"], "#000a2d")
 
-    def test_documentation_and_funding_retain_original_treatments(self):
+    def test_homepage_band_labels_follow_the_new_backgrounds(self):
+        filename = "08-home.css"
+        self.assertEqual(self.rule(filename, ".md-typeset .simpaths-home-paths__header h2")["color"], "#fff")
+        self.assertEqual(self.rule(filename, ".md-typeset .simpaths-home-research-band .research-header .section-heading")["color"], "#242a31")
+        self.assertEqual(self.rule(filename, ".md-typeset .simpaths-home-research-band .archive-link")["color"], "#242a31 !important")
+
+    def test_footer_uses_the_same_navy_with_white_text_in_both_themes(self):
+        filename = "05-site-chrome.css"
+        footer = self.rule(filename, ".md-footer")
+        self.assertEqual(footer["background"], "#193449")
+        self.assertEqual(footer["background"], self.rule("08-home.css", ".simpaths-home-paths")["background"])
+        for selector in (".md-footer", ".md-footer-meta", ".md-copyright",
+                         ".md-copyright__highlight", ".md-copyright .footer-brand",
+                         ".md-social__link::after", ".md-footer__link",
+                         ".md-footer__link .md-ellipsis", ".md-footer__link .md-footer__button"):
+            with self.subTest(selector=selector):
+                self.assertEqual(self.rule(filename, selector)["color"].removesuffix(" !important"), "#fff")
+                self.assertFalse(blocks(self.styles[filename], f'[data-md-color-scheme="slate"] {selector}'))
+        for selector in (".md-footer-meta", ".md-footer__inner"):
+            self.assertEqual(self.rule(filename, selector)["background"], "transparent")
+        focus = ".md-footer :is(.md-footer__link, .md-social__link):focus-visible"
+        self.assertIn(f"{focus} {{\n  outline: 2px solid #fff;", self.styles[filename])
+
+    def test_homepage_prose_uses_solid_charcoal_while_publication_metadata_stays_muted(self):
+        filename = "08-home.css"
+        for selector in (".md-typeset .simpaths-home-intro-band__lede",
+                         ".md-typeset .simpaths-home-intro-band__body",
+                         ".md-typeset .simpaths-capability-combination__features p"):
+            with self.subTest(selector=selector):
+                rule = self.rule(filename, selector)
+                self.assertEqual(rule["color"], "#242a31")
+                self.assertNotIn("opacity", rule)
+        bridge = self.rule(filename, ".md-typeset .simpaths-home-intro-band__body--bridge")
+        self.assertNotIn("color", bridge)
+        self.assertNotIn("opacity", bridge)
+        for selector, colour in {
+            ".md-typeset .simpaths-home-research-band .research-journal": "#526171",
+            ".md-typeset .simpaths-home-research-band .research-authors": "#66717d",
+        }.items():
+            self.assertEqual(self.rule(filename, selector)["color"], colour)
+
+    def test_documentation_intro_and_funding_retain_original_treatments(self):
         self.assertEqual(self.rule("04-landing-components.css", ".md-typeset .docs-index__intro")["color"],
                          "rgba(31, 38, 48, 0.72)")
-        self.assertEqual(self.rule("04-landing-components.css", ".md-typeset a.docs-index__card")["background"],
-                         "#fff")
         funding = self.rule("06-page-sections.css", ".md-typeset .funding-page")
         self.assertEqual(funding["--funding-rule"], "#ded8cc")
         self.assertEqual(funding["--funding-copy"], "#242a31")
         self.assertEqual(funding["--funding-meta"], "#625c52")
         self.assertEqual(funding["--funding-label-bg"], "#eee9de")
-        self.assertEqual(self.rule("03-content.css", ".md-typeset table:not([class])")["background"],
-                         "#fffefa")
-        self.assertEqual(self.rule("03-content.css", ".md-typeset table:not([class]) th")["background"],
-                         "#ece8df")
+
+    def test_documentation_sections_have_solid_surfaces_without_individual_card_frames(self):
+        filename = "04-landing-components.css"
+        for section, colour in {"guides": "#b9daf0", "resources": "#DF6059", "reference": "#B9318A"}.items():
+            selector = f".md-typeset .docs-index__section--{section}"
+            self.assertEqual(self.rule(filename, selector)["--docs-panel-background"], colour)
+        self.assertEqual(self.rule(filename, ".md-typeset .docs-index__section")["background"],
+                         "var(--docs-panel-background)")
+        self.assertEqual(self.rule(filename, ".md-typeset .docs-index__section")["border-radius"], "6px")
+        logo = (CSS_DIR.parent / "images/documentation-logo-mark.svg").read_text()
+        reference = self.rule(filename, ".md-typeset .docs-index__section--reference")["--docs-panel-background"]
+        for colour in ("#DB4A42", reference):
+            self.assertIn(f'fill="{colour}"', logo)
+        # Resources keeps the first figure's hue with a twelve-percent white lift.
+        lightened = "#" + "".join(f"{round(c + (255 - c) * 0.12):02X}" for c in (219, 74, 66))
+        self.assertEqual(self.rule(filename, ".md-typeset .docs-index__section--resources")["--docs-panel-background"],
+                         lightened)
+        link = self.rule(filename, ".md-typeset .docs-hub--index .docs-index__section a.docs-index__link")
+        self.assertEqual(link["background"], "transparent")
+        self.assertEqual(link["border"], "0 !important")
+        self.assertNotIn("docs-card-", self.styles[filename])
+        self.assertNotIn("color-mix", self.styles[filename])
+        self.assertEqual(self.rule(filename, ".md-typeset .docs-index__link:focus-visible")["outline"],
+                         "2px solid var(--docs-panel-ink)")
+
+    def test_documentation_panel_text_and_focus_have_contrast(self):
+        def rgb(value):
+            if len(value) == 4:
+                value = "#" + "".join(channel * 2 for channel in value[1:])
+            return tuple(int(value[i:i + 2], 16) / 255 for i in (1, 3, 5))
+
+        def luminance(colour):
+            linear = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in colour]
+            return sum(c * weight for c, weight in zip(linear, (0.2126, 0.7152, 0.0722)))
+
+        def contrast(first, second):
+            low, high = sorted((luminance(first), luminance(second)))
+            return (high + 0.05) / (low + 0.05)
+
+        tokens = self.rule("04-landing-components.css", ".md-typeset .docs-hub--index")
+        dark = self.rule("04-landing-components.css", '[data-md-color-scheme="slate"] .md-typeset .docs-hub--index')
+        for section in ("guides", "resources", "reference"):
+            panel = self.rule("04-landing-components.css", f".md-typeset .docs-index__section--{section}")
+            colours = {**tokens, **panel}
+            surface = rgb(panel["--docs-panel-background"])
+            with self.subTest(section=section):
+                for role in ("--docs-panel-ink", "--docs-panel-copy"):
+                    self.assertNotIn(role, dark)
+                    self.assertGreaterEqual(contrast(rgb(colours[role]), surface), 4.5)
+                self.assertGreaterEqual(contrast(rgb(colours["--docs-panel-ink"]), surface), 3)
+
+    def test_reading_tables_use_the_page_surface_instead_of_a_separate_palette(self):
+        for selector in (".md-typeset table:not([class])", ".md-typeset table:not([class]) th"):
+            rule = self.rule("03-content.css", selector)
+            self.assertEqual(rule["background"], "transparent")
+        self.assertEqual(self.rule("03-content.css", ".md-typeset table:not([class])")["color"], "inherit")
+        self.assertEqual(self.rule("03-content.css", ".md-typeset table:not([class]) th")["color"],
+                         "inherit")
 
     def test_funder_and_research_accents_are_preserved(self):
         expected = {

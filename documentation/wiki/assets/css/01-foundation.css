@@ -169,10 +169,6 @@ body {
   color: #5cb8f0 !important;
 }
 
-[data-md-color-scheme="slate"] .md-typeset table:not([class]) th {
-  background: #2A3848;
-}
-
 [data-md-color-scheme="slate"] .md-typeset .highlight {
   box-shadow: none;
 }

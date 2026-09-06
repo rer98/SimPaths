@@ -24,7 +24,7 @@ A guide to navigating the SimPaths repository structure and codebase. Technical 
 
 ## Repository Structure
 
-```
+```{.text .no-copy}
 SimPaths/
 ├── config/                         # Configuration files for simulations
 │   ├── default.yml                 # Default simulation parameters
@@ -106,7 +106,7 @@ SimPaths/
 
 ## Core Components
 
-### 1. **Entry Points**
+### 1. Entry Points
 
 #### SimPathsStart (`src/main/java/simpaths/experiment/SimPathsStart.java`)
 - Main class for single simulation execution
@@ -123,7 +123,7 @@ SimPaths/
 - Labels each run and applies the configured innovations
 - Configurable via YAML files
 
-### 2. **Core Model**
+### 2. Core Model
 
 #### SimPathsModel (`src/main/java/simpaths/model/SimPathsModel.java`)
 - Central simulation manager
@@ -136,7 +136,7 @@ SimPaths/
   - Module coordination
   - Time progression
 
-### 3. **Data & Parameters**
+### 3. Data & Parameters
 
 #### Parameters (`src/main/java/simpaths/data/Parameters.java`)
 - Global parameter storage

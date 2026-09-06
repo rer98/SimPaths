@@ -89,8 +89,7 @@ class SiteTypographyTest(unittest.TestCase):
                                ".md-typeset .roadmap-item > p", ".md-typeset .roadmap-contact p"],
             "08-home.css": [".md-typeset .simpaths-home-intro-band__lede",
                             ".md-typeset .simpaths-home-intro-band__body",
-                            ".md-typeset .simpaths-capability-combination__features p",
-                            ".md-typeset .simpaths-home-citation-band__reference"],
+                            ".md-typeset .simpaths-capability-combination__features p"],
         }
         for filename, selectors in prose.items():
             for selector in selectors:
@@ -112,6 +111,28 @@ class SiteTypographyTest(unittest.TestCase):
         self.assertEqual(flow[0]["text-align"], "left")
         self.assertEqual(flow[0]["hyphens"], "none")
         self.assertEqual(flow[0]["line-height"], "var(--sp-reading-line-height)")
+
+    def test_footer_description_keeps_sentence_case_and_normal_spacing(self):
+        rules = blocks(self.styles["05-site-chrome.css"], ".md-copyright__highlight")
+        self.assertTrue(rules)
+        for rule in rules:
+            self.assertEqual(rule["text-transform"], "none")
+            self.assertEqual(rule["letter-spacing"], "normal")
+        config = (CSS_DIR.parents[3] / "mkdocs.yml").read_text()
+        self.assertIn("An open-source microsimulation initiative.", config)
+
+    def test_documentation_hub_hides_toc_and_preserves_its_column_width(self):
+        docs_dir = CSS_DIR.parents[2]
+        landing = (docs_dir / "wiki/documentation/index.md").read_text()
+        self.assertIn("hide:\n  - toc\n", landing.split("---", 2)[1])
+        template = (docs_dir / "overrides/main.html").read_text()
+        routes = re.search(r'page.url in \[([^\]]+)\].*classes.push\("sp-reserve-toc-space"\)', template)
+        self.assertIsNotNone(routes)
+        self.assertIn('"documentation/"', routes[1])
+        script = (docs_dir / "wiki/assets/js/site-state.js").read_text()
+        update = re.search(r'togglePageClass\(\s*"sp-reserve-toc-space",(.*?)\);', script, re.S)
+        self.assertIsNotNone(update)
+        self.assertIn(".docs-hub--index", update[1])
 
 
 if __name__ == "__main__":

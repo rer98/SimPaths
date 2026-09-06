@@ -54,14 +54,68 @@ the shared scale and component adoption as well as code highlighting.
 Keep the existing warm palette independent of typography refinements. The
 neutral-grey and white/charcoal colour trials were not approved for publication.
 Reading pages retain `--sp-paper` (#FAF9F5), the homepage retains its existing
-cream and beige surfaces, and the Documentation description retains its original
+cream introduction and card surfaces, and the Documentation description retains its original
 muted ink. Preserve the navy bands, grey navigation, white search, syntax colours
 and individual funder/research accents.
+
+Homepage introductory paragraphs and feature descriptions use solid charcoal
+(#242a31), without separate faded lead/body colours. This is a text-only
+exception: retain the existing layout, heading scale and muted publication metadata.
+
+The homepage's "Use SimPaths" band now uses the former research navy (#193449)
+with a white heading. "Selected Research" uses the former light "Use SimPaths"
+background (#f2f0e9), with charcoal heading and archive link. Keep their card
+surfaces and research accents unchanged. The shared footer uses the same navy
+and white text, including links and previous/next navigation, in both themes.
+
+The Documentation directory uses solid section panels: light-blue Guides with
+a two-column link grid, then coral-orange Resources and magenta-purple Reference
+side by side. Resources uses #DF6059, a twelve-percent white lift of #DB4A42 from
+the first logo figure; Reference uses #B9318A from the third figure from the red/left
+end. Panels use a small 6px
+corner radius. The approved Resources fallback is light green #c8e3bd, with
+ink #274334, copy #3f5643 and divider rgba(39, 67, 52, 0.25).
+Guides and Resources define dark text, divider and focus colours; Reference
+retains light text. These colour pairs apply in both site themes.
+Links sit directly on each section surface with fine dividing rules and visible
+keyboard focus, not in individual coloured cards. Keep link surfaces unchanged on
+hover, focus and press; only arrows move, without shifting text. Do not restore
+highlight fills or animated underlines. Disable motion for reduced-motion preferences. The compact masthead
+has an inline mark in its original padded, pure-white box on the left and a
+full-width description. The white box retains the light logo variant in both
+themes and reserves space before rendering. Keep the approved typography
+and content measure; stack the panels and links on small screens. Do not restore
+the pastel card fills, coloured edge stripes or separate card frames.
 
 `test_site_palette.py` guards these retained colours and surface treatments.
 `test_site_typography.py` also protects the Documentation description's original
 compact size as an intentional exception to the main prose scale. These are
 source-level checks, not browser tests.
+
+Keep the footer description in sentence case with normal letter spacing:
+"An open-source microsimulation initiative." The SimPaths brand stays unchanged.
+
+## Headings and reading tables
+
+Do not wrap heading labels in Markdown bold. Nested `strong`/`b` elements in
+headings and table headers inherit their container's weight; emphasis in body
+copy remains unchanged.
+
+Reading tables keep body-sized values, compact rows and open edges. Column
+labels use the shared label size in monospace with natural capitalisation and
+normal letter spacing, separated from the values by a 2px neutral rule. Both
+labels and the rule inherit the surrounding text colour in light and dark mode.
+Light row separators, modest first-column emphasis
+and tabular figures support scanning. Use existing ink/border tokens, transparent
+surfaces and the same convention in setup guides; do not restore shaded header
+panels or an outer frame. Code and math in
+headers retain their original case. Keep Material's scrolling wrapper for wide
+tables, preserve author-specified column alignment, and exclude code-layout
+tables such as `.highlighttable` from these styles.
+
+Directory trees are reference diagrams, not commands: mark the repository tree
+fence with `{.text .no-copy}`. Material's native opt-out removes only its copy
+button; command and code snippets remain copyable.
 
 ## Rules for future changes
 

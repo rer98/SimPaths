@@ -665,15 +665,13 @@ test("homepage provides useful task routes and an editorial research band", asyn
   await expect(page.locator(".simpaths-home-paths__route")).toHaveCount(4);
   await expect(page.locator(".simpaths-home-paths__links a")).toHaveCount(12);
   await expect(page.locator(".simpaths-home-intro-band__access")).toHaveCount(2);
-  await expect(page.getByRole("heading", { name: "How to cite" })).toBeVisible();
-  await expect(page.locator(".simpaths-home-citation-band__guidance a")).toHaveCount(2);
+  await expect(page.locator(".simpaths-home-citation-band")).toHaveCount(0);
 
   const presentation = await page.evaluate(() => {
     const paths = document.querySelector(".simpaths-home-paths");
     const routes = document.querySelector(".simpaths-home-paths__routes");
     const routeItems = [...document.querySelectorAll(".simpaths-home-paths__route")];
     const band = document.querySelector(".simpaths-home-research-band");
-    const citation = document.querySelector(".simpaths-home-citation-band");
     const header = document.querySelector(".simpaths-home-research-band .research-header");
     const list = document.querySelector(".simpaths-home-research-band .research-list");
     const entries = [...document.querySelectorAll(".simpaths-home-research-band .research-entry")];
@@ -684,6 +682,10 @@ test("homepage provides useful task routes and an editorial research band", asyn
 
     return {
       pathHeight: paths.getBoundingClientRect().height,
+      pathBackground: getComputedStyle(paths).backgroundColor,
+      pathHeadingColor: getComputedStyle(paths.querySelector("h2")).color,
+      researchBackground: getComputedStyle(band).backgroundColor,
+      researchHeadingColor: getComputedStyle(header.querySelector("h2")).color,
       pathColumns: getComputedStyle(routes).gridTemplateColumns.split(" ").length,
       pathBorders: routeItems.map((item) => getComputedStyle(item).borderTopWidth),
       pathFrameBackground: getComputedStyle(routes).backgroundColor,
@@ -691,9 +693,6 @@ test("homepage provides useful task routes and an editorial research band", asyn
       pathRouteHeights: routeItems.map((item) => Math.round(item.getBoundingClientRect().height)),
       pathDescriptionCount: document.querySelectorAll(".simpaths-home-paths__route > p").length,
       pathBeforeResearch: paths.getBoundingClientRect().bottom <= band.getBoundingClientRect().top,
-      citationAfterResearch: band.getBoundingClientRect().bottom <= citation.getBoundingClientRect().top,
-      citationColumns: getComputedStyle(citation.querySelector(".simpaths-home-citation-band__inner")).gridTemplateColumns.split(" ").length,
-      citationOverflow: citation.scrollWidth - citation.clientWidth,
       bandHeight: band.getBoundingClientRect().height,
       columns: getComputedStyle(list).gridTemplateColumns.split(" ").length,
       entryCount: entries.length,
@@ -715,6 +714,10 @@ test("homepage provides useful task routes and an editorial research band", asyn
 
   expect(presentation.pathHeight).toBeGreaterThan(420);
   expect(presentation.pathHeight).toBeLessThan(550);
+  expect(presentation.pathBackground).toBe("rgb(25, 52, 73)");
+  expect(presentation.pathHeadingColor).toBe("rgb(255, 255, 255)");
+  expect(presentation.researchBackground).toBe("rgb(242, 240, 233)");
+  expect(presentation.researchHeadingColor).toBe("rgb(36, 42, 49)");
   expect(presentation.pathColumns).toBe(4);
   expect(presentation.pathBorders).toEqual(["0px", "0px", "0px", "0px"]);
   expect(presentation.pathFrameBackground).toBe("rgb(222, 218, 208)");
@@ -722,9 +725,6 @@ test("homepage provides useful task routes and an editorial research band", asyn
   expect(new Set(presentation.pathRouteHeights).size).toBe(1);
   expect(presentation.pathDescriptionCount).toBe(0);
   expect(presentation.pathBeforeResearch).toBe(true);
-  expect(presentation.citationAfterResearch).toBe(true);
-  expect(presentation.citationColumns).toBe(2);
-  expect(presentation.citationOverflow).toBe(0);
   expect(presentation.bandHeight).toBeGreaterThan(500);
   expect(presentation.columns).toBe(3);
   expect(presentation.entryCount).toBe(3);
@@ -762,27 +762,34 @@ test("homepage provides useful task routes and an editorial research band", asyn
 
   const mobileFooter = await page.evaluate(() => {
     const routes = document.querySelector(".simpaths-home-paths__routes");
-    const citation = document.querySelector(".simpaths-home-citation-band__inner");
     const inner = document.querySelector(".md-footer-meta__inner");
     const meta = document.querySelector(".md-footer-meta");
     const copyright = document.querySelector(".md-copyright");
+    const footerCopy = document.querySelector(".md-copyright__highlight");
 
     return {
       pathColumns: getComputedStyle(routes).gridTemplateColumns.split(" ").length,
-      citationColumns: getComputedStyle(citation).gridTemplateColumns.split(" ").length,
       overflow: document.documentElement.scrollWidth - window.innerWidth,
       direction: getComputedStyle(inner).flexDirection,
       height: meta.getBoundingClientRect().height,
-      copyrightWidth: copyright.getBoundingClientRect().width
+      copyrightWidth: copyright.getBoundingClientRect().width,
+      background: getComputedStyle(document.querySelector(".md-footer")).backgroundColor,
+      textColor: getComputedStyle(footerCopy).color,
+      textTransform: getComputedStyle(footerCopy).textTransform,
+      letterSpacing: getComputedStyle(footerCopy).letterSpacing
     };
   });
 
   expect(mobileFooter.pathColumns).toBe(1);
-  expect(mobileFooter.citationColumns).toBe(1);
   expect(mobileFooter.overflow).toBeLessThanOrEqual(8);
   expect(mobileFooter.direction).toBe("column");
   expect(mobileFooter.height).toBeLessThan(260);
-  expect(mobileFooter.copyrightWidth).toBeGreaterThan(300);
+  expect(mobileFooter.copyrightWidth).toBeGreaterThan(0);
+  expect(mobileFooter.copyrightWidth).toBeLessThanOrEqual(390);
+  expect(mobileFooter.background).toBe("rgb(25, 52, 73)");
+  expect(mobileFooter.textColor).toBe("rgb(255, 255, 255)");
+  expect(mobileFooter.textTransform).toBe("none");
+  expect(mobileFooter.letterSpacing).toBe("normal");
 });
 
 test("homepage hero is complete and stable at first paint", async ({ page }) => {
@@ -875,7 +882,7 @@ test("documentation masthead integrates the SimPaths mark", async ({ page }) => 
       markWidth: mark.width,
       markBackground: getComputedStyle(markElement).backgroundColor,
       markBeforeTitle: mark.right < title.left,
-      introAlignedWithTitle: Math.abs(intro.left - title.left) < 1,
+      introAlignedWithMark: Math.abs(intro.left - mark.left) < 1,
       lightImageInline: lightImage.tagName === "svg" && lightImage.querySelectorAll("path").length > 0,
       lightImageAspectRatio: lightImage.viewBox.baseVal.width / lightImage.viewBox.baseVal.height,
       lightImageDisplay: getComputedStyle(lightImage).display,
@@ -890,7 +897,7 @@ test("documentation masthead integrates the SimPaths mark", async ({ page }) => 
   expect(desktop.markWidth).toBeLessThanOrEqual(140);
   expect(desktop.markBackground).toBe("rgb(255, 255, 255)");
   expect(desktop.markBeforeTitle).toBe(true);
-  expect(desktop.introAlignedWithTitle).toBe(true);
+  expect(desktop.introAlignedWithMark).toBe(true);
   expect(desktop.lightImageInline).toBe(true);
   expect(desktop.lightImageAspectRatio).toBeGreaterThan(1.8);
   expect(desktop.lightImageAspectRatio).toBeLessThan(1.9);
@@ -901,6 +908,7 @@ test("documentation masthead integrates the SimPaths mark", async ({ page }) => 
     document.documentElement.dataset.mdColorScheme = "slate";
     const darkImage = document.querySelector(".docs-index__mark-image--dark");
     return {
+      markBackground: getComputedStyle(document.querySelector(".docs-index__mark")).backgroundColor,
       light: getComputedStyle(document.querySelector(".docs-index__mark-image--light")).display,
       dark: getComputedStyle(darkImage).display,
       darkImageInline: darkImage.tagName === "svg" && darkImage.querySelectorAll("path").length > 0,
@@ -908,8 +916,9 @@ test("documentation masthead integrates the SimPaths mark", async ({ page }) => 
     };
   });
 
-  expect(darkMode.light).toBe("none");
-  expect(darkMode.dark).toBe("block");
+  expect(darkMode.markBackground).toBe("rgb(255, 255, 255)");
+  expect(darkMode.light).toBe("block");
+  expect(darkMode.dark).toBe("none");
   expect(darkMode.darkImageInline).toBe(true);
   expect(darkMode.darkImageAspectRatio).toBeGreaterThan(1.8);
   expect(darkMode.darkImageAspectRatio).toBeLessThan(1.9);
@@ -1278,19 +1287,16 @@ test("documentation filter stays integrated and functional", async ({ page }, te
 
   const contentEdges = await page.evaluate(() => {
     const intro = document.querySelector(".docs-index__intro");
-    const introRange = document.createRange();
-    introRange.selectNodeContents(intro);
-    const visibleIntroRight = Math.max(
-      ...[...introRange.getClientRects()].map((rect) => rect.right),
-    );
-    const cardListRights = [...document.querySelectorAll(".docs-index__card-list")]
+    const introRight = intro.getBoundingClientRect().right;
+    const panelRights = [...document.querySelectorAll(".docs-index__section--guides, .docs-index__secondary")]
       .map((element) => element.getBoundingClientRect().right);
 
-    return { visibleIntroRight, cardListRights };
+    return { introRight, panelRights };
   });
 
-  for (const cardListRight of contentEdges.cardListRights) {
-    expect(Math.abs(cardListRight - contentEdges.visibleIntroRight)).toBeLessThanOrEqual(12);
+  expect(contentEdges.panelRights).toHaveLength(2);
+  for (const panelRight of contentEdges.panelRights) {
+    expect(Math.abs(panelRight - contentEdges.introRight)).toBeLessThanOrEqual(1);
   }
 
   await filter.fill("Regression Library");

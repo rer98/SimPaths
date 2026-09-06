@@ -1,17 +1,18 @@
 /* ═══════════════════════════════════════════════
-   FOOTER — Stitch-inspired editorial footer
+   FOOTER — Navy band with white text
 ═══════════════════════════════════════════════ */
 
 .md-footer {
   position: relative;
   z-index: 2;
-  background: var(--sp-paper);
-  color: var(--sp-midnight);
+  background: #193449;
+  color: #fff;
   border-top: none;
 }
 
 .md-footer-meta {
   background: transparent;
+  color: #fff;
   padding-top: 0.55rem;
   padding-bottom: 0.75rem;
 }
@@ -25,7 +26,7 @@
 
 /* ── Copyright block — brand + line ── */
 .md-copyright {
-  color: var(--sp-midnight);
+  color: #fff;
   max-width: none;
   width: auto;
   /* Hide bare "Made with" text node + link via visibility trick */
@@ -44,10 +45,10 @@
   display: block;
   font-size: 0.6rem;
   font-weight: 500;
-  letter-spacing: 0.125em;
-  text-transform: uppercase;
+  letter-spacing: normal;
+  text-transform: none;
   line-height: 1.35;
-  color: var(--sp-midnight) !important;
+  color: #fff !important;
 }
 
 /* SimPaths brand name in footer */
@@ -58,7 +59,7 @@
   font-style: normal;
   letter-spacing: -0.015em;
   text-transform: none;
-  color: var(--sp-midnight) !important;
+  color: #fff !important;
   display: block;
   line-height: 1.1;
   margin-bottom: 0.05rem;
@@ -93,13 +94,20 @@
   font-size: 0.6rem;
   font-weight: 720;
   letter-spacing: 0.15em;
-  color: rgba(42,56,72,0.74);
+  color: #fff;
   transition: color 0.15s ease;
   white-space: nowrap;
 }
 
 .md-social__link:hover::after {
-  color: var(--sp-crimson);
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.md-footer :is(.md-footer__link, .md-social__link):focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
 }
 
 @media (max-width: 620px) {
@@ -130,8 +138,8 @@
 
 /* ── Prev/Next navigation links ── */
 .md-footer__inner {
-  background: var(--sp-paper);
-  border-top: 0.5px solid var(--sp-ghost);
+  background: transparent;
+  border-top: 0.5px solid rgba(255,255,255,0.24);
   padding-top: 0.3rem !important;
   padding-bottom: 0.3rem !important;
   min-height: 0 !important;
@@ -143,14 +151,14 @@ html.sp-page-home .md-footer__inner {
 }
 
 .md-footer__link {
-  color: var(--sp-midnight) !important;
+  color: #fff !important;
   transition: all 0.2s ease;
   padding: 0.5rem 1rem !important;
   min-height: 0 !important;
 }
 
 .md-footer__link:hover {
-  background: rgba(42,56,72,0.03);
+  background: rgba(255,255,255,0.08);
 }
 
 .md-footer__link .md-footer__direction {
@@ -161,60 +169,19 @@ html.sp-page-home .md-footer__inner {
   font-family: var(--sp-heading-font) !important;
   font-size: var(--sp-subheading-size);
   font-weight: var(--sp-subheading-weight);
-  color: var(--sp-midnight);
+  color: #fff;
 }
 
 .md-footer__link:hover .md-ellipsis {
-  color: var(--sp-crimson);
+  color: #fff;
 }
 
 .md-footer__link .md-footer__button {
-  color: var(--sp-midnight);
+  color: #fff;
 }
 
 .md-footer__link:hover .md-footer__button {
-  color: var(--sp-crimson);
-}
-
-/* ── Dark mode prev/next ── */
-[data-md-color-scheme="slate"] .md-footer__inner {
-  background: #141e2a;
-  border-top-color: rgba(195,198,213,0.1);
-}
-
-[data-md-color-scheme="slate"] .md-footer__link .md-ellipsis {
-  color: #c8d8e8;
-}
-
-[data-md-color-scheme="slate"] .md-footer__link:hover .md-ellipsis,
-[data-md-color-scheme="slate"] .md-footer__link:hover .md-footer__button {
-  color: #5cb8f0;
-}
-
-[data-md-color-scheme="slate"] .md-footer__link .md-footer__button {
-  color: #c8d8e8;
-}
-
-/* ── Dark mode footer ── */
-[data-md-color-scheme="slate"] .md-footer {
-  background: #141e2a;
-  border-top: none;
-}
-
-[data-md-color-scheme="slate"] .md-copyright {
-  color: rgba(195,198,213,0.5);
-}
-
-[data-md-color-scheme="slate"] .md-copyright .footer-brand {
-  color: #c8d8e8;
-}
-
-[data-md-color-scheme="slate"] .md-social__link::after {
-  color: rgba(200,216,232,0.66);
-}
-
-[data-md-color-scheme="slate"] .md-social__link:hover::after {
-  color: #c8d8e8;
+  color: #fff;
 }
 
 /* ═══════════════════════════════════════════════

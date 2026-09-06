@@ -83,7 +83,7 @@
       "sp-reserve-toc-space",
       Boolean(
         document.querySelector(
-          ".model-overview, #user-guide, #getting-started, #jas-mine-architecture"
+          ".model-overview, .docs-hub--index, #user-guide, #getting-started, #jas-mine-architecture"
         )
       )
     );

@@ -112,7 +112,7 @@ html.sp-page-home .md-main .md-top {
 .md-typeset .simpaths-home-intro-band__body {
   margin: 0;
   max-width: 64rem;
-  color: rgba(28,40,57,0.92);
+  color: #242a31;
   font-size: var(--sp-reading-copy-size);
   line-height: var(--sp-reading-line-height);
   text-align: left;
@@ -130,12 +130,7 @@ html.sp-page-home .md-main .md-top {
   hyphens: none;
 }
 
-.md-typeset .simpaths-home-intro-band__lede {
-  color: rgba(22,33,49,0.98);
-}
-
 .md-typeset .simpaths-home-intro-band__body--bridge {
-  color: rgba(22,33,49,0.94);
   font-weight: 520;
 }
 
@@ -222,7 +217,7 @@ html.sp-page-home .md-main .md-top {
 .md-typeset .simpaths-capability-combination__features p {
   grid-column: 2;
   margin: 0;
-  color: rgba(28,40,57,0.76);
+  color: #242a31;
   font-size: var(--sp-reading-copy-size);
   line-height: var(--sp-reading-line-height);
   text-align: left;
@@ -316,7 +311,7 @@ html.sp-page-home .md-main .md-top {
   width: 100vw;
   margin: 0 calc(50% - 50vw);
   padding: 3.75rem 1.2rem 4.15rem;
-  background: #f2f0e9;
+  background: #193449;
 }
 .simpaths-home-paths__inner {
   max-width: var(--sp-home-max);
@@ -327,7 +322,7 @@ html.sp-page-home .md-main .md-top {
 }
 .md-typeset .simpaths-home-paths__header h2 {
   margin: 0 !important;
-  color: var(--sp-midnight);
+  color: #fff;
   font-family: var(--sp-heading-font) !important;
   font-size: clamp(1.55rem, 3vw, 2.05rem) !important;
   font-weight: var(--sp-section-weight);
@@ -529,7 +524,7 @@ html.sp-page-home .md-main .md-top {
   width: 100vw;
   margin: 0 calc(50% - 50vw);
   padding: 5rem 1.2rem 5.25rem;
-  background: #193449;
+  background: #f2f0e9;
 }
 .md-typeset .simpaths-home-research-band .research-section {
   display: grid;
@@ -551,7 +546,7 @@ html.sp-page-home .md-main .md-top {
 .md-typeset .simpaths-home-research-band .research-header .section-heading {
   max-width: 7rem;
   margin-bottom: 0;
-  color: #fff;
+  color: #242a31;
   font-size: 1.55rem;
   font-weight: var(--sp-section-weight);
   line-height: 1.08;
@@ -564,7 +559,7 @@ html.sp-page-home .md-main .md-top {
   align-items: center;
   margin: auto 0 0;
   padding: 0;
-  color: rgba(255,255,255,0.88) !important;
+  color: #242a31 !important;
   font-family: var(--md-text-font), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
   font-size: var(--sp-label-size);
   font-weight: var(--sp-label-weight);
@@ -578,7 +573,7 @@ html.sp-page-home .md-main .md-top {
   opacity: 1;
 }
 .md-typeset .simpaths-home-research-band .archive-link:hover {
-  color: #fff !important;
+  color: var(--sp-crimson) !important;
 }
 .md-typeset .simpaths-home-research-band .archive-link::after {
   content: none;
@@ -736,41 +731,4 @@ html.sp-page-home .md-main .md-top {
     min-height: 0;
     padding: 1.25rem 1.15rem;
   }
-}
-
-/* Homepage citation: one quiet, full-width reference band before the footer. */
-.simpaths-home-citation-band {
-  width: 100vw; margin: 0 calc(50% - 50vw); padding: 3.65rem 1.2rem 3.85rem;
-  color: #27231e; background: #e7dfd2;
-}
-.md-typeset .simpaths-home-citation-band__inner {
-  display: grid; grid-template-columns: minmax(7rem, 11rem) minmax(0, 1fr); gap: 2.5rem;
-  max-width: 61rem; margin: 0 auto;
-}
-.md-typeset .simpaths-home-citation-band h2 {
-  margin: 0; padding-top: 0.18rem; color: #765465;
-  font-size: var(--sp-meta-size); font-weight: var(--sp-label-weight); line-height: 1.4; letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-.md-typeset .simpaths-home-citation-band__reference {
-  max-width: 43rem; margin: 0; color: #27231e;
-  font-size: var(--sp-reading-copy-size); font-weight: 440; line-height: var(--sp-reading-line-height);
-  text-align: left; hyphens: none;
-}
-.md-typeset .simpaths-home-citation-band__reference em { color: #514a43; }
-.md-typeset .simpaths-home-citation-band__guidance {
-  margin: 1.05rem 0 0; color: #615950; font-size: var(--sp-label-size); line-height: 1.55;
-  text-align: left; hyphens: none;
-}
-.md-typeset .simpaths-home-citation-band__guidance a {
-  color: #6f3d4e !important; text-decoration-color: rgba(111,61,78,0.42);
-  text-underline-offset: 0.18em;
-}
-.md-typeset .simpaths-home-citation-band__guidance a:hover,
-.md-typeset .simpaths-home-citation-band__guidance a:focus-visible {
-  color: #3f2430 !important; text-decoration-color: currentColor;
-}
-@media (max-width: 620px) {
-  .simpaths-home-citation-band { padding: 2.75rem 1rem 3rem; }
-  .md-typeset .simpaths-home-citation-band__inner { grid-template-columns: 1fr; gap: 1.15rem; }
 }

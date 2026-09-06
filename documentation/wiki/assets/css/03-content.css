@@ -48,13 +48,6 @@ html:is(.sp-tab-model, .sp-tab-documentation, .sp-page-validation):not(.sp-page-
 .md-typeset .setup-guide .highlight code { white-space: pre-wrap; overflow-wrap: normal; }
 .md-typeset .setup-guide .highlight code > span[id^="__span"] { display: inline; }
 .md-typeset .setup-guide .highlight:first-child { margin-top: 0; }
-.md-typeset .setup-guide .md-typeset__scrollwrap { margin: 0 0 0.85rem; }
-.md-typeset .setup-guide .md-typeset__table { display: block; padding: 0; }
-.md-typeset .setup-guide table:not([class]) { display: table; width: 100%; font-size: 1em; color: inherit; background: transparent; border: 0; }
-.md-typeset .setup-guide table:not([class]) th { background: transparent; color: inherit; font-size: 1em; letter-spacing: normal; border-bottom: 1px solid currentColor; }
-.md-typeset .setup-guide table:not([class]) :is(th, td) { padding: 0.55rem 0.7rem 0.55rem 0; }
-.md-typeset .setup-guide table:not([class]) td { border-bottom: 1px solid var(--sp-border-soft); }
-.md-typeset .setup-guide table:not([class]) code { color: var(--sp-code-text); font-weight: 450; }
 .md-typeset .setup-guide__next { margin-top: 2rem; padding-top: 0.2rem; border-top: 1px solid var(--sp-border-soft); }
 @container (min-width: 36rem) {
   .md-typeset .setup-guide__step { grid-template-columns: minmax(0, 1fr) 10rem; gap: 1.5rem; }
@@ -109,6 +102,8 @@ html:is(.sp-tab-model, .sp-tab-documentation, .sp-page-validation):not(.sp-page-
   font-size: 0.9rem;
 }
 .md-typeset :is(h5, h6) { font-weight: var(--sp-subheading-weight); }
+/* Markdown emphasis must not compound the heading or column-label weight. */
+.md-typeset :is(h1, h2, h3, h4, h5, h6, th) :is(strong, b) { font-weight: inherit; }
 
 [data-md-color-scheme="slate"] .md-typeset h1,
 [data-md-color-scheme="slate"] .md-typeset h2,
@@ -604,55 +599,50 @@ html:is(.sp-tab-model, .sp-tab-documentation, .sp-page-validation):not(.sp-page-
   white-space: nowrap;
 }
 
+/* Reading tables: compact column labels, a neutral header rule and aligned rows. */
+.md-typeset .md-typeset__scrollwrap { margin: 1rem 0; overflow-x: auto; }
+.md-typeset .md-typeset__table { display: block; padding: 0; }
+
 .md-typeset table:not([class]) {
+  display: table;
   width: 100%;
   overflow: visible;
-  color: var(--sp-midnight);
-  background: #fffefa;
-  border: 1px solid rgba(42, 56, 72, 0.18);
-  border-top: 3px solid rgba(42, 56, 72, 0.88);
+  color: inherit;
+  background: transparent;
+  border: 0;
   border-radius: 0;
   border-collapse: collapse;
   border-spacing: 0;
   box-shadow: none;
-  font-size: var(--sp-label-size);
+  font-size: inherit;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
 }
 
-.md-typeset table:not([class]) th {
-  padding: 0.58rem 0.72rem;
-  color: var(--sp-midnight-deep);
-  background: #ece8df;
-  border-bottom: 1px solid rgba(42, 56, 72, 0.28);
-  font-family: var(--sp-heading-font) !important;
-  font-weight: var(--sp-subheading-weight);
-  letter-spacing: 0;
-  text-align: left;
-}
-
+.md-typeset table:not([class]) th,
 .md-typeset table:not([class]) td {
-  padding: 0.52rem 0.72rem;
-  border-bottom: 0;
+  padding: 0.48rem 0.8rem;
+  border: 0;
+  border-bottom: 1px solid var(--sp-border-strong);
   vertical-align: top;
 }
 
-.md-typeset table:not([class]) code {
-  color: #3b4854;
-  font-weight: 620;
+.md-typeset table:not([class]) th {
+  min-width: 0;
+  padding-block: 0.4rem;
+  color: inherit;
+  background: transparent;
+  border-bottom: 2px solid currentColor;
+  font-family: var(--md-code-font-family);
+  font-size: var(--sp-label-size);
+  font-weight: var(--sp-label-weight);
+  line-height: 1.5;
+  letter-spacing: normal;
+  text-transform: none;
+  text-align: start;
 }
 
-[data-md-color-scheme="slate"] .md-typeset table:not([class]) {
-  color: rgba(232, 239, 246, 0.9);
-  background: rgba(20, 30, 42, 0.72);
-  border-color: rgba(232, 225, 213, 0.16);
-  border-top-color: rgba(238, 234, 226, 0.68);
-}
-
-[data-md-color-scheme="slate"] .md-typeset table:not([class]) th {
-  color: rgba(241, 246, 250, 0.94);
-  background: rgba(232, 225, 213, 0.1);
-  border-bottom-color: rgba(232, 225, 213, 0.18);
-}
-
-[data-md-color-scheme="slate"] .md-typeset table:not([class]) code {
-  color: rgba(238, 234, 226, 0.9);
-}
+.md-typeset table:not([class]) td:first-child { font-weight: 500; }
+.md-typeset table:not([class]) :is(th, td):first-child { padding-inline-start: 0; }
+.md-typeset table:not([class]) :is(th, td):last-child { padding-inline-end: 0; }
+.md-typeset table:not([class]) tbody tr:hover { background: transparent; box-shadow: none; }

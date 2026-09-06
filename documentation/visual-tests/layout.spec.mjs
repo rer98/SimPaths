@@ -588,6 +588,10 @@ test("contents marker follows headings without shifting the rail", async ({ page
   await expect(page).toHaveURL(/\/funding\//);
   await expect(page.locator(".sp-toc")).toHaveCount(0);
   await page.locator('.md-tabs').getByRole("link", { name: "Documentation", exact: true }).click();
+  await expect(page).toHaveURL(/\/documentation\//);
+  await expect(page.locator(".sp-toc")).toHaveCount(0);
+  await page.locator('.md-sidebar--primary').getByRole("link", { name: "Environment Setup", exact: true }).click();
+  await expect(page).toHaveURL(/\/getting-started\/environment-setup\//);
   await expect(page.locator(".sp-toc--ready")).toHaveCount(1);
   await expect(page.locator('.md-sidebar--secondary [aria-current="location"]')).toHaveCount(1);
 });

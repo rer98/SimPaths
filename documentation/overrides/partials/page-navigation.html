@@ -1,0 +1,23 @@
+{# Keep reading navigation in the article, separate from the site footer. #}
+{% if page and not page.is_homepage and "navigation.footer" in features %}
+  {% if not (page.meta and page.meta.hide and "footer" in page.meta.hide) %}
+    {% if page.previous_page or page.next_page %}
+      <nav class="sp-page-nav" aria-label="Page navigation">
+        {% if page.previous_page %}
+          {% set direction = lang.t("footer.previous") %}
+          <a class="sp-page-nav__link sp-page-nav__link--prev" href="{{ page.previous_page.url | url }}" rel="prev" aria-label="{{ direction }}: {{ page.previous_page.title | e }}">
+            <span class="sp-page-nav__direction"><span aria-hidden="true">←</span> {{ direction }}</span>
+            <span class="sp-page-nav__title">{{ page.previous_page.title | e }}</span>
+          </a>
+        {% endif %}
+        {% if page.next_page %}
+          {% set direction = lang.t("footer.next") %}
+          <a class="sp-page-nav__link sp-page-nav__link--next" href="{{ page.next_page.url | url }}" rel="next" aria-label="{{ direction }}: {{ page.next_page.title | e }}">
+            <span class="sp-page-nav__direction">{{ direction }} <span aria-hidden="true">→</span></span>
+            <span class="sp-page-nav__title">{{ page.next_page.title | e }}</span>
+          </a>
+        {% endif %}
+      </nav>
+    {% endif %}
+  {% endif %}
+{% endif %}

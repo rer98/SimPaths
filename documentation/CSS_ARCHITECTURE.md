@@ -65,8 +65,21 @@ exception: retain the existing layout, heading scale and muted publication metad
 The homepage's "Use SimPaths" band now uses the former research navy (#193449)
 with a white heading. "Selected Research" uses the former light "Use SimPaths"
 background (#f2f0e9), with charcoal heading and archive link. Keep their card
-surfaces and research accents unchanged. The shared footer uses the same navy
-and white text, including links and previous/next navigation, in both themes.
+surfaces and research accents unchanged. Remove Material's trailing article
+margin on the homepage only so the final research band meets the footer.
+The shared footer uses the same navy in both themes; only the SimPaths brand is
+white, while the sentence-case description and links use readable grey #bbc5ce.
+It contains site identity and links, not page navigation. Disable the theme's
+generator line through `extra.generator: false` rather than hiding a line that
+still occupies space.
+
+Previous/Next lives after the article content through `partials/page-navigation.html`,
+using MkDocs' actual previous/next pages and respecting `hide: [footer]`.
+Keep it absent on the homepage. The two compact outlined links share the article's
+width, use sentence-case direction labels and wrapping page titles, and stack
+on small screens. Retain native links, keyboard focus and reduced-motion support.
+Do not move navigation between containers with JavaScript or restore the tall
+full-width pager inside the navy footer.
 
 The Documentation directory uses solid section panels: light-blue Guides with
 a two-column link grid, then coral-orange Resources and magenta-purple Reference

@@ -1,5 +1,10 @@
 {% extends "base.html" %}
 
+{% block content %}
+  {{ super() }}
+  {% include "partials/page-navigation.html" %}
+{% endblock %}
+
 {% block extrahead %}
   {{ super() }}
   <link rel="preload" href="{{ 'assets/fonts/Inter.woff2' | url }}" as="font" type="font/woff2" crossorigin>

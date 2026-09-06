@@ -57,22 +57,32 @@ class SitePaletteTest(unittest.TestCase):
         self.assertEqual(self.rule(filename, ".md-typeset .simpaths-home-research-band .research-header .section-heading")["color"], "#242a31")
         self.assertEqual(self.rule(filename, ".md-typeset .simpaths-home-research-band .archive-link")["color"], "#242a31 !important")
 
-    def test_footer_uses_the_same_navy_with_white_text_in_both_themes(self):
+    def test_footer_keeps_navy_and_reserves_white_for_the_brand(self):
         filename = "05-site-chrome.css"
         footer = self.rule(filename, ".md-footer")
         self.assertEqual(footer["background"], "#193449")
         self.assertEqual(footer["background"], self.rule("08-home.css", ".simpaths-home-paths")["background"])
+        self.assertEqual(footer["--sp-footer-muted"], "#bbc5ce")
         for selector in (".md-footer", ".md-footer-meta", ".md-copyright",
-                         ".md-copyright__highlight", ".md-copyright .footer-brand",
-                         ".md-social__link::after", ".md-footer__link",
-                         ".md-footer__link .md-ellipsis", ".md-footer__link .md-footer__button"):
+                         ".md-copyright__highlight", ".md-social__link::after",
+                         ".md-social__link:hover::after"):
             with self.subTest(selector=selector):
-                self.assertEqual(self.rule(filename, selector)["color"].removesuffix(" !important"), "#fff")
+                self.assertEqual(self.rule(filename, selector)["color"], "var(--sp-footer-muted)")
                 self.assertFalse(blocks(self.styles[filename], f'[data-md-color-scheme="slate"] {selector}'))
-        for selector in (".md-footer-meta", ".md-footer__inner"):
-            self.assertEqual(self.rule(filename, selector)["background"], "transparent")
-        focus = ".md-footer :is(.md-footer__link, .md-social__link):focus-visible"
+        self.assertEqual(self.rule(filename, ".md-copyright .footer-brand")["color"], "#fff !important")
+        self.assertEqual(self.rule(filename, ".md-footer-meta")["background"], "transparent")
+        self.assertNotIn(".md-footer__inner", self.styles[filename])
+        self.assertNotIn("visibility: hidden", self.styles[filename].split("/* ── Previous/Next", 1)[0])
+        focus = ".md-footer .md-social__link:focus-visible"
         self.assertIn(f"{focus} {{\n  outline: 2px solid #fff;", self.styles[filename])
+
+        def luminance(hex_colour):
+            channels = [int(hex_colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+            linear = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+            return sum(c * weight for c, weight in zip(linear, (0.2126, 0.7152, 0.0722)))
+
+        contrast = (luminance(footer["--sp-footer-muted"]) + 0.05) / (luminance(footer["background"]) + 0.05)
+        self.assertGreaterEqual(contrast, 4.5)
 
     def test_homepage_prose_uses_solid_charcoal_while_publication_metadata_stays_muted(self):
         filename = "08-home.css"

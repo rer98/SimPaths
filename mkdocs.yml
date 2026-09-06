@@ -7,7 +7,7 @@ site_url: https://simpaths.org/
 docs_dir: documentation/wiki
 
 copyright: >-
-  <strong class="footer-brand">SimPaths</strong><br>
+  <strong class="footer-brand">SimPaths</strong>
   An open-source microsimulation initiative.
 
 theme:
@@ -47,10 +47,10 @@ extra_css:
   - assets/css/02-shell-navigation.css?v=20260906-site-typography-2
   - assets/css/03-content.css?v=20260906-table-labels-1
   - assets/css/04-landing-components.css?v=20260906-docs-directory-8
-  - assets/css/05-site-chrome.css?v=20260906-navy-footer-1
+  - assets/css/05-site-chrome.css?v=20260906-compact-footer-1
   - assets/css/06-page-sections.css?v=20260906-site-typography-2
   - assets/css/07-roadmap.css?v=20260906-site-typography-2
-  - assets/css/08-home.css?v=20260906-home-band-swap-1
+  - assets/css/08-home.css?v=20260906-home-footer-gap-1
 
 extra_javascript:
   - assets/js/mathjax.js?v=20260831-math-svg-1
@@ -93,6 +93,7 @@ markdown_extensions:
   - def_list
 
 extra:
+  generator: false
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/simpaths/SimPaths

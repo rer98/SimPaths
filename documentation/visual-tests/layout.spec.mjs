@@ -779,6 +779,9 @@ test("homepage provides useful task routes and an editorial research band", asyn
       copyrightWidth: copyright.getBoundingClientRect().width,
       background: getComputedStyle(document.querySelector(".md-footer")).backgroundColor,
       textColor: getComputedStyle(footerCopy).color,
+      brandColor: getComputedStyle(document.querySelector(".footer-brand")).color,
+      bandToFooterGap: document.querySelector(".md-footer").getBoundingClientRect().top -
+        document.querySelector(".simpaths-home-research-band").getBoundingClientRect().bottom,
       textTransform: getComputedStyle(footerCopy).textTransform,
       letterSpacing: getComputedStyle(footerCopy).letterSpacing
     };
@@ -791,7 +794,9 @@ test("homepage provides useful task routes and an editorial research band", asyn
   expect(mobileFooter.copyrightWidth).toBeGreaterThan(0);
   expect(mobileFooter.copyrightWidth).toBeLessThanOrEqual(390);
   expect(mobileFooter.background).toBe("rgb(25, 52, 73)");
-  expect(mobileFooter.textColor).toBe("rgb(255, 255, 255)");
+  expect(mobileFooter.textColor).toBe("rgb(187, 197, 206)");
+  expect(mobileFooter.brandColor).toBe("rgb(255, 255, 255)");
+  expect(Math.abs(mobileFooter.bandToFooterGap)).toBeLessThanOrEqual(1);
   expect(mobileFooter.textTransform).toBe("none");
   expect(mobileFooter.letterSpacing).toBe("normal");
 });
@@ -1104,8 +1109,9 @@ test("funding uses a compact linked ledger without changing grant details", asyn
   await expect(page.locator(".funding-summary dt")).toHaveText(["Current grants", "Completed", "Span"]);
   await expect(page.locator(".funding-focus")).toHaveCount(0);
   await expect(page.locator(".funding-actions, .funding-eyebrow")).toHaveCount(0);
-  await expect(page.locator(".md-footer__inner")).toBeVisible();
-  await expect(page.locator('.md-footer__inner a[href$="research/"]')).toHaveCount(1);
+  await expect(page.locator(".md-content__inner .sp-page-nav")).toBeVisible();
+  await expect(page.locator('.sp-page-nav a[href$="research/"]')).toHaveCount(1);
+  await expect(page.locator("footer nav")).toHaveCount(0);
   await expect(page.locator(".funding-page")).not.toContainText("ModESHI");
   const layout = () => page.evaluate(() => {
     const styles = selector => getComputedStyle(document.querySelector(selector));
@@ -1122,7 +1128,7 @@ test("funding uses a compact linked ledger without changing grant details", asyn
       listTopRule: styles(".funding-list").borderTopWidth,
       rowBottomRule: styles(".funding-list li").borderBottomWidth,
       titleWrap: styles(".funding-title").textWrap,
-      pagerDisplay: styles(".md-footer__inner").display,
+      pagerDisplay: styles(".sp-page-nav").display,
       metadataFirst: [...document.querySelectorAll(".funding-entry")].every(entry =>
         entry.firstElementChild.classList.contains("funding-meta")),
       fullWidthRows: [...document.querySelectorAll(".funding-list")].every(list =>
@@ -1136,7 +1142,7 @@ test("funding uses a compact linked ledger without changing grant details", asyn
     panelBackground: "rgba(0, 0, 0, 0)", entryBackground: "rgba(0, 0, 0, 0)",
     entryColor: "rgb(36, 42, 49)", titleColor: "rgb(36, 42, 49)",
     summaryTopRule: "1px", summaryBottomRule: "1px", listTopRule: "1px", rowBottomRule: "1px",
-    titleWrap: "wrap", pagerDisplay: "flex", metadataFirst: true, fullWidthRows: true, overflow: 0
+    titleWrap: "wrap", pagerDisplay: "grid", metadataFirst: true, fullWidthRows: true, overflow: 0
   });
   const firstGrant = page.locator(".funding-entry").first();
   await firstGrant.hover();

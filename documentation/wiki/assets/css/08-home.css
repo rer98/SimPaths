@@ -9,6 +9,7 @@ html.sp-page-home .md-main__inner {
 
 html.sp-page-home .md-content .md-content__inner {
   padding-top: 0;
+  margin-bottom: 0;
 }
 
 html:not(.sp-page-home) .md-content .md-content__inner {

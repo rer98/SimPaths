@@ -37,11 +37,11 @@ class SitePaletteTest(unittest.TestCase):
         self.assertEqual(light["--md-default-bg-color--light"], "#f4f3ef")
         self.assertNotIn("--md-default-fg-color", light)
 
-    def test_homepage_sections_share_warm_surfaces_without_changing_card_fills_or_hero(self):
+    def test_homepage_keeps_blue_use_simpaths_and_warm_research_without_changing_cards_or_hero(self):
         expected = {
             ".simpaths-home-intro-band": "#fffefa",
-            ".simpaths-home-paths": "#f2f0e9",
-            ".md-typeset .simpaths-home-paths__routes": "transparent",
+            ".simpaths-home-paths": "#193449",
+            ".md-typeset .simpaths-home-paths__routes": "#dedad0",
             ".md-typeset .simpaths-home-paths__route": "#fffefa",
             ".simpaths-home-research-band": "#f2f0e9",
             ".md-typeset .simpaths-home-research-band a.research-entry": "#fff",
@@ -51,17 +51,17 @@ class SitePaletteTest(unittest.TestCase):
                 self.assertEqual(self.rule("08-home.css", selector)["background"], colour)
         self.assertEqual(self.tokens["--sp-home-hero-bg"], "#000a2d")
 
-    def test_use_simpaths_keeps_navy_on_box_borders_without_a_second_coloured_frame(self):
+    def test_use_simpaths_restores_its_original_light_box_group(self):
         filename = "08-home.css"
         card = self.rule(filename, ".md-typeset .simpaths-home-paths__route")
         frame = self.rule(filename, ".md-typeset .simpaths-home-paths__routes")
-        self.assertEqual(card["border"], "1px solid #193449")
-        self.assertEqual(frame["box-shadow"], "none")
-        self.assertEqual(frame["background"], "transparent")
+        self.assertNotIn("border", card)
+        self.assertEqual(frame["box-shadow"], "0 14px 36px rgba(31,42,56,0.08)")
+        self.assertEqual(frame["background"], "#dedad0")
 
     def test_homepage_band_labels_follow_the_new_backgrounds(self):
         filename = "08-home.css"
-        self.assertEqual(self.rule(filename, ".md-typeset .simpaths-home-paths__header h2")["color"], "#242a31")
+        self.assertEqual(self.rule(filename, ".md-typeset .simpaths-home-paths__header h2")["color"], "#fff")
         self.assertEqual(self.rule(filename, ".md-typeset .simpaths-home-research-band .research-header .section-heading")["color"], "#242a31")
         self.assertEqual(self.rule(filename, ".md-typeset .simpaths-home-research-band .archive-link")["color"], "#242a31 !important")
 
@@ -69,8 +69,8 @@ class SitePaletteTest(unittest.TestCase):
         filename = "05-site-chrome.css"
         footer = self.rule(filename, ".md-footer")
         self.assertEqual(footer["background"], "#193449")
-        self.assertEqual("1px solid " + footer["background"],
-                         self.rule("08-home.css", ".md-typeset .simpaths-home-paths__route")["border"])
+        self.assertEqual(footer["background"],
+                         self.rule("08-home.css", ".simpaths-home-paths")["background"])
         self.assertEqual(footer["--sp-footer-muted"], "#bbc5ce")
         for selector in (".md-footer", ".md-footer-meta", ".md-copyright",
                          ".md-copyright__highlight", ".md-social__link::after",

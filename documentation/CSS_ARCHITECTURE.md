@@ -65,13 +65,13 @@ The introductory paragraphs share the 520 weight of the "The framework..."
 bridge sentence; feature descriptions keep their existing weight. Do not
 restore a lighter lead/body weight or increase their font size to compensate.
 
-The homepage's "Use SimPaths" and "Selected Research" sections share the warm
-background #f2f0e9 and charcoal headings. "Use SimPaths" keeps the navy #193449
-only as a thin 1px border on each of its four boxes; their light #fffefa fills
-are unchanged. The grid's beige surround and group shadow are removed so it
-does not form another frame. Keep existing spacing, destinations and research
-card surfaces and accents unchanged. Remove Material's trailing article
-margin on the homepage only so the final research band meets the footer.
+The homepage's "Use SimPaths" section retains its navy #193449 band and white
+heading, with light #fffefa boxes in the original beige #dedad0 surround.
+"Selected Research" stays warm #f2f0e9 with charcoal headings, white cards and
+its existing accents. Keep the sections distinct: do not match their backgrounds
+or turn research near-white. Preserve spacing, destinations and the research-card
+treatments. Remove Material's trailing article margin on the homepage only so
+the final research band meets the footer.
 The shared footer retains navy #193449 in both themes; only the SimPaths brand is
 white, while the sentence-case description and links use readable grey #bbc5ce.
 It contains site identity and links, not page navigation. Disable the theme's

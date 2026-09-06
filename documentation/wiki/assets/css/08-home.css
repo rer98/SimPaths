@@ -309,7 +309,7 @@ html.sp-page-home .md-main .md-top {
   width: 100vw;
   margin: 0 calc(50% - 50vw);
   padding: 3.75rem 1.2rem 4.15rem;
-  background: #f2f0e9;
+  background: #193449;
 }
 .simpaths-home-paths__inner {
   max-width: var(--sp-home-max);
@@ -320,7 +320,7 @@ html.sp-page-home .md-main .md-top {
 }
 .md-typeset .simpaths-home-paths__header h2 {
   margin: 0 !important;
-  color: #242a31;
+  color: #fff;
   font-family: var(--sp-heading-font) !important;
   font-size: clamp(1.55rem, 3vw, 2.05rem) !important;
   font-weight: var(--sp-section-weight);
@@ -333,9 +333,9 @@ html.sp-page-home .md-main .md-top {
   gap: 0.55rem;
   margin-top: 2.1rem;
   padding: 0.55rem;
-  background: transparent;
+  background: #dedad0;
   border-radius: 0.38rem;
-  box-shadow: none;
+  box-shadow: 0 14px 36px rgba(31,42,56,0.08);
 }
 .md-typeset .simpaths-home-paths__route {
   display: flex;
@@ -345,7 +345,6 @@ html.sp-page-home .md-main .md-top {
   margin: 0;
   padding: 1.4rem 1.25rem 1.3rem;
   background: #fffefa;
-  border: 1px solid #193449;
   border-radius: 0.2rem;
 }
 .md-typeset .simpaths-home-paths__route h3 {

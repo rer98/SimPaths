@@ -726,15 +726,14 @@ test("homepage provides useful task routes and an editorial research band", asyn
 
   expect(presentation.pathHeight).toBeGreaterThan(420);
   expect(presentation.pathHeight).toBeLessThan(550);
-  expect(presentation.pathBackground).toBe("rgb(242, 240, 233)");
-  expect(presentation.pathHeadingColor).toBe("rgb(36, 42, 49)");
+  expect(presentation.pathBackground).toBe("rgb(25, 52, 73)");
+  expect(presentation.pathHeadingColor).toBe("rgb(255, 255, 255)");
   expect(presentation.researchBackground).toBe("rgb(242, 240, 233)");
   expect(presentation.researchHeadingColor).toBe("rgb(36, 42, 49)");
   expect(presentation.pathColumns).toBe(4);
-  expect(presentation.pathBorders).toEqual(["1px", "1px", "1px", "1px"]);
-  expect(new Set(presentation.pathBorderColors)).toEqual(new Set(["rgb(25, 52, 73)"]));
-  expect(presentation.pathFrameBackground).toBe("rgba(0, 0, 0, 0)");
-  expect(presentation.pathFrameShadow).toBe("none");
+  expect(presentation.pathBorders).toEqual(["0px", "0px", "0px", "0px"]);
+  expect(presentation.pathFrameBackground).toBe("rgb(222, 218, 208)");
+  expect(presentation.pathFrameShadow).not.toBe("none");
   expect(new Set(presentation.pathRouteBackgrounds)).toEqual(new Set(["rgb(255, 254, 250)"]));
   expect(new Set(presentation.pathRouteHeights).size).toBe(1);
   expect(presentation.pathDescriptionCount).toBe(0);

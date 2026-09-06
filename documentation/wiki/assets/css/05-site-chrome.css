@@ -159,8 +159,8 @@ html.sp-page-home .md-footer__inner {
 
 .md-footer__link .md-ellipsis {
   font-family: var(--sp-heading-font) !important;
-  font-size: 1rem;
-  font-weight: 650;
+  font-size: var(--sp-subheading-size);
+  font-weight: var(--sp-subheading-weight);
   color: var(--sp-midnight);
 }
 

@@ -19,8 +19,8 @@
   max-width: 43rem;
   margin: 0.45rem 0 0.55rem;
   color: var(--roadmap-copy);
-  font-size: 0.82rem;
-  line-height: 1.65;
+  font-size: var(--sp-reading-copy-size);
+  line-height: var(--sp-reading-line-height);
 }
 .md-typeset .roadmap-status {
   display: flex;
@@ -29,7 +29,7 @@
   max-width: 43rem;
   margin: 0 0 1.45rem;
   color: var(--roadmap-muted);
-  font-size: 0.62rem;
+  font-size: var(--sp-meta-size);
   line-height: 1.5;
 }
 .md-typeset .roadmap-sequence {
@@ -72,8 +72,8 @@
 }
 .md-typeset .roadmap-sequence__name {
   overflow-wrap: anywhere;
-  font-size: 0.72rem;
-  font-weight: 640;
+  font-size: var(--sp-label-size);
+  font-weight: var(--sp-label-weight);
   line-height: 1.35;
   transition: color 150ms ease;
 }
@@ -134,8 +134,8 @@
   padding: 0;
   border: 0;
   color: var(--sp-midnight);
-  font-size: 1.18rem !important;
-  font-weight: 680;
+  font-size: var(--sp-section-size);
+  font-weight: var(--sp-section-weight);
   letter-spacing: -0.022em;
   line-height: 1.25;
   scroll-margin-top: 8rem;
@@ -144,8 +144,8 @@
 .md-typeset .roadmap-stage__heading p {
   margin: 0;
   color: var(--roadmap-copy);
-  font-size: 0.75rem;
-  line-height: 1.58;
+  font-size: var(--sp-reading-copy-size);
+  line-height: var(--sp-reading-line-height);
 }
 
 .md-typeset .roadmap-stage__items {
@@ -168,8 +168,8 @@
   border: 0;
   color: var(--sp-midnight);
   font-family: var(--md-text-font), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
-  font-size: 0.8rem !important;
-  font-weight: 660;
+  font-size: var(--sp-reading-copy-size);
+  font-weight: var(--sp-subheading-weight);
   letter-spacing: -0.012em;
   line-height: 1.38;
 }
@@ -178,15 +178,15 @@
   grid-column: 2;
   margin: 0;
   color: var(--roadmap-copy);
-  font-size: 0.76rem;
-  line-height: 1.62;
+  font-size: var(--sp-reading-copy-size);
+  line-height: var(--sp-reading-line-height);
 }
 
 .md-typeset .roadmap-meta {
   grid-column: 2;
   margin: 0.32rem 0 0;
   color: var(--roadmap-muted);
-  font-size: 0.62rem;
+  font-size: var(--sp-meta-size);
   line-height: 1.45;
 }
 
@@ -221,8 +221,8 @@
   padding: 0;
   border: 0;
   color: var(--sp-midnight);
-  font-size: 1rem !important;
-  font-weight: 660;
+  font-size: var(--sp-section-size);
+  font-weight: var(--sp-section-weight);
   letter-spacing: -0.018em;
   line-height: 1.3;
 }
@@ -230,8 +230,8 @@
 .md-typeset .roadmap-contact p {
   margin: 0;
   color: var(--roadmap-copy);
-  font-size: 0.76rem;
-  line-height: 1.62;
+  font-size: var(--sp-reading-copy-size);
+  line-height: var(--sp-reading-line-height);
 }
 
 .md-typeset .roadmap-contact a {
@@ -261,10 +261,6 @@
 }
 
 @media (max-width: 680px) {
-  .md-typeset .roadmap-lede {
-    font-size: 0.76rem;
-  }
-
   .md-typeset .roadmap-status {
     margin-bottom: 1.1rem;
   }
@@ -311,14 +307,6 @@
     font-size: 0.43rem;
   }
 
-  .md-typeset .roadmap-stage__heading h2 {
-    font-size: 1.04rem !important;
-  }
-
-  .md-typeset .roadmap-stage__heading p {
-    font-size: 0.72rem;
-  }
-
   .md-typeset .roadmap-item {
     display: block;
     padding: 0.9rem 0 0.95rem;
@@ -326,11 +314,6 @@
 
   .md-typeset .roadmap-item h3 {
     margin-bottom: 0.32rem !important;
-  }
-
-  .md-typeset .roadmap-item > p,
-  .md-typeset .roadmap-contact p {
-    font-size: 0.72rem;
   }
 
   .md-typeset .roadmap-contact {

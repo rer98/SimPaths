@@ -1,18 +1,24 @@
-/* ═══════════════════════════════════════════════
-   CONTENT — TYPOGRAPHY
-═══════════════════════════════════════════════ */
+/* CONTENT — TYPOGRAPHY */
 
 .md-typeset {
-  font-size: 0.82rem;
+  font-size: var(--sp-reading-copy-size);
   line-height: 1.65;
 }
+
+.md-content .md-typeset {
+  line-height: var(--sp-reading-line-height);
+  text-align: left; hyphens: none;
+}
+
+/* Keep the approved reading measure, not a cap on landing layouts. */
+html:is(.sp-tab-model, .sp-tab-documentation, .sp-page-validation):not(.sp-page-roadmap):not(.sp-page-docs-index) .md-content__inner { max-width: var(--sp-reading-measure); }
 
 .md-typeset .page-intro {
   max-width: 49rem;
   margin: -0.1rem 0 1.15rem;
   color: var(--sp-midnight);
-  font-size: 0.92rem;
-  line-height: 1.74;
+  font-size: var(--sp-reading-copy-size);
+  line-height: var(--sp-reading-line-height);
   text-align: left;
   hyphens: none;
   -webkit-hyphens: none;
@@ -21,8 +27,8 @@
 .md-typeset .page-intro--support {
   margin-top: -0.82rem;
   color: var(--md-default-fg-color--light);
-  font-size: 0.83rem;
-  line-height: 1.68;
+  font-size: var(--sp-reading-copy-size);
+  line-height: var(--sp-reading-line-height);
 }
 
 /* Setup guides: keep instructions and supporting notes distinct without cards. */
@@ -55,12 +61,15 @@
 }
 
 /* ── Headings ── */
-.md-typeset h1 {
+.md-typeset :is(h1, h2, h3, h4) {
   font-family: var(--sp-heading-font) !important;
-  font-weight: 720;
-  font-size: 1.64rem;
-  letter-spacing: -0.028em;
   color: var(--sp-midnight);
+  font-weight: var(--sp-subheading-weight);
+}
+.md-typeset h1 {
+  font-weight: var(--sp-title-weight);
+  font-size: var(--sp-title-size);
+  letter-spacing: -0.028em;
   border-bottom: none;
   padding-bottom: 0;
   margin-bottom: 1.05rem;
@@ -68,13 +77,11 @@
 }
 
 .md-typeset h2 {
-  font-family: var(--sp-heading-font) !important;
-  font-weight: 700;
-  font-size: 1.24rem;
+  font-weight: var(--sp-section-weight);
+  font-size: var(--sp-section-size);
   letter-spacing: -0.022em;
-  margin-top: 1.75rem;
+  margin-top: var(--sp-section-gap);
   margin-bottom: 0.55rem;
-  color: var(--sp-midnight);
 }
 
 .md-typeset h2,
@@ -93,20 +100,15 @@
 }
 
 .md-typeset h3 {
-  font-family: var(--sp-heading-font) !important;
-  font-weight: 680;
-  font-size: 1rem;
-  margin-top: 1.1rem;
+  font-size: var(--sp-subheading-size);
+  margin-top: var(--sp-subheading-gap);
   margin-bottom: 0.3rem;
-  color: var(--sp-midnight);
 }
 
 .md-typeset h4 {
-  font-family: var(--sp-heading-font) !important;
-  font-weight: 680;
   font-size: 0.9rem;
-  color: var(--sp-midnight);
 }
+.md-typeset :is(h5, h6) { font-weight: var(--sp-subheading-weight); }
 
 [data-md-color-scheme="slate"] .md-typeset h1,
 [data-md-color-scheme="slate"] .md-typeset h2,
@@ -176,9 +178,7 @@
   box-shadow: var(--sp-shadow-soft);
 }
 
-/* ═══════════════════════════════════════════════
-   HAIRLINE DIVIDERS — replace all <hr>
-═══════════════════════════════════════════════ */
+/* HAIRLINE DIVIDERS — replace all <hr> */
 
 .md-typeset hr {
   border: none;
@@ -191,9 +191,7 @@
   background: linear-gradient(to right, rgba(195,198,213,0.25) 0%, rgba(195,198,213,0.25) 40%, transparent 100%);
 }
 
-/* ═══════════════════════════════════════════════
-   EQUATIONS
-═══════════════════════════════════════════════ */
+/* EQUATIONS */
 
 .md-typeset .arithmatex {
   overflow-x: auto;
@@ -531,15 +529,15 @@
   border-left-color: var(--sp-border-soft) !important;
   background: linear-gradient(180deg, var(--sp-surface-strong) 0%, rgba(250,249,245,0.86) 100%);
   box-shadow: var(--sp-shadow-soft);
-  font-size: 0.81rem;
+  font-size: var(--sp-reading-copy-size);
   overflow: hidden;
 }
 
 .md-typeset .admonition-title,
 .md-typeset summary {
   font-family: var(--sp-heading-font) !important;
-  font-weight: 680;
-  font-size: 0.84rem;
+  font-weight: var(--sp-subheading-weight);
+  font-size: var(--sp-reading-copy-size);
   background: linear-gradient(90deg, rgba(61,93,130,0.08) 0%, rgba(42,56,72,0.04) 100%) !important;
 }
 
@@ -584,7 +582,7 @@
 .md-typeset figure.module-diagram figcaption {
   margin-top: 0.55rem;
   color: var(--md-default-fg-color--light);
-  font-size: 0.78rem;
+  font-size: var(--sp-label-size);
 }
 
 .md-typeset .module-equation {
@@ -617,7 +615,7 @@
   border-collapse: collapse;
   border-spacing: 0;
   box-shadow: none;
-  font-size: 0.82em;
+  font-size: var(--sp-label-size);
 }
 
 .md-typeset table:not([class]) th {
@@ -626,7 +624,7 @@
   background: #ece8df;
   border-bottom: 1px solid rgba(42, 56, 72, 0.28);
   font-family: var(--sp-heading-font) !important;
-  font-weight: 700;
+  font-weight: var(--sp-subheading-weight);
   letter-spacing: 0;
   text-align: left;
 }

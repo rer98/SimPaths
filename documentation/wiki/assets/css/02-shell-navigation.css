@@ -182,8 +182,8 @@
 .md-nav--secondary .md-nav__title::after {
   content: "On this Page";
   font-family: var(--md-text-font) !important;
-  font-size: 0.67rem;
-  font-weight: 600;
+  font-size: var(--sp-toc-size);
+  font-weight: var(--sp-label-weight);
   letter-spacing: 0.01em;
   text-transform: none;
   color: var(--sp-midnight);
@@ -211,7 +211,7 @@
 }
 
 .md-nav__link {
-  font-size: 0.76rem;
+  font-size: var(--sp-nav-size);
   border-radius: 0 !important;
   transition: color 0.12s ease;
 }
@@ -233,8 +233,8 @@
     background-position: 0 var(--sp-toc-offset, 0px), 0 0;
   }
   .sp-toc--ready > .md-nav__list { transition: background-position 180ms ease, background-size 180ms ease; }
-  .md-sidebar--secondary .sp-toc .md-nav__link { color: var(--md-default-fg-color); font-size: 0.67rem; line-height: 1.45; }
-  .md-sidebar--secondary .sp-toc [aria-current="location"] { color: var(--sp-accent) !important; font-weight: 600; }
+  .md-sidebar--secondary .sp-toc .md-nav__link { color: var(--md-default-fg-color); font-size: var(--sp-toc-size); line-height: 1.45; }
+  .md-sidebar--secondary .sp-toc [aria-current="location"] { color: var(--sp-accent) !important; font-weight: var(--sp-label-weight); }
   .md-sidebar--secondary .sp-toc .md-nav__link:focus-visible { outline: 2px solid var(--sp-accent); outline-offset: 2px; }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -315,7 +315,7 @@ body.sp-docs-navigation .sp-sidebar-tools {
   border: 0;
   outline: 0;
   font: inherit;
-  font-size: 0.675rem;
+  font-size: var(--sp-nav-size);
 }
 
 .sp-sidebar-filter__input::placeholder {
@@ -355,7 +355,7 @@ body.sp-docs-navigation .sp-sidebar-tools {
   display: none;
   margin: 0.45rem 0.1rem 0;
   color: var(--md-default-fg-color--light);
-  font-size: 0.62rem;
+  font-size: var(--sp-meta-size);
 }
 
 .sp-sidebar-filter__status[data-visible="true"] {
@@ -370,7 +370,7 @@ body.sp-docs-navigation .md-sidebar--primary .md-nav__link {
   margin: 0.04rem 0;
   padding: 0.28rem 0.42rem;
   border-radius: 3px !important;
-  font-size: 0.675rem;
+  font-size: var(--sp-nav-size);
   font-weight: 430;
   line-height: 1.36;
   transition: color 120ms ease, background-color 120ms ease;
@@ -438,7 +438,7 @@ body.sp-docs-navigation .md-sidebar--primary .md-nav__container.sp-nav-container
 
 body.sp-docs-navigation .md-sidebar--primary .md-nav__container.sp-nav-container-active > a.md-nav__link {
   color: #17658f !important;
-  font-weight: 680;
+  font-weight: 600;
 }
 
 body.sp-docs-navigation .md-sidebar--primary .md-nav[data-md-level="2"] .md-nav > .md-nav__list {
@@ -456,15 +456,15 @@ body.sp-docs-navigation .md-sidebar--primary .md-nav__item:not(.md-nav__item--ne
   background: rgba(36, 120, 181, 0.1) !important;
   border-left: 2px solid rgba(36, 120, 181, 0.74);
   box-shadow: none !important;
-  font-size: 0.675rem;
-  font-weight: 680;
+  font-size: var(--sp-nav-size);
+  font-weight: 600;
 }
 
 body.sp-docs-navigation .md-sidebar--primary .md-nav--primary > .md-nav__list > .md-nav__item--active.md-nav__item--section > .md-nav__container > a.md-nav__link,
 html.sp-tab-model .md-sidebar--primary .md-nav--primary > .md-nav__list > .md-nav__item--active.md-nav__item--section > .md-nav__container > a.md-nav__link {
   color: var(--sp-midnight) !important;
   font-size: 0.75rem;
-  font-weight: 720;
+  font-weight: 620;
   letter-spacing: -0.005em;
 }
 
@@ -489,14 +489,14 @@ body.sp-docs-navigation .md-sidebar--primary .md-nav[data-md-level="1"] > .md-na
 body.sp-docs-navigation .md-sidebar--primary .md-nav[data-md-level="1"] > .md-nav__list > .md-nav__item--section > .md-nav__container > a.md-nav__link {
   color: rgba(34, 45, 59, 0.86) !important;
   font-size: 0.715rem;
-  font-weight: 700;
+  font-weight: 580;
   letter-spacing: 0;
 }
 
 body.sp-docs-navigation .md-sidebar--primary .md-nav[data-md-level="2"] > .md-nav__list > .md-nav__item--nested > .md-nav__container > a.md-nav__link {
   color: rgba(34, 45, 59, 0.8) !important;
   font-size: 0.695rem;
-  font-weight: 610;
+  font-weight: 540;
 }
 
 body.sp-docs-navigation .md-sidebar--primary .md-nav__icon {

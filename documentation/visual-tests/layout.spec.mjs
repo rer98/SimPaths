@@ -692,7 +692,9 @@ test("homepage provides useful task routes and an editorial research band", asyn
       researchHeadingColor: getComputedStyle(header.querySelector("h2")).color,
       pathColumns: getComputedStyle(routes).gridTemplateColumns.split(" ").length,
       pathBorders: routeItems.map((item) => getComputedStyle(item).borderTopWidth),
+      pathBorderColors: routeItems.map((item) => getComputedStyle(item).borderTopColor),
       pathFrameBackground: getComputedStyle(routes).backgroundColor,
+      pathFrameShadow: getComputedStyle(routes).boxShadow,
       pathRouteBackgrounds: routeItems.map((item) => getComputedStyle(item).backgroundColor),
       pathRouteHeights: routeItems.map((item) => Math.round(item.getBoundingClientRect().height)),
       pathDescriptionCount: document.querySelectorAll(".simpaths-home-paths__route > p").length,
@@ -718,13 +720,15 @@ test("homepage provides useful task routes and an editorial research band", asyn
 
   expect(presentation.pathHeight).toBeGreaterThan(420);
   expect(presentation.pathHeight).toBeLessThan(550);
-  expect(presentation.pathBackground).toBe("rgb(25, 52, 73)");
-  expect(presentation.pathHeadingColor).toBe("rgb(255, 255, 255)");
+  expect(presentation.pathBackground).toBe("rgb(242, 240, 233)");
+  expect(presentation.pathHeadingColor).toBe("rgb(36, 42, 49)");
   expect(presentation.researchBackground).toBe("rgb(242, 240, 233)");
   expect(presentation.researchHeadingColor).toBe("rgb(36, 42, 49)");
   expect(presentation.pathColumns).toBe(4);
-  expect(presentation.pathBorders).toEqual(["0px", "0px", "0px", "0px"]);
-  expect(presentation.pathFrameBackground).toBe("rgb(222, 218, 208)");
+  expect(presentation.pathBorders).toEqual(["1px", "1px", "1px", "1px"]);
+  expect(new Set(presentation.pathBorderColors)).toEqual(new Set(["rgb(25, 52, 73)"]));
+  expect(presentation.pathFrameBackground).toBe("rgba(0, 0, 0, 0)");
+  expect(presentation.pathFrameShadow).toBe("none");
   expect(new Set(presentation.pathRouteBackgrounds)).toEqual(new Set(["rgb(255, 254, 250)"]));
   expect(new Set(presentation.pathRouteHeights).size).toBe(1);
   expect(presentation.pathDescriptionCount).toBe(0);

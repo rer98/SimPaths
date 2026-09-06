@@ -62,12 +62,14 @@ Homepage introductory paragraphs and feature descriptions use solid charcoal
 (#242a31), without separate faded lead/body colours. This is a text-only
 exception: retain the existing layout, heading scale and muted publication metadata.
 
-The homepage's "Use SimPaths" band now uses the former research navy (#193449)
-with a white heading. "Selected Research" uses the former light "Use SimPaths"
-background (#f2f0e9), with charcoal heading and archive link. Keep their card
-surfaces and research accents unchanged. Remove Material's trailing article
+The homepage's "Use SimPaths" and "Selected Research" sections share the warm
+background #f2f0e9 and charcoal headings. "Use SimPaths" keeps the navy #193449
+only as a thin 1px border on each of its four boxes; their light #fffefa fills
+are unchanged. The grid's beige surround and group shadow are removed so it
+does not form another frame. Keep existing spacing, destinations and research
+card surfaces and accents unchanged. Remove Material's trailing article
 margin on the homepage only so the final research band meets the footer.
-The shared footer uses the same navy in both themes; only the SimPaths brand is
+The shared footer retains navy #193449 in both themes; only the SimPaths brand is
 white, while the sentence-case description and links use readable grey #bbc5ce.
 It contains site identity and links, not page navigation. Disable the theme's
 generator line through `extra.generator: false` rather than hiding a line that

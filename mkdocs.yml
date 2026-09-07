@@ -44,7 +44,7 @@ theme:
 extra_css:
   # Keep this order: later component files intentionally refine earlier layers.
   - assets/css/01-foundation.css?v=20260906-tables-headings-1
-  - assets/css/02-shell-navigation.css?v=20260906-site-typography-2
+  - assets/css/02-shell-navigation.css?v=20260907-sidebar-hover-1
   - assets/css/03-content.css?v=20260906-table-labels-1
   - assets/css/04-landing-components.css?v=20260906-docs-directory-8
   - assets/css/05-site-chrome.css?v=20260906-compact-footer-1

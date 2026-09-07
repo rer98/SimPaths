@@ -266,6 +266,10 @@
 }
 
 /* Documentation navigation is a browsing rail, distinct from the page TOC. */
+body.sp-docs-navigation .md-sidebar--primary {
+  --sp-sidebar-hover-ink: #17658f;
+}
+
 .sp-sidebar-tools {
   display: none;
 }
@@ -373,7 +377,7 @@ body.sp-docs-navigation .md-sidebar--primary .md-nav__link {
   font-size: var(--sp-nav-size);
   font-weight: 430;
   line-height: 1.36;
-  transition: color 120ms ease, background-color 120ms ease;
+  transition: color 120ms ease;
 }
 
 body.sp-docs-navigation .md-sidebar--primary .md-nav__container {
@@ -388,7 +392,7 @@ body.sp-docs-navigation .md-sidebar--primary .md-nav__container {
   border: 0;
   border-radius: 3px !important;
   box-shadow: none !important;
-  transition: color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+  transition: none;
 }
 
 body.sp-docs-navigation .md-sidebar--primary .md-nav__container > a.md-nav__link {
@@ -420,11 +424,6 @@ body.sp-docs-navigation .md-sidebar--primary .md-nav__container > label.md-nav__
 
 body.sp-docs-navigation .md-sidebar--primary .md-nav__container > a.md-nav__link .md-ellipsis {
   min-width: 0;
-}
-
-body.sp-docs-navigation .md-sidebar--primary .md-nav__container:hover,
-body.sp-docs-navigation .md-sidebar--primary .md-nav__container:focus-within {
-  background: rgba(36, 120, 181, 0.065) !important;
 }
 
 body.sp-docs-navigation .md-sidebar--primary .md-nav[data-md-level="2"] > .md-nav__list > .md-nav__item--nested.md-nav__item--active > .md-nav__container {
@@ -474,10 +473,16 @@ html.sp-tab-model .md-sidebar--primary .md-nav--primary > .md-nav__list > .md-na
   border-bottom: 1px solid rgba(42, 56, 72, 0.105);
 }
 
-body.sp-docs-navigation .md-sidebar--primary .md-nav__item:not(.md-nav__item--nested) > a.md-nav__link:hover,
-body.sp-docs-navigation .md-sidebar--primary .md-nav__item:not(.md-nav__item--nested) > a.md-nav__link:focus-visible {
-  color: var(--sp-midnight) !important;
-  background: rgba(36, 120, 181, 0.065) !important;
+/* Hover changes text only; the filled marker belongs to the current page. */
+body.sp-docs-navigation .md-sidebar--primary .md-nav__item:not(.md-nav__item--nested) > a.md-nav__link:not(.md-nav__link--active):hover,
+body.sp-docs-navigation .md-sidebar--primary .md-nav__item:not(.md-nav__item--nested) > a.md-nav__link:not(.md-nav__link--active):focus-visible {
+  color: var(--sp-sidebar-hover-ink) !important;
+}
+
+body.sp-docs-navigation .md-sidebar--primary a.md-nav__link:focus-visible,
+body.sp-docs-navigation .md-sidebar--primary label.md-nav__link:focus-visible {
+  outline: 2px solid var(--sp-sidebar-hover-ink);
+  outline-offset: -2px;
 }
 
 body.sp-docs-navigation .md-sidebar--primary .md-nav[data-md-level="1"] > .md-nav__list > .md-nav__item--section {
@@ -552,6 +557,7 @@ body.sp-docs-navigation .md-sidebar--primary .md-sidebar__scrollwrap::-webkit-sc
 }
 
 [data-md-color-scheme="slate"].sp-docs-navigation .md-sidebar--primary {
+  --sp-sidebar-hover-ink: #77c7f0;
   background: var(--md-default-bg-color);
   border-right-color: transparent;
 }

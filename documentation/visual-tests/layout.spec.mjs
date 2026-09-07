@@ -1326,6 +1326,36 @@ test("documentation filter stays integrated and functional", async ({ page }, te
   await expect(sidebar.getByRole("link", { name: "Environment Setup" })).toBeVisible();
 });
 
+test("documentation sidebar hover is text-only and keeps the current-page marker", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "Hover feedback applies to the desktop sidebar.");
+  await page.goto("/documentation/");
+  await expect(page.locator('body')).toHaveClass(/sp-docs-navigation/);
+  const sidebar = page.locator('.md-sidebar--primary');
+  const link = sidebar.getByRole('link', { name: 'Environment Setup', exact: true });
+  const before = await link.boundingBox();
+  await link.hover();
+  await expect(link).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(link).toHaveCSS('color', 'rgb(23, 101, 143)');
+  await expect(link).toHaveCSS('font-weight', '430');
+  expect(await link.boundingBox()).toEqual(before);
+
+  const group = sidebar.getByRole('link', { name: 'Input Data', exact: true });
+  await group.hover();
+  await expect(group.locator('..')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+
+  await link.click();
+  await expect(link).toHaveClass(/md-nav__link--active/);
+  await link.hover();
+  await expect(link).toHaveCSS('background-color', 'rgba(36, 120, 181, 0.1)');
+  await expect(link).toHaveCSS('border-left-width', '2px');
+  await expect(link).toHaveCSS('font-weight', '600');
+  await page.keyboard.press('Tab');
+  await link.focus();
+  await expect(link).toHaveCSS('outline-style', 'solid');
+  await expect(link).toHaveCSS('outline-width', '2px');
+  await expect(link).toHaveCSS('outline-offset', '-2px');
+});
+
 test("long documentation navigation remains clear of the footer", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "The primary sidebar becomes a drawer on mobile.");
 

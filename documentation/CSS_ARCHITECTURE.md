@@ -19,6 +19,12 @@ markup and the styling layer. It exposes explicit `sp-page-*`, `sp-tab-*`,
 `sp-search-open`, and navigation state classes. CSS should consume those
 classes rather than rediscovering page state with relational selectors.
 
+The Documentation sidebar uses text-only hover feedback, without a coloured
+row fill or a changing shadow. Keep its link dimensions and weights stable.
+The persistent current-page background and left marker are distinct from hover;
+preserve them when hovering the current link. Keyboard focus uses a visible
+inset outline, with light/dark ink supplied by `--sp-sidebar-hover-ink`.
+
 ## Shared typography convention
 
 The approved reading hierarchy is site-wide, not a page-specific experiment.

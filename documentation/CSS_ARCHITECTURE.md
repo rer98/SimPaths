@@ -21,6 +21,8 @@ classes rather than rediscovering page state with relational selectors.
 
 The Documentation sidebar uses text-only hover feedback, without a coloured
 row fill or a changing shadow. Keep its link dimensions and weights stable.
+Apply this feedback to clickable section headings as well as individual pages;
+section-heading colours must not suppress link hover or keyboard focus.
 The persistent current-page background and left marker are distinct from hover;
 preserve them when hovering the current link. Keyboard focus uses a visible
 inset outline, with light/dark ink supplied by `--sp-sidebar-hover-ink`.

@@ -1339,9 +1339,26 @@ test("documentation sidebar hover is text-only and keeps the current-page marker
   await expect(link).toHaveCSS('font-weight', '430');
   expect(await link.boundingBox()).toEqual(before);
 
-  const group = sidebar.getByRole('link', { name: 'Input Data', exact: true });
-  await group.hover();
-  await expect(group.locator('..')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  for (const [scheme, colour] of [['default', 'rgb(23, 101, 143)'], ['slate', 'rgb(119, 199, 240)']]) {
+    await page.locator('body').evaluate((body, value) => body.setAttribute('data-md-color-scheme', value), scheme);
+    for (const [name, weight] of [['Getting Started', '580'], ['User Guide', '580'], ['Developer Guide', '580'], ['Input Data', '540']]) {
+      const group = sidebar.getByRole('link', { name, exact: true });
+      await group.scrollIntoViewIfNeeded();
+      const groupBefore = await group.boundingBox();
+      await group.hover();
+      await expect(group).toHaveCSS('color', colour);
+      await expect(group).toHaveCSS('font-weight', weight);
+      await expect(group.locator('..')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+      expect(await group.boundingBox()).toEqual(groupBefore);
+      await page.mouse.move(0, 0);
+      await page.keyboard.press('Tab');
+      await group.focus();
+      await expect(group).toHaveCSS('color', colour);
+      await expect(group).toHaveCSS('outline-style', 'solid');
+      await expect(group).toHaveCSS('outline-width', '2px');
+    }
+  }
+  await page.locator('body').evaluate(body => body.setAttribute('data-md-color-scheme', 'default'));
 
   await link.click();
   await expect(link).toHaveClass(/md-nav__link--active/);
@@ -1354,6 +1371,15 @@ test("documentation sidebar hover is text-only and keeps the current-page marker
   await expect(link).toHaveCSS('outline-style', 'solid');
   await expect(link).toHaveCSS('outline-width', '2px');
   await expect(link).toHaveCSS('outline-offset', '-2px');
+
+  const documentation = sidebar.getByRole('link', { name: 'Documentation', exact: true });
+  await documentation.hover();
+  await expect(documentation).toHaveCSS('color', 'rgb(23, 101, 143)');
+  await expect(documentation).toHaveCSS('font-weight', '620');
+
+  await sidebar.getByRole('link', { name: 'User Guide', exact: true }).click();
+  await expect(page).toHaveURL(/\/user-guide\/$/);
+  await expect(page.locator('.md-content h1')).toHaveText(/^User Guide(?:¶)?$/);
 });
 
 test("long documentation navigation remains clear of the footer", async ({ page }, testInfo) => {

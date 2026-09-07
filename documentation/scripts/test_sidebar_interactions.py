@@ -9,6 +9,8 @@ from test_site_typography import blocks
 CSS = Path(__file__).resolve().parents[1] / "wiki/assets/css/02-shell-navigation.css"
 SIDEBAR = "body.sp-docs-navigation .md-sidebar--primary"
 LEAF = SIDEBAR + " .md-nav__item:not(.md-nav__item--nested) > a.md-nav__link"
+SECTION = (SIDEBAR + " .md-nav--primary .md-nav__list > .md-nav__item--nested"
+           " > .md-nav__container:not(.sp-nav-container-active) > a.md-nav__link")
 
 
 class SidebarInteractionTest(unittest.TestCase):
@@ -17,9 +19,17 @@ class SidebarInteractionTest(unittest.TestCase):
         cls.source = CSS.read_text()
 
     def test_inactive_link_hover_changes_only_ink(self):
-        for state in ("hover", "focus-visible"):
-            rules = blocks(self.source, LEAF + f":not(.md-nav__link--active):{state}")
-            self.assertEqual(rules, [{"color": "var(--sp-sidebar-hover-ink) !important"}])
+        for link in (LEAF, SECTION):
+            for state in ("hover", "focus-visible"):
+                with self.subTest(link=link, state=state):
+                    rules = blocks(self.source, link + f":not(.md-nav__link--active):{state}")
+                    self.assertEqual(rules, [{"color": "var(--sp-sidebar-hover-ink) !important"}])
+
+    def test_section_links_keep_their_heading_weight(self):
+        for level, item, weight in ((1, "section", "580"), (2, "nested", "540")):
+            selector = (SIDEBAR + f' .md-nav[data-md-level="{level}"] > .md-nav__list'
+                        f" > .md-nav__item--{item} > .md-nav__container > a.md-nav__link")
+            self.assertEqual(blocks(self.source, selector)[0]["font-weight"], weight)
 
     def test_group_hover_does_not_add_a_row_fill(self):
         for state in ("hover", "focus-within"):

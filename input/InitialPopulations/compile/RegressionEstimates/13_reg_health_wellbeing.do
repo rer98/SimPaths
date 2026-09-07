@@ -119,7 +119,7 @@ reghdfe dhe_mcs ///
 	Y2020 Y2021 $ethnicity ///
 	if ${hwb2_if_condition} & Dgn == 0 [pw=${weight}], absorb(idperson) vce(cluster idperson)
 
-process_regression, domain("health_wellbeing") process("DHE_MCS2_Females") sheet ("DHE_MCS2_Females") ///
+process_regression, domain("health_wellbeing") process("DHE_MCS2_Females") sheet("DHE_MCS2_Females") ///
 	title("Process DHE_MCS2_Females: SF12 MCS Score (0-100)") ///
 	gofrow(7) goflabel("DHE_MCS2_Females: SF12 MCS Score (0-100)") ///
 	ifcond("${hwb2_if_condition}") gformula maxestimates(15)

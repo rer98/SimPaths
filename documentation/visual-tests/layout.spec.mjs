@@ -1326,7 +1326,46 @@ test("documentation filter stays integrated and functional", async ({ page }, te
   await expect(sidebar.getByRole("link", { name: "Environment Setup" })).toBeVisible();
 });
 
-test("documentation sidebar hover is text-only and keeps the current-page marker", async ({ page }, testInfo) => {
+test("documentation sidebar bars, rows and dividers share both edges", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "The native mobile drawer keeps its own layout.");
+  await page.goto("/getting-started/data/initial-population-uk/");
+  const sidebar = page.locator(".md-sidebar--primary");
+  const tools = sidebar.locator(".md-sidebar__inner > .sp-sidebar-tools");
+  await expect(tools).toHaveCount(1);
+  await expect(tools).toHaveCSS("position", "sticky");
+  const edges = await sidebar.evaluate(element => {
+    const filter = element.querySelector(".sp-sidebar-filter").getBoundingClientRect();
+    const rows = element.querySelectorAll(
+      '.md-nav--primary .md-nav__item > .md-nav__link, ' +
+      '.md-nav[data-md-level="1"] > .md-nav__list > .md-nav__item--section'
+    );
+    return { left: filter.left, right: filter.right, rows: [...rows]
+      .filter(row => row.getClientRects().length && row.getBoundingClientRect().height > 0)
+      .map(row => {
+        const bounds = row.getBoundingClientRect();
+        return { title: row.textContent.trim().slice(0, 50), left: bounds.left, right: bounds.right };
+      }) };
+  });
+  expect(edges.rows.length).toBeGreaterThan(15);
+  for (const row of edges.rows) {
+    expect(Math.abs(row.left - edges.left), `${row.title}: left edge`).toBeLessThanOrEqual(1);
+    expect(Math.abs(row.right - edges.right), `${row.title}: right edge`).toBeLessThanOrEqual(1);
+  }
+  const child = sidebar.getByRole("link", { name: "Initial Population (UK)", exact: true });
+  const parent = sidebar.getByRole("link", { name: "Input Data", exact: true });
+  expect(await child.evaluate(link => parseFloat(getComputedStyle(link).paddingLeft)))
+    .toBeGreaterThan(await parent.evaluate(link => parseFloat(getComputedStyle(link).paddingLeft)));
+  const top = (await tools.boundingBox()).y;
+  await sidebar.locator(".md-sidebar__scrollwrap").evaluate(element => { element.scrollTop += 100; });
+  expect(Math.abs((await tools.boundingBox()).y - top)).toBeLessThanOrEqual(1);
+  await sidebar.getByPlaceholder("Filter pages").fill("Regression Library");
+  await expect(sidebar.getByRole("link", { name: "Regression Library", exact: true })).toBeVisible();
+  await sidebar.getByRole("button", { name: "Clear sidebar filter" }).click();
+  await sidebar.getByRole("link", { name: "Documentation", exact: true }).click();
+  await expect(tools).toHaveCount(1);
+});
+
+test("documentation sidebar hover is neutral and keeps the current-page marker", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "Hover feedback applies to the desktop sidebar.");
   await page.goto("/documentation/");
   await expect(page.locator('body')).toHaveClass(/sp-docs-navigation/);
@@ -1334,12 +1373,17 @@ test("documentation sidebar hover is text-only and keeps the current-page marker
   const link = sidebar.getByRole('link', { name: 'Environment Setup', exact: true });
   const before = await link.boundingBox();
   await link.hover();
-  await expect(link).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-  await expect(link).toHaveCSS('color', 'rgb(23, 101, 143)');
+  await expect(link).toHaveCSS('background-color', 'rgb(236, 238, 240)');
+  await expect(link).toHaveCSS('color', 'rgb(26, 29, 33)');
+  await expect(link).toHaveCSS('box-shadow', 'none');
+  await expect(link).toHaveCSS('transform', 'none');
   await expect(link).toHaveCSS('font-weight', '430');
   expect(await link.boundingBox()).toEqual(before);
 
-  for (const [scheme, colour] of [['default', 'rgb(23, 101, 143)'], ['slate', 'rgb(119, 199, 240)']]) {
+  for (const [scheme, colour, surface] of [
+    ['default', 'rgb(26, 29, 33)', 'rgb(236, 238, 240)'],
+    ['slate', 'rgb(245, 248, 251)', 'rgba(255, 255, 255, 0.075)']
+  ]) {
     await page.locator('body').evaluate((body, value) => body.setAttribute('data-md-color-scheme', value), scheme);
     for (const [name, weight] of [['Getting Started', '580'], ['User Guide', '580'], ['Developer Guide', '580'], ['Input Data', '540']]) {
       const group = sidebar.getByRole('link', { name, exact: true });
@@ -1348,7 +1392,8 @@ test("documentation sidebar hover is text-only and keeps the current-page marker
       await group.hover();
       await expect(group).toHaveCSS('color', colour);
       await expect(group).toHaveCSS('font-weight', weight);
-      await expect(group.locator('..')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+      await expect(group.locator('..')).toHaveCSS('background-color', surface);
+      await expect(group.locator('..')).toHaveCSS('box-shadow', 'none');
       expect(await group.boundingBox()).toEqual(groupBefore);
       await page.mouse.move(0, 0);
       await page.keyboard.press('Tab');
@@ -1356,6 +1401,7 @@ test("documentation sidebar hover is text-only and keeps the current-page marker
       await expect(group).toHaveCSS('color', colour);
       await expect(group).toHaveCSS('outline-style', 'solid');
       await expect(group).toHaveCSS('outline-width', '2px');
+      await expect(group.locator('..')).toHaveCSS('background-color', surface);
     }
   }
   await page.locator('body').evaluate(body => body.setAttribute('data-md-color-scheme', 'default'));
@@ -1373,9 +1419,23 @@ test("documentation sidebar hover is text-only and keeps the current-page marker
   await expect(link).toHaveCSS('outline-offset', '-2px');
 
   const documentation = sidebar.getByRole('link', { name: 'Documentation', exact: true });
+  await expect(documentation.locator('..')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await expect(documentation.locator('..')).toHaveCSS('border-top-width', '1px');
+  await expect(documentation.locator('..')).toHaveCSS('box-shadow', 'none');
   await documentation.hover();
-  await expect(documentation).toHaveCSS('color', 'rgb(23, 101, 143)');
-  await expect(documentation).toHaveCSS('font-weight', '620');
+  await expect(documentation).toHaveCSS('color', 'rgb(26, 29, 33)');
+  await expect(documentation).toHaveCSS('font-weight', '560');
+  await expect(documentation.locator('..')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  const mark = await documentation.evaluate(link => {
+    const style = getComputedStyle(link, '::before');
+    return { background: style.backgroundImage, width: parseFloat(style.width), height: parseFloat(style.height) };
+  });
+  expect(mark.background).toContain('homepage-hero-logo.svg');
+  expect(mark.width).toBeGreaterThan(20);
+  expect(mark.height).toBeGreaterThan(12);
+  await documentation.click();
+  await expect(page).toHaveURL(/\/documentation\/$/);
+  await expect(documentation.locator('..')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
 
   await sidebar.getByRole('link', { name: 'User Guide', exact: true }).click();
   await expect(page).toHaveURL(/\/user-guide\/$/);

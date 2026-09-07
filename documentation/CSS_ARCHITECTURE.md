@@ -19,13 +19,23 @@ markup and the styling layer. It exposes explicit `sp-page-*`, `sp-tab-*`,
 `sp-search-open`, and navigation state classes. CSS should consume those
 classes rather than rediscovering page state with relational selectors.
 
-The Documentation sidebar uses text-only hover feedback, without a coloured
-row fill or a changing shadow. Keep its link dimensions and weights stable.
-Apply this feedback to clickable section headings as well as individual pages;
-section-heading colours must not suppress link hover or keyboard focus.
-The persistent current-page background and left marker are distinct from hover;
-preserve them when hovering the current link. Keyboard focus uses a visible
-inset outline, with light/dark ink supplied by `--sp-sidebar-hover-ink`.
+The Documentation sidebar's local hover trial uses a flat neutral-grey row
+and darker text, without shadows, movement or changing weights. Section-page
+links and their separate expand controls share one row surface; individual
+page links use the same feedback. Keep dimensions stable and preserve the
+distinct blue current-page background and left marker. Keyboard focus adds
+a visible inset outline. Light/dark tokens are `--sp-sidebar-hover-ink` and
+`--sp-sidebar-hover-bg`; only colours fade, with no transition in reduced motion.
+The Documentation section-home link has a compact white surface, neutral border
+and the existing, preloaded SimPaths mark. Keep the mark's dimensions reserved,
+its generated content decorative, and the native link/filter behaviour intact.
+The home surface stays white on hover (neutral slate in dark mode); other rows
+keep neutral-grey hover. On desktop, the filter and navigation share the same
+`.md-sidebar__inner` and scrollport. Reset Material's fixed inner padding, nested
+list padding and nav/link side margins so bars, hover surfaces and section rules
+share both edges. Indent nested link text, not its row surface. Keep the filter
+sticky with an opaque page background and scroll padding for keyboard navigation.
+Leave the native mobile drawer layout intact.
 
 ## Shared typography convention
 

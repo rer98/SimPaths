@@ -87,7 +87,7 @@
     if (!sidebarPanel || !sidebar || !rootList) return;
 
     document.body.classList.add("sp-docs-navigation");
-    sidebarPanel.querySelector(":scope > .sp-sidebar-tools")?.remove();
+    sidebarPanel.querySelector(".sp-sidebar-tools")?.remove();
 
     const tools = document.createElement("div");
     tools.className = "sp-sidebar-tools";
@@ -103,7 +103,9 @@
       </label>
       <span class="sp-sidebar-filter__status" role="status" aria-live="polite">No matching pages</span>
     `;
-    sidebarPanel.prepend(tools);
+    // Share the navigation's inner width, including on systems with scrollbars.
+    // CSS keeps this filter sticky while the navigation below it scrolls.
+    sidebar.prepend(tools);
 
     const input = tools.querySelector(".sp-sidebar-filter__input");
     const clear = tools.querySelector(".sp-sidebar-filter__clear");

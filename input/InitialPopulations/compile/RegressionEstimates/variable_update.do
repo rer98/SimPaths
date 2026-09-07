@@ -1353,7 +1353,7 @@ la var lhw_c5 "Hours worked per week (category)"
 
 gen Dhh_owned_L1= L1.Dhh_owned if !missing(L1.Dhh_owned)
 gen Dcpst_Single_L1 = L1.Dcpst_Single if !missing(L1.Dcpst_Single)
-gen Dnc_L1_ = L1.Dnc if !missing(L1.Dnc)
+gen Dnc_L1 = L1.Dnc if !missing(L1.Dnc)
 
 gen Dhm = dhm
 gen Dhm_L1 = L1.Dhm if !missing(L1.Dhm)
@@ -1370,10 +1370,12 @@ gen Dag_sq_L1 = L1.Dag_sq if !missing(L1.Dag_sq)
 gen EmployedToUnemployed = L1.Les_c3_Employed == 1 & Les_c3_NotEmployed == 1 if !missing(L1.Les_c3_Employed)
 gen UnemployedToEmployed = Les_c3_Employed == 1 & L1.Les_c3_NotEmployed == 1 if !missing(L1.Les_c3_NotEmployed)
 gen PersistentUnemployed = Les_c3_NotEmployed == 1 & L1.Les_c3_NotEmployed == 1 if !missing(L1.Les_c3_NotEmployed)
+gen PersistentEmployed = Les_c3_Employed == 1 & L1.Les_c3_Employed == 1 if !missing(L1.Les_c3_Employed)
 
 gen NonPovertyToPoverty = exp_poverty == 1
 gen PovertyToNonPoverty = exp_poverty == 2
 gen PersistentPoverty = exp_poverty == 3
+gen NoPoverty = exp_poverty == 0
 
 gen RealIncomeChange = exp_incchange == 1
 gen RealIncomeDecrease_D = D.log_income

@@ -67,13 +67,14 @@ do "${dir_do}/variable_update.do"
 do "${dir_do}/programs.do" 
 
 
+
 /**************************** HM1_L: GHQ score 0-36 ***************************/
 
 reg dhm ///
 	Ded Dgn Dag Dag_sq ///
-	Dhm_L1 ///
+	Dhm_L1 L_Dhe_pcs ///
 	i.Deh_c4_Medium i.Deh_c4_Low i.Deh_c4_Na ///
-	Dhh_owned_L1 Dcpst_Single_L1 Dnc_L1 L_Dhe_pcs ///
+	Dhh_owned_L1 Dcpst_Single_L1 Dnc_L1 ///
 	L_Ydses_c5_Q2 L_Ydses_c5_Q3 L_Ydses_c5_Q4 L_Ydses_c5_Q5 ///
 	L_Dlltsd01 $regions Year_transformed ///
 	Y2020 Y2021 $ethnicity ///
@@ -100,15 +101,16 @@ restore
 
 *Stage 2
 reghdfe dhm ///
-	EmployedToUnemployed UnemployedToEmployed PersistentUnemployed ///
-	NonPovertyToPoverty PovertyToNonPoverty PersistentPoverty ///
+	PersistentEmployed UnemployedToEmployed PersistentUnemployed ///
+	NoPoverty PovertyToNonPoverty PersistentPoverty ///
 	RealIncomeChange RealIncomeDecrease_D FinancialDistress D_Econ_benefits_NonUC ///
 	D_Econ_benefits_UC ///
 	D_Econ_benefits_UC_Lhw_TEN D_Econ_benefits_UC_Lhw_TWENTY D_Econ_benefits_UC_Lhw_THIRTY D_Econ_benefits_UC_Lhw_FORTY ///
+	Lhw_10 Lhw_20 Lhw_30 Lhw_40 ///
 	Ded Dgn Dag Dag_sq ///
-	Dhm_L1 ///
+	Dhm_L1 L_Dhe_pcs ///
 	i.Deh_c4_Medium i.Deh_c4_Low i.Deh_c4_Na ///
-	Dhh_owned_L1 Dcpst_Single_L1 Dnc_L1 L_Dhe_pcs ///
+	Dhh_owned_L1 Dcpst_Single_L1 Dnc_L1 ///
 	L_Ydses_c5_Q2 L_Ydses_c5_Q3 L_Ydses_c5_Q4 L_Ydses_c5_Q5 ///
 	L_Dlltsd01 $regions Year_transformed ///
 	Y2020 Y2021 $ethnicity ///
@@ -125,21 +127,22 @@ process_regression, domain("health_mental") process("HM2_Females_L") sheet("HM2_
 
 *Stage 2
 reghdfe dhm ///
-	EmployedToUnemployed UnemployedToEmployed PersistentUnemployed ///
-	NonPovertyToPoverty PovertyToNonPoverty PersistentPoverty ///
+	PersistentEmployed UnemployedToEmployed PersistentUnemployed ///
+	NoPoverty PovertyToNonPoverty PersistentPoverty ///
 	RealIncomeChange RealIncomeDecrease_D FinancialDistress D_Econ_benefits_NonUC ///
 	D_Econ_benefits_UC ///
 	D_Econ_benefits_UC_Lhw_TEN D_Econ_benefits_UC_Lhw_TWENTY D_Econ_benefits_UC_Lhw_THIRTY D_Econ_benefits_UC_Lhw_FORTY ///
+	Lhw_10 Lhw_20 Lhw_30 Lhw_40 ///
 	Ded Dgn Dag Dag_sq ///
-	Dhm_L1 ///
+	Dhm_L1 L_Dhe_pcs ///
 	i.Deh_c4_Medium i.Deh_c4_Low i.Deh_c4_Na ///
-	Dhh_owned_L1 Dcpst_Single_L1 Dnc_L1 L_Dhe_pcs ///
+	Dhh_owned_L1 Dcpst_Single_L1 Dnc_L1 ///
 	L_Ydses_c5_Q2 L_Ydses_c5_Q3 L_Ydses_c5_Q4 L_Ydses_c5_Q5 ///
 	L_Dlltsd01 $regions Year_transformed ///
 	Y2020 Y2021 $ethnicity ///
 	if ${hwb2_if_condition} & Dgn == 1 [pw=${weight}], absorb(idperson) vce(cluster idperson)
 
-process_regression, domain("health_mental") process("HM2_Males_L") sheet ("HM2_Males_L") ///
+process_regression, domain("health_mental") process("HM2_Males_L") sheet("HM2_Males_L") ///
 	title("Process HM2_Males_L: GHQ score 0-36") ///
 	gofrow(11) goflabel("HM2_Males_L: GHQ score 0-36") ///
 	ifcond("${hwb2_if_condition}") gformula maxestimates(15)
@@ -151,15 +154,15 @@ process_regression, domain("health_mental") process("HM2_Males_L") sheet ("HM2_M
 *Stage 1
 ologit dhm_ghq ///
 	Ded Dgn Dag Dag_sq ///
-	Dhmghq_L1 ///
+	Dhmghq_L1 L_Dhe_pcs ///
 	i.Deh_c4_Medium i.Deh_c4_Low i.Deh_c4_Na ///
-	Dhh_owned_L1 Dcpst_Single_L1 Dnc_L1 L_Dhe_pcs ///
+	Dhh_owned_L1 Dcpst_Single_L1 Dnc_L1 ///
 	L_Ydses_c5_Q2 L_Ydses_c5_Q3 L_Ydses_c5_Q4 L_Ydses_c5_Q5 ///
 	L_Dlltsd01 $regions Year_transformed ///
 	Y2020 Y2021 $ethnicity ///
 	if ${hwb2_if_condition} [pw=${weight}], vce(robust)
 
-process_ologit, domain("health_mental") process("HM1_C") sheet ("HM1_C") ///
+process_ologit, domain("health_mental") process("HM1_C") sheet("HM1_C") ///
 	title("Process HM1_C:Post-labour supply GHQ score 0-12") ///
 	gofrow(15) goflabel("HM1_C: GHQ score 0-12") ///
 	ifcond("${hwb2_if_condition}")
@@ -170,21 +173,22 @@ process_ologit, domain("health_mental") process("HM1_C") sheet ("HM1_C") ///
 
 *Stage 2
 reghdfe dhm_ghq ///
-	EmployedToUnemployed UnemployedToEmployed PersistentUnemployed ///
-	NonPovertyToPoverty PovertyToNonPoverty PersistentPoverty ///
+	PersistentEmployed UnemployedToEmployed PersistentUnemployed ///
+	NoPoverty PovertyToNonPoverty PersistentPoverty ///
 	RealIncomeChange RealIncomeDecrease_D FinancialDistress D_Econ_benefits_NonUC ///
 	D_Econ_benefits_UC ///
 	D_Econ_benefits_UC_Lhw_TEN D_Econ_benefits_UC_Lhw_TWENTY D_Econ_benefits_UC_Lhw_THIRTY D_Econ_benefits_UC_Lhw_FORTY ///
+	Lhw_10 Lhw_20 Lhw_30 Lhw_40 ///
 	Ded Dgn Dag Dag_sq ///
-	Dhmghq_L1 ///
+	Dhmghq_L1 L_Dhe_pcs ///
 	i.Deh_c4_Medium i.Deh_c4_Low i.Deh_c4_Na ///
-	Dhh_owned_L1 Dcpst_Single_L1 Dnc_L1 L_Dhe_pcs ///
+	Dhh_owned_L1 Dcpst_Single_L1 Dnc_L1 ///
 	L_Ydses_c5_Q2 L_Ydses_c5_Q3 L_Ydses_c5_Q4 L_Ydses_c5_Q5 ///
 	L_Dlltsd01 $regions Year_transformed ///
 	Y2020 Y2021 $ethnicity ///
 	if ${hwb2_if_condition} & Dgn == 0 [pw=${weight}], absorb(idperson) vce(cluster idperson)
 
-process_regression, domain("health_mental") process("HM2_Females_C") sheet ("HM2_Females_C") ///
+process_regression, domain("health_mental") process("HM2_Females_C") sheet("HM2_Females_C") ///
 	title("Process HM2_Females_C: GHQ score 0-12") ///
 	gofrow(19) goflabel("HM2_Females_C: GHQ score 0-12") ///
 	ifcond("${hwb2_if_condition}") gformula maxestimates(15)
@@ -195,21 +199,22 @@ process_regression, domain("health_mental") process("HM2_Females_C") sheet ("HM2
 
 *Stage 2
 reghdfe dhm_ghq ///
-	EmployedToUnemployed UnemployedToEmployed PersistentUnemployed ///
-	NonPovertyToPoverty PovertyToNonPoverty PersistentPoverty ///
+	PersistentEmployed UnemployedToEmployed PersistentUnemployed ///
+	NoPoverty PovertyToNonPoverty PersistentPoverty ///
 	RealIncomeChange RealIncomeDecrease_D FinancialDistress D_Econ_benefits_NonUC ///
 	D_Econ_benefits_UC ///
 	D_Econ_benefits_UC_Lhw_TEN D_Econ_benefits_UC_Lhw_TWENTY D_Econ_benefits_UC_Lhw_THIRTY D_Econ_benefits_UC_Lhw_FORTY ///
+	Lhw_10 Lhw_20 Lhw_30 Lhw_40 ///
 	Ded Dgn Dag Dag_sq ///
-	Dhmghq_L1 ///
+	Dhmghq_L1 L_Dhe_pcs ///
 	i.Deh_c4_Medium i.Deh_c4_Low i.Deh_c4_Na ///
-	Dhh_owned_L1 Dcpst_Single_L1 Dnc_L1 L_Dhe_pcs ///
+	Dhh_owned_L1 Dcpst_Single_L1 Dnc_L1 ///
 	L_Ydses_c5_Q2 L_Ydses_c5_Q3 L_Ydses_c5_Q4 L_Ydses_c5_Q5 ///
 	L_Dlltsd01 $regions Year_transformed ///
 	Y2020 Y2021 $ethnicity ///
 	if ${hwb2_if_condition} & Dgn == 1 [pw=${weight}], absorb(idperson) vce(cluster idperson)
 
-process_regression, domain("health_mental") process("HM2_Males_C") sheet ("HM2_Males_C") ///
+process_regression, domain("health_mental") process("HM2_Males_C") sheet("HM2_Males_C") ///
 	title("Process HM2_Males_C: GHQ score 0-12") ///
 	gofrow(23) goflabel("HM2_Males_C: GHQ score 0-12") ///
 	ifcond("${hwb2_if_condition}") gformula maxestimates(15)

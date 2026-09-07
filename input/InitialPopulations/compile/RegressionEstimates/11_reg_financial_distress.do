@@ -60,9 +60,9 @@ do "${dir_do}/programs.do"
 **********************************************************************
 
 logit financial_distress ///
-    EmployedToUnemployed UnemployedToEmployed PersistentUnemployed ///
+    PersistentEmployed UnemployedToEmployed PersistentUnemployed ///
     Lhw_10 Lhw_20 Lhw_30 Lhw_40 ///
-    RealIncomeChange RealIncomeDecrease_D NonPovertyToPoverty PovertyToNonPoverty PersistentPoverty ///
+    RealIncomeChange RealIncomeDecrease_D NoPoverty PovertyToNonPoverty PersistentPoverty ///
     L_Ypncp L_Ypnoab ///
     D_Econ_benefits Dhh_owned_L1 Dcpst_Single_L1 Dnc_L1 ///
     L_Dhe_pcs L_Dhe_mcs ///

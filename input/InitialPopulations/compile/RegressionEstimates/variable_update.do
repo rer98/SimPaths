@@ -1359,7 +1359,7 @@ gen Dhm = dhm
 gen Dhm_L1 = L1.Dhm if !missing(L1.Dhm)
 
 gen Dhmghq = dhm_ghq
-gen Dhmghq_L1 = L1.Dhm if !missing(L1.Dhmghq)
+gen Dhmghq_L1 = L1.Dhmghq if !missing(L1.Dhmghq)
 
 gen Dls = dls
 gen Dls_L1 = L1.Dls if !missing(L1.Dls)

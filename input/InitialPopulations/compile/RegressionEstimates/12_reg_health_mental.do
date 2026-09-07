@@ -114,7 +114,7 @@ reghdfe dhm ///
 	Y2020 Y2021 $ethnicity ///
 	if ${hwb2_if_condition} & Dgn == 0 [pw=${weight}], absorb(idperson) vce(cluster idperson)
 
-process_regression, domain("health_mental") process("HM2_Females_L") sheet ("HM2_Females_L") ///
+process_regression, domain("health_mental") process("HM2_Females_L") sheet("HM2_Females_L") ///
 	title("Process HM2_Females_L: GHQ score 0-36") ///
 	gofrow(7) goflabel("HM2_Females_L: GHQ score 0-36") ///
 	ifcond("${hwb2_if_condition}") gformula maxestimates(15)

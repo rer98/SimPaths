@@ -31,8 +31,8 @@ putexcel A3 = "Last edit: 4 September 2026 (AB)"
 putexcel A5 = "Process:", bold
 putexcel B5 = "Description:", bold
 
-putexcel A6 = "Process DHE_MCS1"
-putexcel B6 = "Mental Wellbeing, Stage 1 - estimated before labour supply :  SF12 MCS Score (0-100)"
+putexcel A6 = "Process FinDis"
+putexcel B6 = "Financial Distress (0/1) - logit model"
 
 putexcel set "$dir_results/reg_financial_distress", sheet("Gof") modify
 putexcel A1 = "Goodness of fit", bold	

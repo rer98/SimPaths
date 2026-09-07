@@ -153,11 +153,11 @@ process_regression, domain("health_wellbeing") process("DHE_MCS2_Males") sheet (
 
 /**************************** DHE_PCS1: SF12 PCS Score (0-100) ***************************/
 
-reg dhe_mcs ///
+reg dhe_pcs ///
 	Ded Dgn Dag Dag_sq ///
 	L_Dhe_mcs L_Dhe_pcs ///
 	i.Deh_c4_Medium i.Deh_c4_Low i.Deh_c4_Na ///
-	Dhh_owned_L1 Dcpst_Single_L1 Dnc_L1 L_Dhe_pcs ///
+	Dhh_owned_L1 Dcpst_Single_L1 Dnc_L1 ///
 	L_Ydses_c5_Q2 L_Ydses_c5_Q3 L_Ydses_c5_Q4 L_Ydses_c5_Q5 ///
 	L_Dlltsd01 $regions Year_transformed ///
 	Y2020 Y2021 $ethnicity ///

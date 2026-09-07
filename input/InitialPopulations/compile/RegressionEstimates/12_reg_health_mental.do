@@ -157,7 +157,7 @@ ologit dhm_ghq ///
 	L_Ydses_c5_Q2 L_Ydses_c5_Q3 L_Ydses_c5_Q4 L_Ydses_c5_Q5 ///
 	L_Dlltsd01 $regions Year_transformed ///
 	Y2020 Y2021 $ethnicity ///
-	if ${hwb2_if_condition} & Dgn == 1 [pw=${weight}], vce(robust)
+	if ${hwb2_if_condition} [pw=${weight}], vce(robust)
 
 process_ologit, domain("health_mental") process("HM1_C") sheet ("HM1_C") ///
 	title("Process HM1_C:Post-labour supply GHQ score 0-12") ///

@@ -17,12 +17,12 @@ set maxvar 30000
 
 /********************************* SET LOG FILE *******************************/
 cap log close 
-log using "${dir_log}/reg_health_wellbeing.log", replace
+log using "${dir_log}/reg_health_wellbeing_simple.log", replace
 
 
 /********************************* SET EXCEL FILE *****************************/
 
-putexcel set "$dir_results/reg_health_wellbeing", sheet("Info") modify //replace
+putexcel set "$dir_results/reg_health_wellbeing_simple", sheet("Info") modify //replace
 putexcel A1 = "Description:", bold
 putexcel B1 = "This file contains regression estimates for wellbeing processes: MCS, PCS and Life Satisfaction scores"
 putexcel A2 = "Authors:"	
@@ -51,7 +51,7 @@ putexcel B13 = "Life Satisfaction, Stage 2 - causal estimate post labour-supply 
 putexcel A14 = "Process DLS2_Males"
 putexcel B14 = "Life Satisfaction, Stage 2 - causal estimate post labour-supply (Males) :  Life Satisfaction Score (0-10)"
 
-putexcel set "$dir_results/reg_health_wellbeing", sheet("Gof") modify
+putexcel set "$dir_results/reg_health_wellbeing_simple", sheet("Gof") modify
 putexcel A1 = "Goodness of fit", bold	
 
 /********************************* PREPARE DATA *******************************/
@@ -84,7 +84,7 @@ reg dhe_mcs ///
 	Y2020 Y2021 $ethnicity ///
 	if ${hwb1_if_condition} [pw=${weight}], vce(cluster idperson)
 
-process_regression, domain("health_wellbeing") process("DHE_MCS1") sheet("DHE_MCS1") ///
+process_regression, domain("health_wellbeing_simple") process("DHE_MCS1") sheet("DHE_MCS1") ///
 	title("Process DHE_MCS1: SF12 MCS Score (0-100)") ///
 	gofrow(3) goflabel("DHE_MCS1 SF12 MCS Score (0-100)") ///
 	ifcond("${hwb1_if_condition}")	
@@ -109,8 +109,6 @@ reghdfe dhe_mcs ///
 	NoPoverty PovertyToNonPoverty PersistentPoverty ///
 	RealIncomeChange RealIncomeDecrease_D FinancialDistress D_Econ_benefits_NonUC ///
 	D_Econ_benefits_UC ///
-	D_Econ_benefits_UC_Lhw_TEN D_Econ_benefits_UC_Lhw_TWENTY D_Econ_benefits_UC_Lhw_THIRTY D_Econ_benefits_UC_Lhw_FORTY ///
-	Lhw_10 Lhw_20 Lhw_30 Lhw_40 ///
 	Ded Dgn Dag Dag_sq ///
 	L_Dhe_mcs L_Dhe_pcs ///
 	i.Deh_c4_Medium i.Deh_c4_Low i.Deh_c4_Na ///
@@ -120,10 +118,10 @@ reghdfe dhe_mcs ///
 	Y2020 Y2021 $ethnicity ///
 	if ${hwb2_if_condition} & Dgn == 0 [pw=${weight}], absorb(idperson) vce(cluster idperson)
 
-process_regression, domain("health_wellbeing") process("DHE_MCS2_Females") sheet("DHE_MCS2_Females") ///
+process_regression, domain("health_wellbeing_simple") process("DHE_MCS2_Females") sheet("DHE_MCS2_Females") ///
 	title("Process DHE_MCS2_Females: SF12 MCS Score (0-100)") ///
 	gofrow(7) goflabel("DHE_MCS2_Females: SF12 MCS Score (0-100)") ///
-	ifcond("${hwb2_if_condition}") gformula maxestimates(15)
+	ifcond("${hwb2_if_condition}") gformula maxestimates(11)
 
 
 
@@ -135,8 +133,6 @@ reghdfe dhe_mcs ///
 	NoPoverty PovertyToNonPoverty PersistentPoverty ///
 	RealIncomeChange RealIncomeDecrease_D FinancialDistress D_Econ_benefits_NonUC ///
 	D_Econ_benefits_UC ///
-	D_Econ_benefits_UC_Lhw_TEN D_Econ_benefits_UC_Lhw_TWENTY D_Econ_benefits_UC_Lhw_THIRTY D_Econ_benefits_UC_Lhw_FORTY ///
-	Lhw_10 Lhw_20 Lhw_30 Lhw_40 ///
 	Ded Dgn Dag Dag_sq ///
 	L_Dhe_mcs L_Dhe_pcs ///
 	i.Deh_c4_Medium i.Deh_c4_Low i.Deh_c4_Na ///
@@ -146,10 +142,10 @@ reghdfe dhe_mcs ///
 	Y2020 Y2021 $ethnicity ///
 	if ${hwb2_if_condition} & Dgn == 1 [pw=${weight}], absorb(idperson) vce(cluster idperson)
 
-process_regression, domain("health_wellbeing") process("DHE_MCS2_Males") sheet("DHE_MCS2_Males") ///
+process_regression, domain("health_wellbeing_simple") process("DHE_MCS2_Males") sheet("DHE_MCS2_Males") ///
 	title("Process DHE_MCS2_Males: SF12 MCS Score (0-100)") ///
 	gofrow(11) goflabel("DHE_MCS2_Males: SF12 MCS Score (0-100)") ///
-	ifcond("${hwb2_if_condition}") gformula maxestimates(15)
+	ifcond("${hwb2_if_condition}") gformula maxestimates(11)
 
 
 
@@ -165,7 +161,7 @@ reg dhe_pcs ///
 	Y2020 Y2021 $ethnicity ///
 	if ${hwb1_if_condition} [pw=${weight}], vce(cluster idperson)
 
-process_regression, domain("health_wellbeing") process("DHE_PCS1") sheet("DHE_PCS1") ///
+process_regression, domain("health_wellbeing_simple") process("DHE_PCS1") sheet("DHE_PCS1") ///
 	title("Process DHE_PCS1: SF12 PCS Score (0-100)") ///
 	gofrow(15) goflabel("DHE_PCS1 SF12 PCS Score (0-100)") ///
 	ifcond("${hwb1_if_condition}")	
@@ -190,8 +186,6 @@ reghdfe dhe_pcs ///
 	NoPoverty PovertyToNonPoverty PersistentPoverty ///
 	RealIncomeChange RealIncomeDecrease_D FinancialDistress D_Econ_benefits_NonUC ///
 	D_Econ_benefits_UC ///
-	D_Econ_benefits_UC_Lhw_TEN D_Econ_benefits_UC_Lhw_TWENTY D_Econ_benefits_UC_Lhw_THIRTY D_Econ_benefits_UC_Lhw_FORTY ///
-	Lhw_10 Lhw_20 Lhw_30 Lhw_40 ///
 	Ded Dgn Dag Dag_sq ///
 	L_Dhe_mcs L_Dhe_pcs ///
 	i.Deh_c4_Medium i.Deh_c4_Low i.Deh_c4_Na ///
@@ -201,10 +195,10 @@ reghdfe dhe_pcs ///
 	Y2020 Y2021 $ethnicity ///
 	if ${hwb2_if_condition} & Dgn == 0 [pw=${weight}], absorb(idperson) vce(cluster idperson)
 
-process_regression, domain("health_wellbeing") process("DHE_PCS2_Females") sheet("DHE_PCS2_Females") ///
+process_regression, domain("health_wellbeing_simple") process("DHE_PCS2_Females") sheet("DHE_PCS2_Females") ///
 	title("Process DHE_PCS2_Females: SF12 PCS Score (0-100)") ///
 	gofrow(19) goflabel("DHE_PCS2_Females: SF12 PCS Score (0-100)") ///
-	ifcond("${hwb2_if_condition}") gformula maxestimates(15)
+	ifcond("${hwb2_if_condition}") gformula maxestimates(11)
 
 
 
@@ -216,8 +210,6 @@ reghdfe dhe_pcs ///
 	NoPoverty PovertyToNonPoverty PersistentPoverty ///
 	RealIncomeChange RealIncomeDecrease_D FinancialDistress D_Econ_benefits_NonUC ///
 	D_Econ_benefits_UC ///
-	D_Econ_benefits_UC_Lhw_TEN D_Econ_benefits_UC_Lhw_TWENTY D_Econ_benefits_UC_Lhw_THIRTY D_Econ_benefits_UC_Lhw_FORTY ///
-	Lhw_10 Lhw_20 Lhw_30 Lhw_40 ///
 	Ded Dgn Dag Dag_sq ///
 	L_Dhe_mcs L_Dhe_pcs ///
 	i.Deh_c4_Medium i.Deh_c4_Low i.Deh_c4_Na ///
@@ -227,10 +219,10 @@ reghdfe dhe_pcs ///
 	Y2020 Y2021 $ethnicity ///
 	if ${hwb2_if_condition} & Dgn == 1 [pw=${weight}], absorb(idperson) vce(cluster idperson)
 
-process_regression, domain("health_wellbeing") process("DHE_PCS2_Males") sheet("DHE_PCS2_Males") ///
+process_regression, domain("health_wellbeing_simple") process("DHE_PCS2_Males") sheet("DHE_PCS2_Males") ///
 	title("Process DHE_PCS2_Males: SF12 PCS Score (0-100)") ///
 	gofrow(23) goflabel("DHE_PCS2_Males: SF12 PCS Score (0-100)") ///
-	ifcond("${hwb2_if_condition}") gformula maxestimates(15)
+	ifcond("${hwb2_if_condition}") gformula maxestimates(11)
 
 
 
@@ -246,7 +238,7 @@ reg dls ///
 	Y2020 Y2021 $ethnicity ///
 	if ${hwb1_if_condition} [pw=${weight}], vce(cluster idperson)
 
-process_regression, domain("health_wellbeing") process("DLS1") sheet("DLS1") ///
+process_regression, domain("health_wellbeing_simple") process("DLS1") sheet("DLS1") ///
 	title("Process DLS1: Life Satisfaction Score (0-10)") ///
 	gofrow(27) goflabel("DLS1 Life Satisfaction Score (0-10)") ///
 	ifcond("${hwb1_if_condition}")	
@@ -271,8 +263,6 @@ reghdfe dls ///
 	NoPoverty PovertyToNonPoverty PersistentPoverty ///
 	RealIncomeChange RealIncomeDecrease_D FinancialDistress D_Econ_benefits_NonUC ///
 	D_Econ_benefits_UC ///
-	D_Econ_benefits_UC_Lhw_TEN D_Econ_benefits_UC_Lhw_TWENTY D_Econ_benefits_UC_Lhw_THIRTY D_Econ_benefits_UC_Lhw_FORTY ///
-	Lhw_10 Lhw_20 Lhw_30 Lhw_40 ///
 	Ded Dgn Dag Dag_sq ///
 	Dls_L1 L_Dhe_pcs ///
 	i.Deh_c4_Medium i.Deh_c4_Low i.Deh_c4_Na ///
@@ -282,10 +272,10 @@ reghdfe dls ///
 	Y2020 Y2021 $ethnicity ///
 	if ${hwb2_if_condition} & Dgn == 0 [pw=${weight}], absorb(idperson) vce(cluster idperson)
 
-process_regression, domain("health_wellbeing") process("DLS2_Females") sheet("DLS2_Females") ///
+process_regression, domain("health_wellbeing_simple") process("DLS2_Females") sheet("DLS2_Females") ///
 	title("Process DLS2_Females: Life Satisfaction Score (0-10)") ///
 	gofrow(31) goflabel("DLS2_Females: Life Satisfaction Score (0-10)") ///
-	ifcond("${hwb2_if_condition}") gformula maxestimates(15)
+	ifcond("${hwb2_if_condition}") gformula maxestimates(11)
 
 
 
@@ -297,8 +287,6 @@ reghdfe dls ///
 	NoPoverty PovertyToNonPoverty PersistentPoverty ///
 	RealIncomeChange RealIncomeDecrease_D FinancialDistress D_Econ_benefits_NonUC ///
 	D_Econ_benefits_UC ///
-	D_Econ_benefits_UC_Lhw_TEN D_Econ_benefits_UC_Lhw_TWENTY D_Econ_benefits_UC_Lhw_THIRTY D_Econ_benefits_UC_Lhw_FORTY ///
-	Lhw_10 Lhw_20 Lhw_30 Lhw_40 ///
 	Ded Dgn Dag Dag_sq ///
 	Dls_L1 L_Dhe_pcs ///
 	i.Deh_c4_Medium i.Deh_c4_Low i.Deh_c4_Na ///
@@ -308,10 +296,10 @@ reghdfe dls ///
 	Y2020 Y2021 $ethnicity ///
 	if ${hwb2_if_condition} & Dgn == 1 [pw=${weight}], absorb(idperson) vce(cluster idperson)
 
-process_regression, domain("health_wellbeing") process("DLS2_Males") sheet("DLS2_Males") ///
+process_regression, domain("health_wellbeing_simple") process("DLS2_Males") sheet("DLS2_Males") ///
 	title("Process DLS2_Males: Life Satisfaction Score (0-10)") ///
 	gofrow(35) goflabel("DLS2_Males: Life Satisfaction Score (0-10)") ///
-	ifcond("${hwb2_if_condition}") gformula maxestimates(15)
+	ifcond("${hwb2_if_condition}") gformula maxestimates(11)
 
 
 

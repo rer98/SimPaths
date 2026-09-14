@@ -1,16 +1,15 @@
-FROM eclipse-temurin:17-jre
+FROM eclipse-temurin:25-jre
 
 RUN apt-get update && apt-get install -y xvfb libxtst6 libxi6 libxrender1 && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY target/*.jar /tmp/
-RUN mv $(ls /tmp/*.jar | grep -v original) /app/app.jar && rm -rf /tmp/*.jar
+COPY singlerun.jar /app/app.jar
 
 COPY webserver.properties .
 COPY input/ input/
-COPY metadata/ metadata/
 COPY README.md .
+COPY license.txt .
 
 RUN mkdir -p output
 

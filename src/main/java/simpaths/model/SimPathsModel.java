@@ -672,11 +672,18 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
         yearlySchedule.addCollectionEvent(set, ee);
     }
 
+    static File resolveRunOptionsFile(String outputFolder) {
+        return new File(new File(outputFolder, "input"), "options.txt");
+    }
+
     private void saveRunParameters() {
 
-        String filePath = DatabaseUtils.databaseInputUrl;
-        filePath = filePath.substring(0, filePath.length()-5) + "options.txt";
-        try ( FileWriter fw = new FileWriter(filePath, true);
+        File optionsFile = resolveRunOptionsFile(getEngine().getCurrentExperiment().getOutputFolder());
+        File inputDirectory = optionsFile.getParentFile();
+        if (!inputDirectory.isDirectory() && !inputDirectory.mkdirs()) {
+            throw new IllegalStateException("Could not create run input directory: " + inputDirectory);
+        }
+        try ( FileWriter fw = new FileWriter(optionsFile, true);
               BufferedWriter bw = new BufferedWriter(fw);
               PrintWriter pw = new PrintWriter(bw)
         ) {

@@ -620,11 +620,14 @@ public class TaxDonorDataParser {
 
         // establish session for database link
         EntityTransaction txn = null;
+        jakarta.persistence.EntityManagerFactory factory = null;
+        EntityManager em = null;
         try {
             // access database and obtain donor pool
             var propertyMap = new HashMap<String, String>();
             propertyMap.put("hibernate.connection.url", "jdbc:h2:file:" + Parameters.getInputDirectory() + "input" + ";TRACE_LEVEL_FILE=0;TRACE_LEVEL_SYSTEM_OUT=0;AUTO_SERVER=TRUE");
-            EntityManager em = Persistence.createEntityManagerFactory("tax-database", propertyMap).createEntityManager();
+            factory = Persistence.createEntityManagerFactory("tax-database", propertyMap);
+            em = factory.createEntityManager();
             txn = em.getTransaction();
             txn.begin();
 
@@ -768,13 +771,17 @@ public class TaxDonorDataParser {
 
             // close connection
             txn.commit();
-            em.close();
         } catch (Exception e) {
-            if (txn != null) {
-                txn.rollback();
+            if (txn != null && txn.isActive()) {
+                try { txn.rollback(); } catch (RuntimeException rollback) { e.addSuppressed(rollback); }
             }
-            e.printStackTrace();
-            throw new RuntimeException("Problem populating tax unit database for imputing tax and benefit payments");
+            throw new RuntimeException("Problem populating tax unit database for imputing tax and benefit payments", e);
+        } finally {
+            try {
+                if (em != null && em.isOpen()) em.close();
+            } finally {
+                if (factory != null && factory.isOpen()) factory.close();
+            }
         }
 
         // remove message box

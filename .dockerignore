@@ -10,6 +10,8 @@
 !input/**
 
 # Keep local-only or potentially restricted inputs out of Docker contexts.
+input/.simpaths-web-profile.properties
+input/.simpaths-profile-*.tmp
 input/input.h2.db
 input/input.trace.db
 input/input.mv.db

@@ -90,13 +90,13 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
 
     private boolean flagUpdateCountry = false;  // set to true if switch between countries
 
-    @GUIparameter(description = "Simulated population size (base year)")
+    @GUIparameter(description = "Simulated population size (base year)", runtimeModifiable = false)
     private Integer popSize = 50000;
 
-    @GUIparameter(description = "Simulation first year [valid range 2011-2019]")
+    @GUIparameter(description = "Simulation first year [valid range 2011-2019]", runtimeModifiable = false)
     private Integer startYear = 2011;
 
-    @GUIparameter(description = "Simulation ends at year")
+    @GUIparameter(description = "Simulation ends at year", runtimeModifiable = false)
     private Integer endYear = 2026;
 
     @GUIparameter(description = "Maximum simulated age")
@@ -125,10 +125,10 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
 //	@GUIparameter(description="Maximum age for females to retire")
 //	private Integer maxRetireAgeFemales = 75;
 
-    @GUIparameter(description = "Fix random seed?")
+    @GUIparameter(description = "Fix random seed?", runtimeModifiable = false)
     private Boolean fixRandomSeed = true;
 
-    @GUIparameter(description = "If random seed is fixed, set to this number")
+    @GUIparameter(description = "If random seed is fixed, set to this number", runtimeModifiable = false)
     private Long randomSeedIfFixed = 606L;
 
     @GUIparameter(description = "Time window in years for (in)security index calculation")

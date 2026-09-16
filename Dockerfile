@@ -17,5 +17,4 @@ EXPOSE 7070
 
 ENV JAVA_OPTS=""
 
-CMD ["sh", "-c", "Xvfb :99 -screen 0 1024x768x24 & export DISPLAY=:99 && exec java $JAVA_OPTS -cp app.jar microsim.web.SimulationServer"]
-
+CMD ["sh", "-c", "Xvfb :99 -screen 0 1024x768x24 & export DISPLAY=:99 && exec java $JAVA_OPTS -cp app.jar simpaths.experiment.SimPathsWebBootstrap"]

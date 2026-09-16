@@ -4,8 +4,6 @@ package simpaths.experiment;
 // import Java packages
 import java.awt.Dimension;
 
-import org.apache.commons.beanutils.ConvertUtils;
-import org.apache.commons.beanutils.Converter;
 import org.apache.commons.cli.*;
 import org.apache.commons.cli.help.HelpFormatter;
 
@@ -36,7 +34,6 @@ import microsim.gui.shell.MicrosimShell;
 
 // import SimPaths packages
 import simpaths.model.enums.Country;
-import simpaths.model.enums.UnionMatchingMethod;
 import simpaths.data.*;
 import simpaths.model.taxes.database.TaxDonorDataParser;
 
@@ -46,7 +43,23 @@ import simpaths.model.taxes.database.TaxDonorDataParser;
  * 	CLASS FOR SINGLE SIMULATION EXECUTION
  *
  */
-public class SimPathsStart implements ExperimentBuilder {
+public class SimPathsStart implements ExperimentBuilder, microsim.web.server.WebBuildValidator {
+
+    private static SimPathsStartupConfig webProfile;
+
+    static void configureWeb(SimPathsStartupConfig config) {
+        webProfile = config;
+        country = config.country();
+        startYear = config.startYear();
+    }
+
+    @Override
+    public void validateWebBuildParameters(Map<String, Object> parameters) {
+        if (webProfile != null) {
+            webProfile.validateBuildParameters(parameters);
+            SimPathsSetupService.requirePreparedInputs();
+        }
+    }
 
 	// default simulation parameters
 	private static Country country = Country.UK;
@@ -97,19 +110,7 @@ public class SimPathsStart implements ExperimentBuilder {
 
 		// start the JAS-mine simulation engine
 		System.out.println("Starting simulation...");
-        ConvertUtils.register(new Converter() {
-            @Override
-            public <T> T convert(Class<T> type, Object value) {
-                if (value == null || value.toString().isBlank()) {
-                    return type.cast(UnionMatchingMethod.ParametricNoRegion);
-                }
-                try {
-                    return type.cast(UnionMatchingMethod.valueOf(value.toString()));
-                } catch (IllegalArgumentException e) {
-                    return type.cast(UnionMatchingMethod.ParametricNoRegion);
-                }
-            }
-        }, UnionMatchingMethod.class);
+        SimPathsSetupService.registerConverters();
 		final SimulationEngine engine = SimulationEngine.getInstance();
 		MicrosimShell gui = null;
 		if (showGui) {
@@ -245,78 +246,30 @@ public class SimPathsStart implements ExperimentBuilder {
 
 		// instantiate simulation processes
 		SimPathsModel model = new SimPathsModel(country, startYear);
+        if (webProfile != null) {
+            model.setPopSize(webProfile.populationSize());
+            model.setEndYear(webProfile.endYear());
+            model.setFixRandomSeed(true);
+            model.setRandomSeedIfFixed(webProfile.seed());
+        }
 		SimPathsCollector collector = new SimPathsCollector(model);
 		SimPathsObserver observer = new SimPathsObserver(model, collector);
 
 		engine.addSimulationManager(model);
 		engine.addSimulationManager(collector);
-		if (showGui) engine.addSimulationManager(observer);
+		if (webProfile == null ? showGui : webProfile.includeObserver()) engine.addSimulationManager(observer);
 
 		model.setCollector(collector);
 	}
 
 	private static void runGUIlessSetup(int option) throws FileNotFoundException {
 
-		// Detect if data available; set to training data if not.
-		Collection<File> testList = FileUtils.listFiles(new File(Parameters.getInputDirectoryInitialPopulations()), new String[]{"csv"}, false);
-		if (testList.size()==0)
-			Parameters.setTrainingFlag(true);
-
-		Parameters.validateStartYear(startYear);
-
-		// Create EUROMODPolicySchedule input from files
-		if (!rewritePolicySchedule &&
-				!new File(Parameters.getInputDirectory() + Parameters.EUROMODpolicyScheduleFilename + ".xlsx").exists()) {
-			throw new FileNotFoundException("Policy Schedule file '"+ File.separator + Parameters.getInputDirectory() +
-					Parameters.EUROMODpolicyScheduleFilename + ".xlsx` doesn't exist. " +
-					"Provide excel file or use `--rewrite-policy-schedule` to re-construct from available policy files.");
-		};
-		if (rewritePolicySchedule) writePolicyScheduleExcelFile();
-		//Save the last selected country and year to Excel to use in the model if GUI launched straight away
-		String[] columnNames = {"Country", "Year"};
-		Object[][] data = new Object[1][columnNames.length];
-		data[0][0] = country.toString();
-		data[0][1] = startYear;
-		XLSXfileWriter.createXLSX(Parameters.INPUT_DIRECTORY, Parameters.DatabaseCountryYearFilename, "Data", columnNames, data);
-
-		// load uprating factors
-		Parameters.loadTimeSeriesFactorMaps(country);
-		Parameters.instantiateAlignmentMaps();
-
-		// set-up database
-		Parameters.databaseSetup(country, showGui, startYear);
+        SimPathsSetupService.prepareDesktopInputs(country, startYear, showGui, rewritePolicySchedule);
 	}
 
 	public static void writePolicyScheduleExcelFile() {
 
-		Collection<File> euromodOutputTextFiles = FileUtils.listFiles(new File(Parameters.getEuromodOutputDirectory()), new String[]{"txt"}, false);
-		Iterator<File> fIter = euromodOutputTextFiles.iterator();
-		while (fIter.hasNext()) {
-			File file = fIter.next();
-			if (file.getName().endsWith("_EMHeader.txt")) {
-				fIter.remove();
-			}
-		}
-
-		// create table to allow user specification of policy environment
-		String[] columnNames = {
-				Parameters.EUROMODpolicyScheduleHeadingFilename,
-				Parameters.EUROMODpolicyScheduleHeadingScenarioYearBegins.replace('_', ' '),
-				Parameters.EUROMODpolicyScheduleHeadingScenarioSystemYear.replace('_', ' '),
-				Parameters.EUROMODpolicySchedulePlanHeadingDescription
-		};
-		Object[][] data = new Object[euromodOutputTextFiles.size()][columnNames.length];
-		int row = 0;
-		for (File file: euromodOutputTextFiles) {
-			String name = file.getName();
-			data[row][0] = name;
-			data[row][1] = name.split("_")[1];
-			data[row][2] = name.split("_")[1];
-			data[row][3] = "";
-			row++;
-		}
-
-		XLSXfileWriter.createXLSX(Parameters.INPUT_DIRECTORY, Parameters.EUROMODpolicyScheduleFilename, country.toString(), columnNames, data);
+        SimPathsSetupService.writePolicySchedule(country);
 	}
 
 

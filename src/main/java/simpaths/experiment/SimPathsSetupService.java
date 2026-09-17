@@ -2,7 +2,6 @@ package simpaths.experiment;
 
 import java.io.*;
 import java.nio.file.*;
-import java.security.*;
 import java.util.*;
 import org.apache.commons.beanutils.ConvertUtils;
 import org.apache.commons.beanutils.Converter;
@@ -15,80 +14,40 @@ import simpaths.model.enums.UnionMatchingMethod;
 /** Non-visual preparation shared by desktop CLI and the web bootstrap. */
 public final class SimPathsSetupService {
     private SimPathsSetupService() {}
-    private static final String PROFILE = "uk-2019-training-v1";
-    private static Path marker() {
-        return Path.of(Parameters.getInputDirectory(), ".simpaths-web-profile.properties");
-    }
-
     /** Only use in a private workspace. Rebuilding an existing database is explicit. */
     public static void prepareQuickStart(SimPathsStartupConfig config, boolean rebuild) throws IOException {
         Parameters.setTrainingFlag(true);
         Parameters.validateStartYear(config.startYear());
         registerConverters();
         Path input = Path.of(Parameters.getInputDirectory());
-        Path population = input.resolve("InitialPopulations/training/population_initial_UK_2019.csv");
-        Path schedule = input.resolve("EUROMODoutput/training/EUROMODpolicySchedule.xlsx");
-        if (!Files.isRegularFile(population) || !Files.isRegularFile(schedule)) {
-            throw new IOException("UK/2019 training population and policy template are required");
-        }
-        if (!rebuild && Files.exists(marker())) {
-            requirePreparedInputs();
+        // Only a definitely absent database permits automatic preparation.
+        if (!rebuild && !Files.notExists(input.resolve("input.mv.db"))) {
+            verifyDatabase(input.resolve("input"));
             Parameters.loadTimeSeriesFactorMaps(config.country());
             Parameters.instantiateAlignmentMaps();
             Parameters.setTaxDonorInputFileName("tax_donor_population_" + config.country());
-            System.out.println("Reusing validated UK/2019 training inputs");
+            System.out.println("Reusing existing UK/2019 input database after basic readiness checks");
             return;
         }
-        if (!rebuild && Files.exists(input.resolve("input.mv.db"))) {
-            throw new IOException("Existing database has no validated web profile. "
-                    + "Use a fresh private workspace or --rebuild-inputs explicitly.");
+        Path population = input.resolve("InitialPopulations/training/population_initial_UK_2019.csv");
+        Path schedule = input.resolve("EUROMODoutput/training/EUROMODpolicySchedule.xlsx");
+        if (!Files.isRegularFile(population) || !Files.isRegularFile(schedule)) {
+            throw new IOException("UK/2019 training population and policy template are required for preparation");
         }
-        // Invalidate before preparation so an interrupted rebuild cannot appear ready.
-        Files.deleteIfExists(marker());
         Files.copy(schedule, input.resolve("EUROMODpolicySchedule.xlsx"), StandardCopyOption.REPLACE_EXISTING);
         prepareDesktopInputs(config.country(), config.startYear(), false, false);
-        if (!Files.isRegularFile(input.resolve("input.mv.db"))) {
-            throw new IOException("Preparation did not create the input database");
-        }
         verifyDatabase(input.resolve("input"));
-        Properties prepared = new Properties();
-        prepared.setProperty("profile", PROFILE);
-        prepared.setProperty("artifact", artifactFingerprint());
-        prepared.setProperty("inputs", fingerprint(input));
-        Path temporary = Files.createTempFile(input, ".simpaths-profile-", ".tmp");
-        try {
-            try (OutputStream out = Files.newOutputStream(temporary)) {
-                prepared.store(out, "Validated SimPaths web profile; regenerate after input changes");
-            }
-            Files.move(temporary, marker(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        } finally {
-            Files.deleteIfExists(temporary);
-        }
         System.out.println("Prepared UK/2019 training inputs");
     }
 
-    /** Build-time check, never invoked merely to inspect parameter defaults. */
+    /** Read-only Build check; never regenerates inputs or scans/hashes the input tree. */
     public static void requirePreparedInputs() {
         try {
-            Properties prepared = new Properties();
-            try (InputStream in = Files.newInputStream(marker())) { prepared.load(in); }
-            if (!PROFILE.equals(prepared.getProperty("profile"))
-                    || !artifactFingerprint().equals(prepared.getProperty("artifact"))
-                    || !fingerprint(Path.of(Parameters.getInputDirectory())).equals(prepared.getProperty("inputs"))) {
-                throw new IOException("Profile mismatch");
-            }
+            verifyDatabase(Path.of(Parameters.getInputDirectory(), "input"));
         } catch (IOException e) {
-            throw new IllegalArgumentException("Prepared inputs are missing or changed. "
-                    + "Prepare this private workspace again with --rebuild-inputs before Build.", e);
-        }
-    }
-
-    private static String artifactFingerprint() throws IOException {
-        try {
-            Path code = Path.of(SimPathsSetupService.class.getProtectionDomain().getCodeSource().getLocation().toURI());
-            return fingerprint(code);
-        } catch (java.net.URISyntaxException e) {
-            throw new IOException("Cannot identify the model artifact", e);
+            throw new IllegalArgumentException("Input database readiness check failed: " + e.getMessage()
+                    + ". Resolve access problems or explicitly prepare the private workspace "
+                    + "with --rebuild-inputs if regeneration is intended. No automatic rebuild was attempted.", e);
         }
     }
 
@@ -105,42 +64,10 @@ public final class SimPathsSetupService {
                 }
             }
         } catch (java.sql.SQLException e) {
-            throw new IOException("Prepared database is incomplete or unavailable", e);
+            throw new IOException("Prepared database is incomplete or unavailable: " + e.getMessage(), e);
         }
     }
 
-    /** Hash all non-hidden input files, including H2; reject symbolic links. */
-    static String fingerprint(Path root) throws IOException {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            List<Path> paths;
-            if (Files.isDirectory(root)) {
-                try (var stream = Files.walk(root)) { paths = stream.sorted().toList(); }
-            } else {
-                paths = List.of(root);
-            }
-            byte[] buffer = new byte[65536];
-            for (Path path : paths) {
-                if (Files.isSymbolicLink(path)) throw new IOException("Symbolic links are not supported in prepared inputs");
-                if (!Files.isRegularFile(path)) continue;
-                Path relative = root.equals(path) ? Path.of("artifact") : root.relativize(path);
-                boolean hidden = false;
-                for (Path part : relative) if (part.toString().startsWith(".")) hidden = true;
-                if (hidden) continue;
-                digest.update(relative.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                digest.update((byte) 0);
-                digest.update(java.nio.ByteBuffer.allocate(Long.BYTES).putLong(Files.size(path)).array());
-                try (InputStream in = Files.newInputStream(path)) {
-                    int count;
-                    while ((count = in.read(buffer)) != -1) digest.update(buffer, 0, count);
-                }
-                digest.update((byte) 0);
-            }
-            return HexFormat.of().formatHex(digest.digest());
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException(e);
-        }
-    }
     public static void registerConverters() {
         ConvertUtils.register(new Converter() {
             @Override

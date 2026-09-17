@@ -331,10 +331,74 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
 
 //    private static String RunDatabasePath = RunDatabasePath;
     private static String RunDatabasePath;
+    // Retain starting-population resources across builds using the same database.
+    private static EntityManagerFactory startingPopulationFactory;
+    private static String startingPopulationFactoryPath;
+    private static boolean startingPopulationShutdownHookRegistered;
+
+    private static synchronized EntityManagerFactory getStartingPopulationFactory(String databasePath) {
+        if (!startingPopulationShutdownHookRegistered) {
+            Runtime.getRuntime().addShutdownHook(new Thread(
+                    SimPathsModel::closeStartingPopulationFactory, "simpaths-starting-population-shutdown"));
+            startingPopulationShutdownHookRegistered = true;
+        }
+        if (startingPopulationFactory != null &&
+                (!startingPopulationFactory.isOpen() || !databasePath.equals(startingPopulationFactoryPath))) {
+            closeStartingPopulationFactory();
+        }
+        if (startingPopulationFactory == null) {
+            var properties = new HashMap<String, String>();
+            properties.put("hibernate.connection.url", "jdbc:h2:file:" + databasePath +
+                    ";TRACE_LEVEL_FILE=0;TRACE_LEVEL_SYSTEM_OUT=0;AUTO_SERVER=TRUE");
+            startingPopulationFactory = Persistence.createEntityManagerFactory("starting-population", properties);
+            startingPopulationFactoryPath = databasePath;
+        }
+        return startingPopulationFactory;
+    }
+
+    private static synchronized void closeStartingPopulationFactory() {
+        if (startingPopulationFactory != null && startingPopulationFactory.isOpen()) {
+            startingPopulationFactory.close();
+        }
+        startingPopulationFactory = null;
+        startingPopulationFactoryPath = null;
+    }
+
+    // Retain processed-population resources across builds using the same database.
+    private static EntityManagerFactory processedPopulationFactory;
+    private static String processedPopulationFactoryPath;
+    private static boolean processedPopulationShutdownHookRegistered;
+
+    private static synchronized EntityManagerFactory getProcessedPopulationFactory(String databasePath) {
+        if (!processedPopulationShutdownHookRegistered) {
+            Runtime.getRuntime().addShutdownHook(new Thread(
+                    SimPathsModel::closeProcessedPopulationFactory, "simpaths-processed-population-shutdown"));
+            processedPopulationShutdownHookRegistered = true;
+        }
+        if (processedPopulationFactory != null &&
+                (!processedPopulationFactory.isOpen() || !databasePath.equals(processedPopulationFactoryPath))) {
+            closeProcessedPopulationFactory();
+        }
+        if (processedPopulationFactory == null) {
+            var properties = new HashMap<String, String>();
+            properties.put("hibernate.connection.url", "jdbc:h2:file:" + databasePath +
+                    ";TRACE_LEVEL_FILE=0;TRACE_LEVEL_SYSTEM_OUT=0;AUTO_SERVER=TRUE");
+            processedPopulationFactory = Persistence.createEntityManagerFactory("starting-population", properties);
+            processedPopulationFactoryPath = databasePath;
+        }
+        return processedPopulationFactory;
+    }
+
+    private static synchronized void closeProcessedPopulationFactory() {
+        if (processedPopulationFactory != null && processedPopulationFactory.isOpen()) {
+            processedPopulationFactory.close();
+        }
+        processedPopulationFactory = null;
+        processedPopulationFactoryPath = null;
+    }
+
     private static String PersistDatabasePath;
     private static boolean PersistPopulation = false;
-    private static EntityManagerFactory emfStartingPopulationRun = null;
-    private static EntityManagerFactory emfStartingPopulationPersist = null;
 
 
 
@@ -3389,12 +3453,15 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
             // start work
             //------------------------------------------------------------
             EntityTransaction txn = null;
+            EntityManagerFactory factory = null;
+            EntityManager em = null;
             try {
 
                 // access database and obtain donor pool
                 var propertyMap = new HashMap<String, String>();
                 propertyMap.put("hibernate.connection.url", "jdbc:h2:file:" + RunDatabasePath + ";TRACE_LEVEL_FILE=0;TRACE_LEVEL_SYSTEM_OUT=0;AUTO_SERVER=TRUE");
-                EntityManager em = Persistence.createEntityManagerFactory("tax-database", propertyMap).createEntityManager();
+                factory = Persistence.createEntityManagerFactory("tax-database", propertyMap);
+                em = factory.createEntityManager();
                 txn = em.getTransaction();
                 txn.begin();
                 String query = "SELECT DISTINCT tu FROM DonorTaxUnit tu LEFT JOIN FETCH tu.policies tp ORDER BY tp.originalIncomePerMonth";
@@ -3486,12 +3553,13 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
 
                 // close database connection
                 txn.commit();
-                em.close();
             } catch (Exception e) {
                 if (txn != null && txn.isActive()) {
                     txn.rollback();
                 }
                 e.printStackTrace();
+            } finally {
+                closeDatabaseResources(em, factory);
             }
         }
     }
@@ -3520,13 +3588,16 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
         System.out.println("Loading simulated income histories");
         LifetimeIncomeImputation lifetimeIncomes = null;
         EntityTransaction txn = null;
+        EntityManagerFactory factory = null;
+        EntityManager em = null;
         try {
 
             // query database
             String fileName = Parameters.getInputDirectory() + "input";
             var propertyMap = new HashMap<String, String>();
             propertyMap.put("hibernate.connection.url", "jdbc:h2:file:" + fileName + ";TRACE_LEVEL_FILE=0;TRACE_LEVEL_SYSTEM_OUT=0;AUTO_SERVER=TRUE");
-            EntityManager em = Persistence.createEntityManagerFactory("lifetime-incomes", propertyMap).createEntityManager();
+            factory = Persistence.createEntityManagerFactory("lifetime-incomes", propertyMap);
+            em = factory.createEntityManager();
             txn = em.getTransaction();
             txn.begin();
             String query = "SELECT DISTINCT cohort FROM BirthCohort cohort";
@@ -3536,16 +3607,18 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
             List<BirthCohort> cohorts = em.createQuery(query).getResultList();
             lifetimeIncomes = new LifetimeIncomeImputation(year, cohorts);
 
-            // close database connection
+            // Finish the read-only transaction without flushing loaded entities.
+            txn.rollback();
             log.info("Query complete");
             System.out.println("Query complete");
-            em.close();
         } catch (Exception e) {
-            if (txn != null) {
+            if (txn != null && txn.isActive()) {
                 txn.rollback();
             }
             e.printStackTrace();
             throw new RuntimeException("Problem sourcing data for starting population");
+        } finally {
+            closeDatabaseResources(em, factory);
         }
 
         return lifetimeIncomes;
@@ -3560,14 +3633,11 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
         Processed processed = null;
 
         EntityTransaction txn = null;
+        EntityManager em = null;
         try {
 
             // query database
-            var propertyMap = new HashMap<String, String>();
-            propertyMap.put("hibernate.connection.url", "jdbc:h2:file:" + getPersistDatabasePath() + ";TRACE_LEVEL_FILE=0;TRACE_LEVEL_SYSTEM_OUT=0;AUTO_SERVER=TRUE");
-            if (emfStartingPopulationPersist == null)
-                emfStartingPopulationPersist = Persistence.createEntityManagerFactory("starting-population", propertyMap);
-            EntityManager em = emfStartingPopulationPersist.createEntityManager();
+            em = getProcessedPopulationFactory(getPersistDatabasePath()).createEntityManager();
             txn = em.getTransaction();
             txn.begin();
 //            String query = "SELECT DISTINCT processed FROM Processed processed LEFT JOIN FETCH processed.households households LEFT JOIN FETCH households.benefitUnits benefitUnits LEFT JOIN FETCH benefitUnits.members members WHERE processed.startYear = " + startYear + " AND processed.popSize = " + popSize + " AND processed.country = " + country + " AND processed.noTargets = " + ignoreTargetsAtPopulationLoad + " ORDER BY households.key.id";
@@ -3592,14 +3662,16 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
                         .resetDependents();
             }
 
-            // close database connection
-            em.close();
+            // Finish the read-only transaction without flushing loaded entities.
+            txn.rollback();
         } catch (Exception e) {
-            if (txn != null) {
+            if (txn != null && txn.isActive()) {
                 txn.rollback();
             }
             e.printStackTrace();
             throw new RuntimeException("Problem sourcing data for starting population");
+        } finally {
+            if (em != null) em.close();
         }
 
         return processed;
@@ -3610,13 +3682,10 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
         List<Household> households;
 
         EntityTransaction txn = null;
+        EntityManager em = null;
         try {
 
-            var propertyMap = new HashMap<String, String>();
-            propertyMap.put("hibernate.connection.url", "jdbc:h2:file:" + RunDatabasePath + ";TRACE_LEVEL_FILE=0;TRACE_LEVEL_SYSTEM_OUT=0;AUTO_SERVER=TRUE");
-            if (emfStartingPopulationRun == null)
-                emfStartingPopulationRun = Persistence.createEntityManagerFactory("starting-population", propertyMap);
-            EntityManager em = emfStartingPopulationRun.createEntityManager();
+            em = getStartingPopulationFactory(RunDatabasePath).createEntityManager();
             txn = em.getTransaction();
             txn.begin();
             String query = "SELECT households FROM Household households";
@@ -3632,14 +3701,16 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
                 }
             }
 
-            // close database connection
-            em.close();
+            // Finish the read-only transaction without flushing loaded entities.
+            txn.rollback();
         } catch (Exception e) {
-            if (txn != null) {
+            if (txn != null && txn.isActive()) {
                 txn.rollback();
             }
             e.printStackTrace();
             throw new RuntimeException("Problem sourcing data for starting population");
+        } finally {
+            if (em != null) em.close();
         }
 
         return households;
@@ -3652,13 +3723,10 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
     private void persistProcessed(Set<Household> households, Country country, int startYear, int popSize, boolean ignoreTargetsAtPopulationLoad) {
 
         EntityTransaction txn = null;
+        EntityManager em = null;
         try {
 
-            var propertyMap = new HashMap<String, String>();
-            propertyMap.put("hibernate.connection.url", "jdbc:h2:file:" + getPersistDatabasePath() + ";TRACE_LEVEL_FILE=0;TRACE_LEVEL_SYSTEM_OUT=0;AUTO_SERVER=TRUE");
-            if (emfStartingPopulationPersist == null)
-                emfStartingPopulationPersist = Persistence.createEntityManagerFactory("starting-population", propertyMap);
-            EntityManager em = emfStartingPopulationPersist.createEntityManager();
+            em = getProcessedPopulationFactory(getPersistDatabasePath()).createEntityManager();
             txn = em.getTransaction();
             txn.begin();
 
@@ -3683,13 +3751,22 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
             log.info("Re-running em.persist()");
             em.persist(processed);
             txn.commit();
-            em.close();
         } catch (Exception e) {
-            if (txn != null) {
+            if (txn != null && txn.isActive()) {
                 txn.rollback();
             }
             e.printStackTrace();
             throw new RuntimeException("Problem sourcing data for starting population");
+        } finally {
+            if (em != null) em.close();
+        }
+    }
+
+    private static void closeDatabaseResources(EntityManager em, EntityManagerFactory factory) {
+        try {
+            if (em != null) em.close();
+        } finally {
+            if (factory != null) factory.close();
         }
     }
 

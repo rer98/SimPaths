@@ -16,30 +16,37 @@ java -Djava.awt.headless=true -cp singlerun.jar simpaths.experiment.SimPathsWebB
 java -cp singlerun.jar simpaths.experiment.SimPathsWebBootstrap
 ```
 
-For a fresh workspace without a database, either command prepares it first.
-If a database already exists without a matching preparation record, the
-bootstrap refuses to silently replace it. To deliberately rebuild a private
-workspace, add `--rebuild-inputs` (optionally with `--prepare-only`). Never do
-this in a shared input directory or against the only copy of research inputs.
+For a fresh workspace without `input/input.mv.db`, either command prepares it
+first. An existing database is reused if it passes basic readiness checks; no
+preparation marker is required. A failed check stops startup without rebuilding
+or replacing the database. Resolve access problems first; failure does not
+necessarily mean that regeneration is needed.
 
-Preparation reuses the same non-visual operations as the desktop CLI:
-training selection, country/year record, time-series and alignment maps,
-initial population and tax-donor database construction, and converter setup.
-The training policy template is copied to the effective top-level schedule.
-Population and donor tables must be present and nonempty before completion.
+To deliberately rebuild a private workspace, add `--rebuild-inputs` (optionally
+with `--prepare-only`). There is no automatic backup. Preparation uses the same
+non-visual operations as the desktop CLI: training selection, country/year record,
+time-series and alignment maps, population and tax-donor database construction,
+and converter setup. It replaces the effective policy schedule with the training
+template. Normal reuse does not replace that schedule. Training preparation CSV
+and template checks run only when preparation is requested or the database is
+absent; ordinary runtime inputs must still be available.
 
-The private `input/.simpaths-web-profile.properties` record contains the profile
-version, model-artifact SHA-256 and combined input SHA-256. It is a local reuse
-guard, not yet the production scientific manifest or a signed data artefact.
-Hashing large inputs costs I/O, but does not rebuild the database. Parameter
-inspection does neither. The web build validates the inputs again before it
-changes engine state. Repackaging/changing the model JAR invalidates reuse.
+Startup and web Build check the input database using read-only data access with
+`IFEXISTS=TRUE`. Each of HOUSEHOLD_UK_2019, BENEFITUNIT_UK_2019, PERSON_UK_2019,
+DONORPERSON, DONORTAXUNIT, DONORPERSONPOLICY and DONORTAXUNITPOLICY must contain
+at least one row. Build rejects a failed check before changing engine state and
+never prepares inputs automatically. Merely inspecting parameters does neither.
 
-For this first implementation, **all non-hidden input changes invalidate
-preparation**, including Excel replacements. Uploads remain allowed under the
-existing policy, but Build rejects stale inputs with a preparation message.
-Fine-grained workbook dependency classification and an online reprepare action
-remain future work. Rebuilding restores the approved training policy template.
+There is no JAR/input-tree hashing or automatic invalidation on file changes.
+Old `.simpaths-web-profile.properties` files are ignored and left in place; new
+markers are not written. Repackaging the JAR does not force input preparation.
+
+These checks establish basic structural readiness, not training-data provenance,
+source-to-database freshness, full scientific consistency or compatibility with
+every possible code change. Operators must explicitly request preparation when
+they intend to regenerate database contents from changed sources. Runtime input
+changes can affect a build directly; changing generation sources does not update
+the database automatically. Dependency-aware detection remains deferred.
 
 The start year is fixed to 2019. Build-time population size must be positive;
 end year must be 2019–2026. Generic parameter conversion still validates other
@@ -52,7 +59,22 @@ take longer than an orchestrator's health timeout: provision prepared workspaces
 before normal launch, or measure and configure readiness timeouts. This change
 does not implement workspace provisioning or the production profile store.
 
+Each build keeps its own native timestamped input/CSV directory. The output
+**database is shared by every run in the same JVM session**, with separate
+experiment IDs so SQL can compare runs. Reset preserves that output database;
+final server shutdown closes it. The collector's existing database-export
+setting still controls which model data is written (the default is CSV export).
+
+Starting-population and processed-population factories are retained separately
+and reused while their respective database paths stay unchanged. A changed path
+closes and replaces the corresponding factory; normal JVM shutdown closes both.
+Each load/save closes its own entity manager, including on failure. Default
+processed-population persistence retains the first build's database path; an
+explicitly configured MultiRun persistence path is retained. These changes do not
+alter the core's shared output-database lifetime. JVM shutdown cleanup assumes
+one simulation session per JVM; stopping an embedded server without exiting its
+JVM does not close these retained input factories.
+
 Validation must cover the web build/run/reset lifecycle separately from CLI
-execution. In particular, SimPaths cached input factories across rebuilds and
-duplicate chart titles are separate known follow-ups; a successful first build
-does not prove repeated-build correctness.
+execution. Duplicate chart titles and complete optional-path shutdown auditing
+remain follow-ups; a successful first build does not prove full lifecycle correctness.

@@ -1,8 +1,7 @@
 package simpaths.experiment;
 
-import microsim.web.SimulationServer;
 
-/** Prepare a private UK/2019 workspace before opening the web server. */
+/** Launch prepared Quick Start, or explicitly prepare base inputs administratively. */
 public final class SimPathsWebBootstrap {
     private SimPathsWebBootstrap() {}
 
@@ -16,9 +15,13 @@ public final class SimPathsWebBootstrap {
                 default -> throw new IllegalArgumentException("Unknown bootstrap argument: " + arg);
             }
         }
-        SimPathsStartupConfig config = SimPathsStartupConfig.quickStart();
-        SimPathsSetupService.prepareQuickStart(config, rebuild);
-        SimPathsStart.configureWeb(config);
-        if (!prepareOnly) SimulationServer.main(new String[0]);
+        if (rebuild && !prepareOnly)
+            throw new IllegalArgumentException("--rebuild-inputs requires --prepare-only; normal Quick Start never prepares inputs");
+        if (prepareOnly) {
+            SimPathsSetupService.prepareQuickStart(SimPathsStartupConfig.quickStart(), rebuild);
+            System.out.println("Base inputs prepared. A saved Quick Start population still requires offline profile preparation.");
+        } else {
+            SimPathsQuickStart.main(new String[]{"--web"});
+        }
     }
 }

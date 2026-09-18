@@ -1,80 +1,100 @@
-# Web Quick Start (UK/2019 training profile)
+# Prepared Web Quick Start (UK/2019 training profile)
 
-The web entry point is `simpaths.experiment.SimPathsWebBootstrap`. The normal
-`java -jar singlerun.jar` desktop/CLI entry point remains `SimPathsStart`.
-Use Java 25 and the matching web-enabled `5.2.0-web-SNAPSHOT` core.
+Quick Start uses supplied **training data**, not research-ready survey inputs.
+Results are for demonstration and learning, not substantive research analysis.
+It loads a saved **prepared population** to reduce Build time. The profile fixes
+UK/2019, requested population 50,000, end year 2026, seed 606, fixed-seed operation,
+unweighted population construction and population-target filtering. Actual person
+counts can differ from the requested count because of population selection.
 
-Run in a **private writable workspace** containing `input/`, `webserver.properties`
-and the shaded JAR. The initial profile selects UK/2019 training data, 50,000
-people, end year 2026, fixed seed 606 and the normal observer/chart defaults.
+## Launch
+
+Use Java 25 and the matching web-enabled JAS-mine core. A private writable
+workspace must contain the prepared package's `input/` and `profile.json`, the
+rebuilt `singlerun.jar`, `webserver.properties` and the deployment README.
 
 ```bash
-# Prepare once before launching the HTTP server (no display needed).
-java -Djava.awt.headless=true -cp singlerun.jar simpaths.experiment.SimPathsWebBootstrap --prepare-only
-
-# Start the HTTP server with validated prepared inputs; Docker supplies Xvfb.
 java -cp singlerun.jar simpaths.experiment.SimPathsWebBootstrap
+java -cp singlerun.jar simpaths.experiment.SimPathsQuickStart --desktop
 ```
 
-For a fresh workspace without `input/input.mv.db`, either command prepares it
-first. An existing database is reused if it passes basic readiness checks; no
-preparation marker is required. A failed check stops startup without rebuilding
-or replacing the database. Resolve access problems first; failure does not
-necessarily mean that regeneration is needed.
+The second command opens the desktop simulation shell with the same profile and
+checks, without repeating startup questions. Normal `java -jar singlerun.jar`
+and MultiRun entry points retain their existing defaults and preparation choices.
+Use a separate JVM for each session/profile; switching profiles inside one JVM is
+not supported.
 
-To deliberately rebuild a private workspace, add `--rebuild-inputs` (optionally
-with `--prepare-only`). There is no automatic backup. Preparation uses the same
-non-visual operations as the desktop CLI: training selection, country/year record,
-time-series and alignment maps, population and tax-donor database construction,
-and converter setup. It replaces the effective policy schedule with the training
-template. Normal reuse does not replace that schedule. Training preparation CSV
-and template checks run only when preparation is requested or the database is
-absent; ordinary runtime inputs must still be available.
+## Preparation and migration
 
-Startup and web Build check the input database using read-only data access with
-`IFEXISTS=TRUE`. Each of HOUSEHOLD_UK_2019, BENEFITUNIT_UK_2019, PERSON_UK_2019,
-DONORPERSON, DONORTAXUNIT, DONORPERSONPOLICY and DONORTAXUNITPOLICY must contain
-at least one row. Build rejects a failed check before changing engine state and
-never prepares inputs automatically. Merely inspecting parameters does neither.
+Normal bootstrap startup no longer generates missing inputs. It requires a
+verified prepared package and fails with a preparation/provisioning message when
+that package is missing, incompatible, empty or inaccessible. It never silently
+falls back to ordinary population construction or overwrites existing inputs.
 
-There is no JAR/input-tree hashing or automatic invalidation on file changes.
-Old `.simpaths-web-profile.properties` files are ignored and left in place; new
-markers are not written. Repackaging the JAR does not force input preparation.
+The coordinating repository provides `prepare_quick_start_profile.py` to create
+base inputs and save the processed population in a new external staging directory,
+then verify it and perform a fresh-JVM loading check. `package_quick_start_image.py`
+creates an isolated Docker build context from that package and the current JAR.
+See that repository's `quickstart/README.md` for commands. These tools can move
+into SimPaths through a later reviewed change.
 
-These checks establish basic structural readiness, not training-data provenance,
-source-to-database freshness, full scientific consistency or compatibility with
-every possible code change. Operators must explicitly request preparation when
-they intend to regenerate database contents from changed sources. Runtime input
-changes can affect a build directly; changing generation sources does not update
-the database automatically. Dependency-aware detection remains deferred.
+The existing administrative command remains available where raw training sources
+are installed:
 
-The start year is fixed to 2019. Build-time population size must be positive;
-end year must be 2019–2026. Generic parameter conversion still validates other
-submitted values. Initial values are defaults, not a prohibition on all scenario
-parameters. Population size, start/end year and random-seed settings are
-marked nonmodifiable during execution because their effects occur at build.
+```bash
+java -Djava.awt.headless=true -cp singlerun.jar simpaths.experiment.SimPathsWebBootstrap --prepare-only
+java -Djava.awt.headless=true -cp singlerun.jar simpaths.experiment.SimPathsWebBootstrap --prepare-only --rebuild-inputs
+```
 
-The Docker image now invokes the bootstrap. On-demand first preparation can
-take longer than an orchestrator's health timeout: provision prepared workspaces
-before normal launch, or measure and configure readiness timeouts. This change
-does not implement workspace provisioning or the production profile store.
+These commands prepare **base inputs only**, not a saved processed population.
+Explicit rebuilding replaces the base database and has no automatic backup.
+`--rebuild-inputs` without `--prepare-only` is now rejected. Runtime images need
+only the prepared database and Excel files; raw preparation CSV/text files remain
+in the administrator's original package.
 
-Each build keeps its own native timestamped input/CSV directory. The output
-**database is shared by every run in the same JVM session**, with separate
-experiment IDs so SQL can compare runs. Reset preserves that output database;
-final server shutdown closes it. The collector's existing database-export
-setting still controls which model data is written (the default is CSV export).
+## Build checks and editing
 
-Starting-population and processed-population factories are retained separately
-and reused while their respective database paths stay unchanged. A changed path
-closes and replaces the corresponding factory; normal JVM shutdown closes both.
-Each load/save closes its own entity manager, including on failure. Default
-processed-population persistence retains the first build's database path; an
-explicitly configured MultiRun persistence path is retained. These changes do not
-alter the core's shared output-database lifetime. JVM shutdown cleanup assumes
-one simulation session per JVM; stopping an embedded server without exiting its
-JVM does not close these retained input factories.
+Startup and Build require the versioned profile receipt, the seven populated base
+and donor tables, exactly one matching processed record and nonempty population
+counts matching the receipt. Before HTTP mutation the request is checked; the
+same effective model settings are checked at model Build for desktop and web.
+Other scenario parameters and existing Excel editing facilities remain available.
 
-Validation must cover the web build/run/reset lifecycle separately from CLI
-execution. Duplicate chart titles and complete optional-path shutdown auditing
-remain follow-ups; a successful first build does not prove full lifecycle correctness.
+Editing inputs used to construct the prepared population does not regenerate it.
+Changed starting-year population-selection targets are not reapplied. Parameters
+read during simulation can still affect the starting year and later years.
+Changing a policy schedule does not generate tax-benefit donor data. In training
+mode, parameter loading replaces the top-level policy schedule with
+`input/EUROMODoutput/training/EUROMODpolicySchedule.xlsx`.
+
+Readiness checks establish structure and profile identity, not full scientific
+compatibility or dependency freshness after arbitrary edits. Detailed policy-data
+compatibility checks remain separate work. There is no blanket input/JAR
+fingerprint invalidation: receipt revision and JAR hash record provenance, not a
+requirement to regenerate the population after unrelated code changes. Packaging
+checks transfer hashes once; ordinary startup/Build does not rescan input files.
+
+Closed databases are inspected in physical read-only mode with `IFEXISTS=TRUE`.
+For an already retained processed-population factory, checks use compatible H2
+connection settings, issue only SELECTs and roll back their transaction; they do
+not close or replace the retained factory. The first build uses its normal input
+copy. Rebuild checks also inspect the retained first-build persistence database.
+
+## Session isolation and outputs
+
+The explicit generated Docker context includes only the selected prepared runtime
+inputs. It does not relax the SimPaths repository `.dockerignore`. Each container
+has its own writable input/database files; do not share a writable H2 volume across
+sessions. This manual image path does not implement production orchestration or
+the future interactive SingleRun setup UI.
+
+Each build keeps its native input/output directory. The output database remains
+shared by all runs within the JVM, with distinct experiment IDs for SQL comparison.
+Reset preserves it; final server shutdown closes it. Collector database export
+remains an independent setting (default CSV export).
+
+The starting-population and processed-population factories retain the agreed
+same-path reuse, replacement on path change, per-operation entity-manager cleanup
+and final JVM-shutdown cleanup. No factory lifetime changes are part of this
+Quick Start integration. `allowDetailedDataAccess` retains its existing setting;
+the future training-only interactive deployment is a separate profile decision.

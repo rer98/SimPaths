@@ -55,7 +55,9 @@ public class SimPathsStart implements ExperimentBuilder, microsim.web.server.Web
 
     @Override
     public void validateWebBuildParameters(Map<String, Object> parameters) {
-        if (webProfile != null) {
+        if (SimPathsQuickStart.isEnabled()) {
+            SimPathsQuickStart.validateRequest(parameters);
+        } else if (webProfile != null) {
             webProfile.validateBuildParameters(parameters);
             SimPathsSetupService.requirePreparedInputs();
         }
@@ -252,6 +254,7 @@ public class SimPathsStart implements ExperimentBuilder, microsim.web.server.Web
             model.setFixRandomSeed(true);
             model.setRandomSeedIfFixed(webProfile.seed());
         }
+        SimPathsQuickStart.attach(model);
 		SimPathsCollector collector = new SimPathsCollector(model);
 		SimPathsObserver observer = new SimPathsObserver(model, collector);
 

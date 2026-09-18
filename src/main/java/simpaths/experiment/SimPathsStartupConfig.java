@@ -33,6 +33,23 @@ public record SimPathsStartupConfig(Country country, int startYear, int endYear,
         }
     }
 
+    /** Fixed identity only for explicitly selected prepared Quick Start. */
+    public void validatePreparedBuildParameters(Map<String, Object> parameters) {
+        for (var entry : Map.of("startYear", (long) startYear, "endYear", (long) endYear,
+                "popSize", (long) populationSize, "randomSeedIfFixed", seed).entrySet()) {
+            if (parameters.containsKey(entry.getKey()) && integer(parameters, entry.getKey()) != entry.getValue())
+                throw new IllegalArgumentException("Prepared Quick Start requires " + entry.getKey() + "=" + entry.getValue());
+        }
+        for (var entry : Map.of("fixRandomSeed", true, "useWeights", false,
+                "ignoreTargetsAtPopulationLoad", false, "PersistPopulation", true).entrySet()) {
+            if (parameters.containsKey(entry.getKey())
+                    && !String.valueOf(parameters.get(entry.getKey())).equalsIgnoreCase(entry.getValue().toString()))
+                throw new IllegalArgumentException("Prepared Quick Start requires " + entry.getKey() + "=" + entry.getValue());
+        }
+        if (parameters.containsKey("country") && !country.toString().equals(String.valueOf(parameters.get("country"))))
+            throw new IllegalArgumentException("Prepared Quick Start requires country=" + country);
+    }
+
     private static long integer(Map<String, Object> parameters, String key) {
         try {
             return new BigDecimal(String.valueOf(parameters.get(key))).longValueExact();

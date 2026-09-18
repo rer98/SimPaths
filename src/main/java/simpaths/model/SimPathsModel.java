@@ -59,6 +59,14 @@ import java.util.random.RandomGenerator;
  */
 public class SimPathsModel extends AbstractSimulationManager implements EventListener {
 
+    @Transient private transient Runnable quickStartBuildValidation;
+
+    public void setQuickStartBuildValidation(Runnable validation) {
+        quickStartBuildValidation = validation;
+    }
+
+    public boolean isIgnoreTargetsAtPopulationLoad() { return ignoreTargetsAtPopulationLoad; }
+
     public static String getPersistDatabasePath() {
         return PersistDatabasePath;
     }
@@ -431,6 +439,10 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
      */
     @Override
     public void buildObjects() {
+        if (quickStartBuildValidation != null) {
+            if (!PersistPopulation) throw new IllegalArgumentException("Quick Start requires processed-population reuse");
+            quickStartBuildValidation.run();
+        }
 
 
         // time check

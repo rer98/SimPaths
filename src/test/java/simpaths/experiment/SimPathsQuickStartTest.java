@@ -68,4 +68,40 @@ class SimPathsQuickStartTest {
         assertThrows(java.io.IOException.class, () -> SimPathsQuickStart.readReceipt(receipt));
         assertThrows(java.io.IOException.class, () -> SimPathsQuickStart.readReceipt(directory.resolve("missing.json")));
     }
+    @Test void bothProfilesRequireMatchingIdentityAndPopulation() throws Exception {
+        assertEquals(50000, SimPathsStartupConfig.quickStart().populationSize());
+        for (int population : new int[]{20000, 50000}) {
+            var config = SimPathsStartupConfig.quickStart(population);
+            config.validatePreparedBuildParameters(Map.of("popSize", population));
+            assertThrows(IllegalArgumentException.class, () ->
+                    config.validatePreparedBuildParameters(Map.of("popSize", population == 20000 ? 50000 : 20000)));
+            var receipt = mapper.createObjectNode();
+            receipt.put("format_version", 1);
+            receipt.put("profile_id", "uk-2019-training-" + population + "-seed606");
+            var profile = receipt.putObject("profile");
+            profile.put("country", "UK"); profile.put("start_year", 2019); profile.put("end_year", 2026);
+            profile.put("requested_population", population); profile.put("seed", 606);
+            profile.put("training_data", true); profile.put("include_observer", true);
+            profile.put("use_weights", false); profile.put("ignore_population_targets", false);
+            receipt.putObject("actual_counts").put("person", 1);
+            Path file = directory.resolve("profile.json");
+            mapper.writeValue(file.toFile(), receipt);
+            assertEquals(config, SimPathsQuickStart.profileConfiguration(SimPathsQuickStart.readValidatedReceipt(file)));
+            receipt.put("profile_id", "uk-2019-training-30000-seed606");
+            mapper.writeValue(file.toFile(), receipt);
+            assertThrows(java.io.IOException.class, () -> SimPathsQuickStart.readReceipt(file));
+        }
+        assertThrows(IllegalArgumentException.class, () -> SimPathsStartupConfig.quickStart(30000));
+    }
+
+    @Test void twentyThousandDatabaseCannotSatisfyFiftyThousandProfile() throws Exception {
+        Path base = database();
+        try (var c = DriverManager.getConnection("jdbc:h2:file:" + base, "sa", ""); var q = c.createStatement()) {
+            q.execute("UPDATE PROCESSED SET POP_SIZE=20000");
+        }
+        var counts = mapper.readTree("{\"person\":1,\"household\":1,\"benefitunit\":1}");
+        SimPathsQuickStart.verifyProcessed(base, counts, false, 20000);
+        assertThrows(java.io.IOException.class, () -> SimPathsQuickStart.verifyProcessed(base, counts, false, 50000));
+    }
+
 }

@@ -15,7 +15,13 @@ public record SimPathsStartupConfig(Country country, int startYear, int endYear,
     }
 
     public static SimPathsStartupConfig quickStart() {
-        return new SimPathsStartupConfig(Country.UK, 2019, 2026, 50000, 606L, true);
+        return quickStart(50000);
+    }
+
+    public static SimPathsStartupConfig quickStart(int population) {
+        if (population != 20000 && population != 50000)
+            throw new IllegalArgumentException("Quick Start supports 20000 or 50000 people");
+        return new SimPathsStartupConfig(Country.UK, 2019, 2026, population, 606L, true);
     }
 
     public void validateBuildParameters(Map<String, Object> parameters) {

@@ -17,30 +17,36 @@ import simpaths.model.enums.Country;
 /** Explicit prepared training profile; ordinary SingleRun/MultiRun are unaffected. */
 public final class SimPathsQuickStart {
     private static boolean enabled;
+    private static SimPathsStartupConfig selectedProfile = SimPathsStartupConfig.quickStart();
     private SimPathsQuickStart() {}
 
     static boolean isEnabled() { return enabled; }
 
     public static void configure() {
+        try {
+            selectedProfile = profileConfiguration(readValidatedReceipt(Path.of("profile.json")));
+        } catch (IOException e) {
+            throw new IllegalArgumentException("Quick Start requires a valid profile.json", e);
+        }
         requireReady(false);
         Parameters.setTrainingFlag(true);
         SimPathsSetupService.registerConverters();
         Parameters.loadTimeSeriesFactorMaps(Country.UK);
         Parameters.instantiateAlignmentMaps();
         Parameters.setTaxDonorInputFileName("tax_donor_population_UK");
-        SimPathsStart.configureWeb(SimPathsStartupConfig.quickStart());
+        SimPathsStart.configureWeb(selectedProfile);
         SimPathsModel.setPersistPopulation(true);
         enabled = true;
     }
 
     static void validateRequest(Map<String, Object> parameters) {
-        SimPathsStartupConfig.quickStart().validatePreparedBuildParameters(parameters);
+        selectedProfile.validatePreparedBuildParameters(parameters);
         requireReady(false);
     }
 
     static void attach(SimPathsModel model) {
         if (enabled) model.setQuickStartBuildValidation(() -> {
-            SimPathsStartupConfig.quickStart().validatePreparedBuildParameters(Map.of(
+            selectedProfile.validatePreparedBuildParameters(Map.of(
                     "country", model.getCountry(), "startYear", model.getStartYear(),
                     "endYear", model.getEndYear(), "popSize", model.getPopSize(),
                     "fixRandomSeed", model.getFixRandomSeed(),
@@ -52,15 +58,29 @@ public final class SimPathsQuickStart {
     }
 
     static JsonNode readReceipt(Path file) throws IOException {
+        return readValidatedReceipt(file).path("actual_counts");
+    }
+
+    static SimPathsStartupConfig profileConfiguration(JsonNode receipt) throws IOException {
+        try {
+            return SimPathsStartupConfig.quickStart(receipt.path("profile").path("requested_population").asInt(-1));
+        } catch (IllegalArgumentException e) {
+            throw new IOException("Unsupported Quick Start population", e);
+        }
+    }
+
+    static JsonNode readValidatedReceipt(Path file) throws IOException {
         JsonNode receipt = new ObjectMapper().readTree(file.toFile());
         if (receipt == null) throw new IOException("Quick Start profile receipt is empty");
         JsonNode profile = receipt.path("profile");
+        int population = profileConfiguration(receipt).populationSize();
         if (receipt.path("format_version").asInt(-1) != 1
-                || !receipt.path("profile_id").asText().equals("uk-2019-training-50000-seed606")
+                || !receipt.path("profile_id").asText().equals("uk-2019-training-" + population + "-seed606")
                 || !profile.path("country").asText().equals("UK")
                 || profile.path("start_year").asInt(-1) != 2019
                 || profile.path("end_year").asInt(-1) != 2026
-                || profile.path("requested_population").asInt(-1) != 50000
+                || !profile.path("requested_population").isIntegralNumber()
+                || !profile.path("requested_population").canConvertToInt()
                 || profile.path("seed").asLong(-1) != 606
                 || !profile.path("training_data").asBoolean(false)
                 || !profile.path("include_observer").asBoolean(false)
@@ -68,10 +88,15 @@ public final class SimPathsQuickStart {
                 || !profile.path("ignore_population_targets").isBoolean()
                 || profile.path("ignore_population_targets").asBoolean())
             throw new IOException("Missing or incompatible Quick Start profile receipt");
-        return receipt.path("actual_counts");
+        return receipt;
     }
 
     static void verifyProcessed(Path base, JsonNode counts, boolean live) throws IOException {
+        verifyProcessed(base, counts, live, 50000);
+    }
+
+    static void verifyProcessed(Path base, JsonNode counts, boolean live, int population) throws IOException {
+        SimPathsStartupConfig.quickStart(population);
         // A retained factory is already connected using AUTO_SERVER. Reuse its
         // connection settings for SELECTs, then roll back; do not close that factory.
         // Closed packaged files are opened in physical read-only mode instead.
@@ -84,7 +109,7 @@ public final class SimPathsQuickStart {
             try (var q = c.createStatement()) {
                 long id;
                 try (var r = q.executeQuery("SELECT ID FROM PROCESSED WHERE COUNTRY='UK'"
-                        + " AND START_YEAR=2019 AND POP_SIZE=50000 AND NO_TARGETS=FALSE")) {
+                        + " AND START_YEAR=2019 AND POP_SIZE=" + population + " AND NO_TARGETS=FALSE")) {
                     if (!r.next()) throw new IOException("Prepared population is missing");
                     id = r.getLong(1);
                     if (r.next()) throw new IOException("Prepared population is ambiguous");
@@ -107,16 +132,19 @@ public final class SimPathsQuickStart {
 
     static void requireReady(boolean atModelBuild) {
         try {
-            JsonNode counts = readReceipt(Path.of("profile.json"));
+            JsonNode receipt = readValidatedReceipt(Path.of("profile.json"));
+            if (!profileConfiguration(receipt).equals(selectedProfile))
+                throw new IOException("Prepared profile changed during the session; start a separate session");
+            JsonNode counts = receipt.path("actual_counts");
             Path root = Path.of(Parameters.getInputDirectory(), "input");
             SimPathsSetupService.verifyDatabase(root);
-            verifyProcessed(root, counts, false);
+            verifyProcessed(root, counts, false, selectedProfile.populationSize());
             String retained = SimPathsModel.getPersistDatabasePath();
             String effective = retained != null ? retained
                     : atModelBuild ? DatabaseUtils.databaseInputUrl : null;
             if (effective != null && !Path.of(effective).toAbsolutePath().normalize()
                     .equals(root.toAbsolutePath().normalize()))
-                verifyProcessed(Path.of(effective), counts, retained != null);
+                verifyProcessed(Path.of(effective), counts, retained != null, selectedProfile.populationSize());
         } catch (IOException e) {
             throw new IllegalArgumentException("Quick Start needs a verified prepared package: "
                     + e.getMessage() + ". Provision it with prepare_quick_start_profile.py. "

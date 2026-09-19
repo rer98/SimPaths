@@ -1,3 +1,11 @@
+/* (C) Copyright 2026, by Ross Richardson
+ *
+ * Sim Paths Model Test.
+ *
+ * @author ross richardson
+ *
+ */
+
 package simpaths.model;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

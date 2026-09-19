@@ -1,3 +1,11 @@
+/* (C) Copyright 2026, by Ross Richardson
+ *
+ * Sim Paths Database Resources Test.
+ *
+ * @author ross richardson
+ *
+ */
+
 package simpaths.model;
 
 import jakarta.persistence.*;

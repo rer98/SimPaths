@@ -1,3 +1,10 @@
+# (C) Copyright 2026, by Ross Richardson
+#
+# Dockerfile.
+#
+# @author ross richardson
+#
+
 FROM eclipse-temurin:25-jre
 
 RUN apt-get update && apt-get install -y xvfb libxtst6 libxi6 libxrender1 && rm -rf /var/lib/apt/lists/*

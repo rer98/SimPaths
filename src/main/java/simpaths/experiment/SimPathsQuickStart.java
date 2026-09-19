@@ -14,7 +14,13 @@ import simpaths.data.Parameters;
 import simpaths.model.SimPathsModel;
 import simpaths.model.enums.Country;
 
-/** Explicit prepared training profile; ordinary SingleRun/MultiRun are unaffected. */
+/* (C) Copyright 2026, by Ross Richardson
+ *
+ * Explicit prepared training profile; ordinary SingleRun/MultiRun are unaffected.
+ *
+ * @author ross richardson
+ *
+ */
 public final class SimPathsQuickStart {
     private static boolean enabled;
     private static SimPathsStartupConfig selectedProfile = SimPathsStartupConfig.quickStart();

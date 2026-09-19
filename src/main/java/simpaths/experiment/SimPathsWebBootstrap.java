@@ -1,7 +1,13 @@
 package simpaths.experiment;
 
 
-/** Launch prepared Quick Start, or explicitly prepare base inputs administratively. */
+/* (C) Copyright 2026, by Ross Richardson
+ *
+ * Launch prepared Quick Start, or explicitly prepare base inputs administratively.
+ *
+ * @author ross richardson
+ *
+ */
 public final class SimPathsWebBootstrap {
     private SimPathsWebBootstrap() {}
 

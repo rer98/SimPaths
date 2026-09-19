@@ -1,3 +1,10 @@
+<!-- (C) Copyright 2026, by Ross Richardson
+
+Prepared Web Quick Start (UK/2019 training profile)
+
+@author ross richardson
+-->
+
 # Prepared Web Quick Start (UK/2019 training profile)
 
 Quick Start uses supplied **training data**, not research-ready survey inputs.

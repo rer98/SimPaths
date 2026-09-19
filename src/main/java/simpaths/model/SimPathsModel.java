@@ -73,6 +73,10 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
 
     public static void setPersistDatabasePath(String persistDatabasePath) {
         PersistDatabasePath = persistDatabasePath;
+        if (persistDatabasePath != null) {
+            microsim.data.StorageProtection.protectDatabase("simpaths.processed-reuse",
+                java.nio.file.Path.of(persistDatabasePath), "Saved processed population for future builds");
+        } else microsim.data.StorageProtection.release("simpaths.processed-reuse");
     }
 
     public static void setPersistPopulation(boolean persistPopulation) {
@@ -358,6 +362,8 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
             var properties = new HashMap<String, String>();
             properties.put("hibernate.connection.url", "jdbc:h2:file:" + databasePath +
                     ";TRACE_LEVEL_FILE=0;TRACE_LEVEL_SYSTEM_OUT=0;AUTO_SERVER=TRUE");
+            microsim.data.StorageProtection.protectDatabase("simpaths.startingPopulation",
+                java.nio.file.Path.of(databasePath), "Retained startingPopulation connection factory");
             startingPopulationFactory = Persistence.createEntityManagerFactory("starting-population", properties);
             startingPopulationFactoryPath = databasePath;
         }
@@ -368,6 +374,7 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
         if (startingPopulationFactory != null && startingPopulationFactory.isOpen()) {
             startingPopulationFactory.close();
         }
+        microsim.data.StorageProtection.release("simpaths.startingPopulation");
         startingPopulationFactory = null;
         startingPopulationFactoryPath = null;
     }
@@ -391,6 +398,8 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
             var properties = new HashMap<String, String>();
             properties.put("hibernate.connection.url", "jdbc:h2:file:" + databasePath +
                     ";TRACE_LEVEL_FILE=0;TRACE_LEVEL_SYSTEM_OUT=0;AUTO_SERVER=TRUE");
+            microsim.data.StorageProtection.protectDatabase("simpaths.processedPopulation",
+                java.nio.file.Path.of(databasePath), "Retained processedPopulation connection factory");
             processedPopulationFactory = Persistence.createEntityManagerFactory("starting-population", properties);
             processedPopulationFactoryPath = databasePath;
         }
@@ -401,6 +410,7 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
         if (processedPopulationFactory != null && processedPopulationFactory.isOpen()) {
             processedPopulationFactory.close();
         }
+        microsim.data.StorageProtection.release("simpaths.processedPopulation");
         processedPopulationFactory = null;
         processedPopulationFactoryPath = null;
     }

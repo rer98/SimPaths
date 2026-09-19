@@ -11,7 +11,13 @@ import simpaths.data.XLSXfileWriter;
 import simpaths.model.enums.Country;
 import simpaths.model.enums.UnionMatchingMethod;
 
-/** Non-visual preparation shared by desktop CLI and the web bootstrap. */
+/* (C) Copyright 2026, by Ross Richardson
+ *
+ * Non-visual preparation shared by desktop CLI and the web bootstrap.
+ *
+ * @author ross richardson
+ *
+ */
 public final class SimPathsSetupService {
     private SimPathsSetupService() {}
     /** Only use in a private workspace. Rebuilding an existing database is explicit. */

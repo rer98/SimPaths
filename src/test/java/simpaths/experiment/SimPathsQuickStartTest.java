@@ -1,3 +1,11 @@
+/* (C) Copyright 2026, by Ross Richardson
+ *
+ * Sim Paths Quick Start Test.
+ *
+ * @author ross richardson
+ *
+ */
+
 package simpaths.experiment;
 
 import com.fasterxml.jackson.databind.ObjectMapper;

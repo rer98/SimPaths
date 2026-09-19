@@ -1,3 +1,10 @@
+# (C) Copyright 2026, by Ross Richardson
+#
+# .dockerignore.
+#
+# @author ross richardson
+#
+
 # Send only files used by the interactive SimPaths image.
 *
 !Dockerfile

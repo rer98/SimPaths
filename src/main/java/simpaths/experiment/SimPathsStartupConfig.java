@@ -4,7 +4,13 @@ import java.math.BigDecimal;
 import java.util.Map;
 import simpaths.model.enums.Country;
 
-/** Explicit scientific defaults for the first web profile, independent of Swing. */
+/* (C) Copyright 2026, by Ross Richardson
+ *
+ * Explicit scientific defaults for the first web profile, independent of Swing.
+ *
+ * @author ross richardson
+ *
+ */
 public record SimPathsStartupConfig(Country country, int startYear, int endYear,
         int populationSize, long seed, boolean includeObserver) {
     public SimPathsStartupConfig {

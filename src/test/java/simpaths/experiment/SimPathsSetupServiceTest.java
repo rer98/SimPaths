@@ -1,3 +1,11 @@
+/* (C) Copyright 2026, by Ross Richardson
+ *
+ * Sim Paths Setup Service Test.
+ *
+ * @author ross richardson
+ *
+ */
+
 package simpaths.experiment;
 
 import java.nio.file.*;

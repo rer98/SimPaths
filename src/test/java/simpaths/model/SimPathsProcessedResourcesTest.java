@@ -1,3 +1,11 @@
+/* (C) Copyright 2026, by Ross Richardson
+ *
+ * Sim Paths Processed Resources Test.
+ *
+ * @author ross richardson
+ *
+ */
+
 package simpaths.model;
 
 import jakarta.persistence.*;
@@ -39,6 +47,7 @@ class SimPathsProcessedResourcesTest {
                 });
             try {
                 assertSame(first, factory("first/input"));
+                assertFalse(microsim.data.StorageProtection.reasons(java.nio.file.Path.of("first/input.mv.db")).isEmpty());
                 assertSame(first, factory("first/input"));
                 verify(first, never()).close();
                 assertSame(second, factory("second/input"));
@@ -48,7 +57,26 @@ class SimPathsProcessedResourcesTest {
                 closeFactory();
                 verify(first, times(1)).close();
                 verify(second, times(1)).close();
+                assertTrue(microsim.data.StorageProtection.reasons(java.nio.file.Path.of("second/input.mv.db")).isEmpty());
             } finally { closeFactory(); }
+        }
+    }
+
+    @Test void failedFactoryCloseKeepsDatabaseProtected() throws Exception {
+        var connectionFactory = mock(EntityManagerFactory.class);
+        when(connectionFactory.isOpen()).thenReturn(true);
+        try (var persistence = mockStatic(Persistence.class)) {
+            persistence.when(() -> Persistence.createEntityManagerFactory(eq("starting-population"), anyMap()))
+                .thenReturn(connectionFactory);
+            try {
+                factory("failed-close/input");
+                doThrow(new IllegalStateException("close failed")).when(connectionFactory).close();
+                assertThrows(InvocationTargetException.class, SimPathsProcessedResourcesTest::closeFactory);
+                assertFalse(microsim.data.StorageProtection.reasons(java.nio.file.Path.of("failed-close/input.mv.db")).isEmpty());
+                doNothing().when(connectionFactory).close();
+                closeFactory();
+                assertTrue(microsim.data.StorageProtection.reasons(java.nio.file.Path.of("failed-close/input.mv.db")).isEmpty());
+            } finally { doNothing().when(connectionFactory).close(); closeFactory(); }
         }
     }
 

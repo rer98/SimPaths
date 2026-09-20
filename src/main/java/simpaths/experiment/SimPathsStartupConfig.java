@@ -31,6 +31,9 @@ public record SimPathsStartupConfig(Country country, int startYear, int endYear,
     }
 
     public void validateBuildParameters(Map<String, Object> parameters) {
+        if (parameters.containsKey("country") && !country.toString().equals(String.valueOf(parameters.get("country")))) {
+            throw new IllegalArgumentException("This training profile requires country=" + country);
+        }
         if (parameters.containsKey("startYear") && integer(parameters, "startYear") != startYear) {
             throw new IllegalArgumentException("This prepared profile requires startYear=" + startYear);
         }

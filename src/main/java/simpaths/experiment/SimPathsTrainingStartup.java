@@ -25,9 +25,8 @@ public final class SimPathsTrainingStartup implements WebStartupProvider {
 
     @Override public Map<String, Object> describe() {
         return Map.of("title", "Configure SimPaths UK training session",
-                "description", "UK, 2019. Uses public training data and the supplied fixed policy schedule. "
-                        + "UKMOD runs externally. Preparation choices apply before the first Build; "
-                        + "new-file uploads and non-training setup are not part of this deployment.",
+                "description", "This session uses supplied UK training data for 2019 and a read-only policy schedule. "
+                        + "Choose any preparation steps below before the first Build.",
                 "choices", List.of(
                         Map.of("id", "population", "label", "Rebuild starting-population database from supplied training files"),
                         Map.of("id", "tax", "label", "Rebuild tax/benefit database from supplied training files")));
@@ -66,14 +65,15 @@ public final class SimPathsTrainingStartup implements WebStartupProvider {
             throw new IllegalArgumentException("Unknown preparation choice");
         if (!Files.isRegularFile(trainingSchedule())) throw new IllegalArgumentException("Missing training policy schedule");
         var warnings = new ArrayList<String>();
-        warnings.add("Build replaces input/EUROMODpolicySchedule.xlsx with the supplied training schedule. "
-                + "Continue authorises this copy on each Build while those schedule contents remain unchanged.");
+        warnings.add("Each Build copies the supplied training schedule to input/EUROMODpolicySchedule.xlsx, replacing that file. "
+                + "Both schedule files are read-only in this deployment. Clicking Continue confirms this replacement for the session.");
         if (choices.getOrDefault("population", false)) warnings.add(
-                "Replace starting-population tables and reset the processed-population index in input/input.mv.db "
-                        + "from supplied training CSV files (the same operation as desktop startup).");
+                "Recreate the starting-population tables in input/input.mv.db from the supplied training CSV files. "
+                        + "This also resets the index of saved processed populations.");
         if (choices.getOrDefault("tax", false)) warnings.add(
-                "Replace input/tax_donor_population_UK.csv and tax/benefit tables in input/input.mv.db. "
-                + "Preparation also replaces input/EUROMODpolicySchedule.xlsx with the training schedule.");
+                "Recreate input/tax_donor_population_UK.csv and the tax/benefit tables in input/input.mv.db "
+                + "from the supplied training files. This preparation also copies the supplied training schedule "
+                + "to input/EUROMODpolicySchedule.xlsx.");
         // Review tokens detect changed files without hashing the large input database.
         var stamps = new TreeMap<String, String>();
         List<Path> paths = new ArrayList<>(List.of(input.resolve("input.mv.db"), input.resolve("tax_donor_population_UK.csv")));

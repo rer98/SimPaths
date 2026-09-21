@@ -17,18 +17,21 @@ Leave both unchecked to use the database prepared when the image was built.
 Preparation may take several minutes. A failure can leave partially modified
 inputs; review and retry preparation or start a fresh session.
 
-The supplied policy schedule is read-only in startup. SimPaths training mode
-copies it over the top-level policy schedule during tax preparation and Build;
-editing the top-level schedule would therefore be ineffective. Review identifies
-these overwrites and the database tables selected for replacement. Cancel before
-Continue makes no changes. Continue authorises the described schedule copy on
-subsequent Builds while its contents remain unchanged. Changed schedule contents
-require a new review before the first Build, or a new session after Build starts.
+Both policy schedules are read-only in this deployment: Edit and Upload are
+disabled with explanations, and the server rejects replacement attempts. SimPaths
+training mode copies the supplied training schedule over the top-level
+`input/EUROMODpolicySchedule.xlsx` during tax preparation and each Build.
+Review identifies these overwrites and the database tables selected for
+replacement. Cancel before Continue makes no changes. Clicking Continue confirms
+the described replacements, including the schedule copy on subsequent Builds.
 
-UKMOD execution is external. New-file uploads and non-training data setup are
-planned separately. The existing Input Files tools are for inspecting/replacing
-existing files; replacing data does not automatically regenerate database tables.
-Do not change the supplied training schedule. Other scenario parameter workbooks
+This deployment does not execute UKMOD to calculate new tax/benefit policy results;
+it imports the supplied training data. Running UKMOD and supplying new policy
+results belong to a separate workflow. Adding new file paths and non-training
+setup are planned separately. Input Files permits replacement of existing,
+editable files before Build (including after Reset); it does not automatically
+regenerate database tables. These tools cannot replace either policy schedule.
+Other scenario parameter workbooks
 retain their ordinary model behaviour. Input reconfiguration after the first Build
 is outside this startup flow because the model retains database connections and
 tax-reference caches. Start a new session for a new input configuration.

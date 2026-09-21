@@ -1,6 +1,7 @@
 package simpaths.experiment;
 
-import java.math.BigDecimal;
+import microsim.parameter.ParameterConstraints;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import simpaths.model.enums.Country;
 
@@ -13,9 +14,10 @@ import simpaths.model.enums.Country;
  */
 public record SimPathsStartupConfig(Country country, int startYear, int endYear,
         int populationSize, long seed, boolean includeObserver) {
+    private static final int MAX_TRAINING_END_YEAR = 2026;
     public SimPathsStartupConfig {
         if (country != Country.UK || startYear != 2019 || endYear < startYear
-                || endYear > 2026 || populationSize <= 0) {
+                || endYear > MAX_TRAINING_END_YEAR || populationSize <= 0) {
             throw new IllegalArgumentException("Unsupported UK/2019 training profile configuration");
         }
     }
@@ -30,47 +32,31 @@ public record SimPathsStartupConfig(Country country, int startYear, int endYear,
         return new SimPathsStartupConfig(Country.UK, 2019, 2026, population, 606L, true);
     }
 
-    public void validateBuildParameters(Map<String, Object> parameters) {
-        if (parameters.containsKey("country") && !country.toString().equals(String.valueOf(parameters.get("country")))) {
-            throw new IllegalArgumentException("This training profile requires country=" + country);
-        }
-        if (parameters.containsKey("startYear") && integer(parameters, "startYear") != startYear) {
-            throw new IllegalArgumentException("This prepared profile requires startYear=" + startYear);
-        }
-        if (parameters.containsKey("endYear")) {
-            long year = integer(parameters, "endYear");
-            if (year < startYear || year > 2026) {
-                throw new IllegalArgumentException("endYear must be between 2019 and 2026 for this profile");
+    public Map<String, ParameterConstraints.Rule> constraints(boolean prepared) {
+        var rules = new LinkedHashMap<String, ParameterConstraints.Rule>();
+        rules.put("country", ParameterConstraints.Rule.required(country.toString(), "This training profile requires country=" + country));
+        rules.put("startYear", ParameterConstraints.Rule.integerRange(startYear, startYear,
+                "This training profile requires startYear=" + startYear));
+        rules.put("endYear", ParameterConstraints.Rule.integerRange(startYear, MAX_TRAINING_END_YEAR,
+                "endYear must be between " + startYear + " and " + MAX_TRAINING_END_YEAR + " for this profile"));
+        rules.put("popSize", ParameterConstraints.Rule.integerRange(prepared ? populationSize : 1,
+                prepared ? populationSize : Integer.MAX_VALUE,
+                prepared ? "Prepared Quick Start requires popSize=" + populationSize : "popSize must be positive"));
+        if (prepared) {
+            for (var entry : Map.of("useWeights", false, "ignoreTargetsAtPopulationLoad", false,
+                    "PersistPopulation", true).entrySet()) {
+                rules.put(entry.getKey(), ParameterConstraints.Rule.required(entry.getValue().toString(),
+                        "Prepared Quick Start requires " + entry.getKey() + "=" + entry.getValue()));
             }
         }
-        if (parameters.containsKey("popSize") && integer(parameters, "popSize") <= 0) {
-            throw new IllegalArgumentException("popSize must be positive");
-        }
+        return Map.copyOf(rules);
     }
 
-    /** Fixed identity only for explicitly selected prepared Quick Start. */
+    public void validateBuildParameters(Map<String, Object> parameters) {
+        ParameterConstraints.validate(constraints(false), parameters);
+    }
+
     public void validatePreparedBuildParameters(Map<String, Object> parameters) {
-        validateBuildParameters(parameters);
-        for (var entry : Map.of("startYear", (long) startYear,
-                "popSize", (long) populationSize).entrySet()) {
-            if (parameters.containsKey(entry.getKey()) && integer(parameters, entry.getKey()) != entry.getValue())
-                throw new IllegalArgumentException("Prepared Quick Start requires " + entry.getKey() + "=" + entry.getValue());
-        }
-        for (var entry : Map.of("useWeights", false,
-                "ignoreTargetsAtPopulationLoad", false, "PersistPopulation", true).entrySet()) {
-            if (parameters.containsKey(entry.getKey())
-                    && !String.valueOf(parameters.get(entry.getKey())).equalsIgnoreCase(entry.getValue().toString()))
-                throw new IllegalArgumentException("Prepared Quick Start requires " + entry.getKey() + "=" + entry.getValue());
-        }
-        if (parameters.containsKey("country") && !country.toString().equals(String.valueOf(parameters.get("country"))))
-            throw new IllegalArgumentException("Prepared Quick Start requires country=" + country);
-    }
-
-    private static long integer(Map<String, Object> parameters, String key) {
-        try {
-            return new BigDecimal(String.valueOf(parameters.get(key))).longValueExact();
-        } catch (ArithmeticException | NumberFormatException e) {
-            throw new IllegalArgumentException(key + " must be an integer");
-        }
+        ParameterConstraints.validate(constraints(true), parameters);
     }
 }

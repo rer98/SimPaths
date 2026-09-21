@@ -43,7 +43,7 @@ import simpaths.model.taxes.database.TaxDonorDataParser;
  * 	CLASS FOR SINGLE SIMULATION EXECUTION
  *
  */
-public class SimPathsStart implements ExperimentBuilder, microsim.web.server.WebBuildValidator {
+public class SimPathsStart implements ExperimentBuilder, microsim.web.server.WebBuildValidator, microsim.parameter.ParameterConstraints.Provider {
 
     private static SimPathsStartupConfig webProfile;
 
@@ -51,6 +51,11 @@ public class SimPathsStart implements ExperimentBuilder, microsim.web.server.Web
         webProfile = config;
         country = config.country();
         startYear = config.startYear();
+    }
+
+    @Override
+    public Map<String, microsim.parameter.ParameterConstraints.Rule> parameterConstraints() {
+        return webProfile == null ? Map.of() : webProfile.constraints(SimPathsQuickStart.isEnabled());
     }
 
     @Override

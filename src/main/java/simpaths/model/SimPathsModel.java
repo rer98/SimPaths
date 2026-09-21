@@ -111,7 +111,7 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
     @GUIparameter(description = "Simulation ends at year", runtimeModifiable = false)
     private Integer endYear = 2026;
 
-    @GUIparameter(description = "Maximum simulated age")
+    @GUIparameter(description = "Maximum simulated age", runtimeModifiable = false)
     private Integer maxAge = 130;
 
     //@GUIparameter(description = "Fix year used in the regressions to one specified below")
@@ -1022,6 +1022,11 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
                     double timerForSim = (System.currentTimeMillis() - timerStartSim)/1000.0/60.0;
                     System.out.println("Finished simulating population in " + timerForSim + " minutes");
                     if (commentsOn) log.info("Finished simulating population in " + timerForSim + " minutes");
+                    double executionMinutes = getEngine().getExecutionTimeNanos() / 60_000_000_000.0;
+                    String executionMessage = "Simulation execution time: " + executionMinutes
+                            + " minutes (scheduled events up to this point; excluding build, waiting and pauses)";
+                    System.out.println(executionMessage);
+                    if (commentsOn) log.info(executionMessage);
                 }
                 year++;
             }

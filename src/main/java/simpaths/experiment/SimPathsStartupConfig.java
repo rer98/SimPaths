@@ -50,12 +50,13 @@ public record SimPathsStartupConfig(Country country, int startYear, int endYear,
 
     /** Fixed identity only for explicitly selected prepared Quick Start. */
     public void validatePreparedBuildParameters(Map<String, Object> parameters) {
-        for (var entry : Map.of("startYear", (long) startYear, "endYear", (long) endYear,
-                "popSize", (long) populationSize, "randomSeedIfFixed", seed).entrySet()) {
+        validateBuildParameters(parameters);
+        for (var entry : Map.of("startYear", (long) startYear,
+                "popSize", (long) populationSize).entrySet()) {
             if (parameters.containsKey(entry.getKey()) && integer(parameters, entry.getKey()) != entry.getValue())
                 throw new IllegalArgumentException("Prepared Quick Start requires " + entry.getKey() + "=" + entry.getValue());
         }
-        for (var entry : Map.of("fixRandomSeed", true, "useWeights", false,
+        for (var entry : Map.of("useWeights", false,
                 "ignoreTargetsAtPopulationLoad", false, "PersistPopulation", true).entrySet()) {
             if (parameters.containsKey(entry.getKey())
                     && !String.valueOf(parameters.get(entry.getKey())).equalsIgnoreCase(entry.getValue().toString()))

@@ -10,9 +10,16 @@ Prepared Web Quick Start (UK/2019 training profile)
 Quick Start uses supplied **training data**, not research-ready survey inputs.
 Results are for demonstration and learning, not substantive research analysis.
 It loads a saved **prepared population** to reduce Build time. The profile fixes
-UK/2019, requested population 50,000, end year 2026, seed 606, fixed-seed operation,
+UK/2019 and the packaged requested population (20,000 or 50,000),
 unweighted population construction and population-target filtering. Actual person
 counts can differ from the requested count because of population selection.
+
+End year 2026 and fixed seed 606 are defaults. Before Build, end year may be
+2019–2026, and the seed value and fixed-seed switch are editable. They remain
+locked during execution. Saved people and benefit units retain their prepared
+seeds; changing the simulation seed affects model-level random generators,
+without regenerating the prepared population. Receipt seed/end-year values
+record preparation provenance and do not constrain these Build choices.
 
 ## Launch
 

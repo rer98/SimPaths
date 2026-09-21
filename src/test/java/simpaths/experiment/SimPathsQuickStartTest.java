@@ -26,8 +26,8 @@ class SimPathsQuickStartTest {
         c.validatePreparedBuildParameters(Map.of("popSize", 50000.0, "randomSeedIfFixed", "606",
                 "fixRandomSeed", true, "useWeights", false));
         for (var bad : java.util.List.<Map<String, Object>>of(Map.of("popSize", 2000),
-                Map.of("endYear", 2020), Map.of("randomSeedIfFixed", 607),
-                Map.of("fixRandomSeed", false), Map.of("useWeights", true),
+                Map.of("endYear", 2018), Map.of("endYear", 2027),
+                Map.of("startYear", 2020), Map.of("useWeights", true),
                 Map.of("ignoreTargetsAtPopulationLoad", true), Map.of("country", "IT")))
             assertThrows(IllegalArgumentException.class, () -> c.validatePreparedBuildParameters(bad));
         c.validatePreparedBuildParameters(Map.of("interestRateInnov", 0.01));
@@ -81,6 +81,15 @@ class SimPathsQuickStartTest {
         for (int population : new int[]{20000, 50000}) {
             var config = SimPathsStartupConfig.quickStart(population);
             config.validatePreparedBuildParameters(Map.of("popSize", population));
+            for (int year = 2019; year <= 2026; year++) {
+                config.validatePreparedBuildParameters(Map.of("endYear", year,
+                        "fixRandomSeed", true, "randomSeedIfFixed", "9223372036854775807"));
+                config.validatePreparedBuildParameters(Map.of("endYear", year,
+                        "fixRandomSeed", false, "randomSeedIfFixed", 700L));
+            }
+            for (Object year : new Object[]{2018, 2027, 2020.5, "invalid"})
+                assertThrows(IllegalArgumentException.class, () ->
+                        config.validatePreparedBuildParameters(Map.of("endYear", year)));
             assertThrows(IllegalArgumentException.class, () ->
                     config.validatePreparedBuildParameters(Map.of("popSize", population == 20000 ? 50000 : 20000)));
             var receipt = mapper.createObjectNode();

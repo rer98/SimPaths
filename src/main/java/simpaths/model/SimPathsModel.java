@@ -175,6 +175,9 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
 //	private boolean useSBAMMatching = false;
     private UnionMatchingMethod unionMatchingMethod = UnionMatchingMethod.ParametricNoRegion;
 
+    @GUIparameter(description = "Print the full SBAM matching matrix (very verbose; may slow execution)")
+    private boolean printSBAMMatchingMatrix = false;
+
     @GUIparameter(description = "tick to project mortality based on gender, age, and year specific probabilities")
     private boolean projectMortality = true;
 
@@ -810,6 +813,8 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
             line = "fixRegressionStochasticComponent: " + fixRegressionStochasticComponent;
             pw.println(line);
             line = "commentsOn: " + commentsOn;
+            pw.println(line);
+            line = "printSBAMMatchingMatrix: " + printSBAMMatchingMatrix;
             pw.println(line);
             line = "debugCommentsOn: " + debugCommentsOn;
             pw.println(line);
@@ -1817,8 +1822,10 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
             tmpCountInt++;
         }
 
-        //Print out adjusted frequencies
-        marriageTypesToAdjustMap.keySet().iterator().forEachRemaining(key -> System.out.println(key + "=" + marriageTypesToAdjustMap.get(key)));
+        // Optional diagnostics only; matching uses the same adjusted frequencies below.
+        if (printSBAMMatchingMatrix) {
+            marriageTypesToAdjustMap.keySet().iterator().forEachRemaining(key -> System.out.println(key + "=" + marriageTypesToAdjustMap.get(key)));
+        }
 
         /*
          * Use matching method provided with JAS-mine:
@@ -3225,6 +3232,14 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
         this.useWeights = useWeights;
     }
 
+
+    public boolean isPrintSBAMMatchingMatrix() {
+        return printSBAMMatchingMatrix;
+    }
+
+    public void setPrintSBAMMatchingMatrix(boolean printSBAMMatchingMatrix) {
+        this.printSBAMMatchingMatrix = printSBAMMatchingMatrix;
+    }
 
     public UnionMatchingMethod getUnionMatchingMethod() {
         return unionMatchingMethod;

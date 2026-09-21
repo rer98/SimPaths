@@ -43,7 +43,7 @@ import simpaths.model.taxes.database.TaxDonorDataParser;
  * 	CLASS FOR SINGLE SIMULATION EXECUTION
  *
  */
-public class SimPathsStart implements ExperimentBuilder, microsim.web.server.WebBuildValidator, microsim.parameter.ParameterConstraints.Provider {
+public class SimPathsStart implements ExperimentBuilder, microsim.web.server.WebBuildValidator, microsim.parameter.ParameterConstraints.Provider, microsim.input.InputEditingPolicy {
 
     private static SimPathsStartupConfig webProfile;
 
@@ -51,6 +51,18 @@ public class SimPathsStart implements ExperimentBuilder, microsim.web.server.Web
         webProfile = config;
         country = config.country();
         startYear = config.startYear();
+    }
+
+    @Override
+    public String inputReadOnlyReason(String path, microsim.input.InputEditingPolicy.State state) {
+        if (webProfile == null) return null;
+        return switch (path) {
+            case "EUROMODpolicySchedule.xlsx" ->
+                    "Read-only: this training deployment replaces this file with the supplied training schedule during Build.";
+            case "EUROMODoutput/training/EUROMODpolicySchedule.xlsx" ->
+                    "Read-only: schedule edits are not supported in this training deployment because they can conflict with donor data and retained model state.";
+            default -> null;
+        };
     }
 
     @Override

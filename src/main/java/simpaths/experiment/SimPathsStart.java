@@ -56,6 +56,7 @@ public class SimPathsStart implements ExperimentBuilder, microsim.web.server.Web
     @Override
     public String inputReadOnlyReason(String path, microsim.input.InputEditingPolicy.State state) {
         if (webProfile == null) return null;
+        if (!webProfile.training()) return SimPathsUserDataStartup.readOnlyReason(path, state);
         return switch (path) {
             case "EUROMODpolicySchedule.xlsx" ->
                     "Read-only: this training deployment replaces this file with the supplied training schedule during Build.";
@@ -76,7 +77,8 @@ public class SimPathsStart implements ExperimentBuilder, microsim.web.server.Web
             SimPathsQuickStart.validateRequest(parameters);
         } else if (webProfile != null) {
             webProfile.validateBuildParameters(parameters);
-            SimPathsSetupService.requirePreparedInputs();
+            if (webProfile.training()) SimPathsSetupService.requirePreparedInputs();
+            else SimPathsUserDataStartup.requireReady();
         }
     }
 

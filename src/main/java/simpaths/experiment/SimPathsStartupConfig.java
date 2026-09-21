@@ -13,11 +13,18 @@ import simpaths.model.enums.Country;
  *
  */
 public record SimPathsStartupConfig(Country country, int startYear, int endYear,
-        int populationSize, long seed, boolean includeObserver) {
+        int populationSize, long seed, boolean includeObserver, boolean training) {
     private static final int MAX_TRAINING_END_YEAR = 2026;
+    public SimPathsStartupConfig(Country country, int startYear, int endYear,
+            int populationSize, long seed, boolean includeObserver) {
+        this(country, startYear, endYear, populationSize, seed, includeObserver, true);
+    }
+    public static SimPathsStartupConfig userData(int year) {
+        return new SimPathsStartupConfig(Country.UK, year, Math.max(year, 2026), 50000, 606L, true, false);
+    }
     public SimPathsStartupConfig {
-        if (country != Country.UK || startYear != 2019 || endYear < startYear
-                || endYear > MAX_TRAINING_END_YEAR || populationSize <= 0) {
+        if (country != Country.UK || endYear < startYear || populationSize <= 0
+                || (training && (startYear != 2019 || endYear > MAX_TRAINING_END_YEAR))) {
             throw new IllegalArgumentException("Unsupported UK/2019 training profile configuration");
         }
     }
@@ -33,6 +40,11 @@ public record SimPathsStartupConfig(Country country, int startYear, int endYear,
     }
 
     public Map<String, ParameterConstraints.Rule> constraints(boolean prepared) {
+        if (!training) return Map.of(
+                "country", ParameterConstraints.Rule.required("UK", "This deployment supports UK"),
+                "startYear", ParameterConstraints.Rule.integerRange(startYear, startYear, "Start year is selected during startup"),
+                "endYear", new ParameterConstraints.Rule(Integer.toString(startYear), null, null, true, "End year must not precede start year"),
+                "popSize", ParameterConstraints.Rule.integerRange(1, 50000, "This deployment supports target populations up to 50000"));
         var rules = new LinkedHashMap<String, ParameterConstraints.Rule>();
         rules.put("country", ParameterConstraints.Rule.required(country.toString(), "This training profile requires country=" + country));
         rules.put("startYear", ParameterConstraints.Rule.integerRange(startYear, startYear,

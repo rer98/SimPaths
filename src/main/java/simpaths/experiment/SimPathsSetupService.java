@@ -58,12 +58,16 @@ public final class SimPathsSetupService {
     }
 
     static void verifyDatabase(Path databaseBase) throws IOException {
+        verifyDatabase(databaseBase, Country.UK, 2019);
+    }
+
+    static void verifyDatabase(Path databaseBase, Country country, int year) throws IOException {
         // The legacy CSV importers can log SQL failures and return; existence is
         // insufficient evidence that their output is ready for model building.
         try (var connection = java.sql.DriverManager.getConnection(
                 "jdbc:h2:file:" + databaseBase.toAbsolutePath() + ";IFEXISTS=TRUE;ACCESS_MODE_DATA=r", "sa", "");
              var statement = connection.createStatement()) {
-            for (String table : List.of("HOUSEHOLD_UK_2019", "BENEFITUNIT_UK_2019", "PERSON_UK_2019",
+            for (String table : List.of("HOUSEHOLD_" + country + "_" + year, "BENEFITUNIT_" + country + "_" + year, "PERSON_" + country + "_" + year,
                     "DONORPERSON", "DONORTAXUNIT", "DONORPERSONPOLICY", "DONORTAXUNITPOLICY")) {
                 try (var rows = statement.executeQuery("SELECT 1 FROM " + table + " LIMIT 1")) {
                     if (!rows.next()) throw new IOException("Prepared table is empty: " + table);

@@ -107,6 +107,8 @@ public final class SimPathsTrainingStartup implements WebStartupProvider {
         }
         progress.accept("Checking prepared database readiness...");
         SimPathsSetupService.verifyDatabase(input.resolve("input"));
+        // Trusted startup setup, before recording approved versions. Queries never create accounts.
+        microsim.web.server.DatabaseQueryAccess.provision(input.resolve("input"));
         approvedTraining = digest(trainingSchedule());
         approvedTop = digest(topSchedule());
     }

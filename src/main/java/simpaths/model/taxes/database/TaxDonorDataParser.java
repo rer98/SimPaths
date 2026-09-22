@@ -142,21 +142,34 @@ public class TaxDonorDataParser {
     private static void createTaxDonorTables(Connection conn, Country country, int startYear) {
 
         // file for importing csv data
-        String taxDonorInputFileName = Parameters.getTaxDonorInputFileName();
-        String donorInputFileLocation = Parameters.INPUT_DIRECTORY + taxDonorInputFileName + ".csv";
+        String donorInputFileLocation = Parameters.INPUT_DIRECTORY + Parameters.getTaxDonorInputFileName() + ".csv";
+        String taxDonorInputFileName = DonorInputValidation.quoteIdentifier(Parameters.getTaxDonorInputFileName());
+        String benefitUnitColumn = DonorInputValidation.benefitUnitColumn(
+                Parameters.getBenefitUnitVariableNames().getValue(country.getCountryName()));
+        var requiredColumns = new LinkedHashSet<>(Arrays.asList(Parameters.DONOR_STATIC_VARIABLES));
+        requiredColumns.add(benefitUnitColumn);
+        for (var policy : Parameters.EUROMODpolicyScheduleSystemYearMap.values())
+            for (String variable : Parameters.DONOR_POLICY_VARIABLES)
+                requiredColumns.add(variable + "_" + policy.getKey());
+        DonorInputValidation.validateAggregateHeader(Path.of(donorInputFileLocation), requiredColumns);
 
         // create temporary table for manipulating data
         Statement stat = null;
         try {
             stat = conn.createStatement();
-            stat.execute(
-
-                //Refresh table
-                "DROP TABLE IF EXISTS " + taxDonorInputFileName + " CASCADE;"
-
-                //Create new database table by reading in from population_country.csv file
-                + "CREATE TABLE " + taxDonorInputFileName + " AS SELECT * FROM CSVREAD('" + donorInputFileLocation + "');"
-            );
+            stat.execute("DROP TABLE IF EXISTS " + taxDonorInputFileName + " CASCADE");
+            // H2 resolves CSVREAD's columns while preparing CREATE TABLE, before parameters
+            // can be bound. Encode this filename as one SQL string literal instead.
+            stat.execute("CREATE TABLE " + taxDonorInputFileName + " AS SELECT * FROM CSVREAD('"
+                    + donorInputFileLocation.replace("'", "''") + "')");
+            var importedNames = new HashMap<String, String>();
+            try (var rows = stat.executeQuery("SELECT * FROM " + taxDonorInputFileName + " WHERE 1=0")) {
+                var metadata = rows.getMetaData();
+                for (int i = 1; i <= metadata.getColumnCount(); i++) {
+                    String name = metadata.getColumnName(i);
+                    importedNames.put(name.toUpperCase(Locale.ROOT), name);
+                }
+            }
 
             //---------------------------------------------------------------------------
             //	DonorPerson table
@@ -165,13 +178,13 @@ public class TaxDonorDataParser {
 
             // Ensure no duplicate column names
             Set<String> inputPersonStaticColumnNames = new LinkedHashSet<>(Arrays.asList(Parameters.DONOR_STATIC_VARIABLES));
-            inputPersonStaticColumnNames.add((String) Parameters.getBenefitUnitVariableNames().getValue(country.getCountryName()));
+            inputPersonStaticColumnNames.add(benefitUnitColumn);
 
             // begin SQL translation for person table - start with policy invariant variables (DONOR_STATIC_VARIABLES)
             stat.execute(
 
                 "DROP TABLE IF EXISTS " + personTableName + " CASCADE;"
-                + "CREATE TABLE " + personTableName + " AS (SELECT " + stringAppender(inputPersonStaticColumnNames) + " FROM " + taxDonorInputFileName + ");"
+                + "CREATE TABLE " + personTableName + " AS (SELECT " + DonorInputValidation.columnList(inputPersonStaticColumnNames, importedNames) + " FROM " + taxDonorInputFileName + ");"
 
                 //Add id column
                 + "ALTER TABLE " + personTableName + " ALTER COLUMN idperson RENAME TO ID;"
@@ -183,7 +196,7 @@ public class TaxDonorDataParser {
                 // map data from old column and drop old column
 
                 //adjust name for tax unit identifier
-                + "ALTER TABLE " + personTableName + " ALTER COLUMN " + Parameters.getBenefitUnitVariableNames().getValue(country.getCountryName()) + " RENAME TO tuid;"
+                + "ALTER TABLE " + personTableName + " ALTER COLUMN " + DonorInputValidation.quoteExactIdentifier(importedNames.get(benefitUnitColumn.toUpperCase(Locale.ROOT))) + " RENAME TO tuid;"
                 + "ALTER TABLE " + personTableName + " ALTER COLUMN tuid BIGINT;"
 
                 //Age
@@ -328,7 +341,7 @@ public class TaxDonorDataParser {
 
                 stat.execute(
                     "INSERT INTO " + personPolicyTableName + " (" + varList2 + ")"
-                    + " SELECT " + stringAppender(inputPersonDynamicColumnNames) + " FROM " + taxDonorInputFileName + ";"
+                    + " SELECT " + DonorInputValidation.columnList(inputPersonDynamicColumnNames, importedNames) + " FROM " + taxDonorInputFileName + ";"
                 );
                 stat.execute(
                     "UPDATE " + personPolicyTableName + " SET SYSTEM_YEAR = " + systemYear + " WHERE SYSTEM_YEAR IS NULL;"
@@ -459,6 +472,19 @@ public class TaxDonorDataParser {
 
         // prepare file and buffer to write data
         Map<Integer, String> euromodPolicySchedule = Parameters.calculateEUROMODpolicySchedule(country);
+        Parameters.setCountryBenefitUnitName();
+        String benefitUnitColumn = DonorInputValidation.benefitUnitColumn(
+                Parameters.getBenefitUnitVariableNames().getValue(country.getCountryName()));
+        boolean firstPolicy = true;
+        try {
+            for (String policyName : euromodPolicySchedule.values()) {
+                DonorInputValidation.validateDonorHeader(Path.of(Parameters.getEuromodOutputDirectory(), policyName + ".txt"),
+                        benefitUnitColumn, firstPolicy);
+                firstPolicy = false;
+            }
+        } catch (IOException e) {
+            throw new IllegalArgumentException("Cannot read UKMOD donor headers", e);
+        }
         Path target = FileSystems.getDefault().getPath(Parameters.INPUT_DIRECTORY, Parameters.getTaxDonorInputFileName() + ".csv");
         if (target.toFile().exists()) {
             target.toFile().delete();		// delete previous version of the file to allow the new one to be constructed
@@ -473,8 +499,7 @@ public class TaxDonorDataParser {
             Set<String> policyInvariantAttributeNames = new LinkedHashSet<String>(Arrays.asList(Parameters.DONOR_STATIC_VARIABLES));
 
             //Append the names of country-specific variables
-            Parameters.setCountryBenefitUnitName(); //Specify names of benefit unit variables
-            policyInvariantAttributeNames.add((String) Parameters.getBenefitUnitVariableNames().getValue(country.getCountryName()));
+            policyInvariantAttributeNames.add(benefitUnitColumn);
 
             // create list of attributes (column names) of EUROMOD output files that depend on the policy parameters and that will vary between different scenarios
             Set<String> policyOutputVariables = new LinkedHashSet<String>(Arrays.asList(Parameters.DONOR_POLICY_VARIABLES));
@@ -511,7 +536,9 @@ public class TaxDonorDataParser {
                 List<String[]> fileContentByLineSplit = new ArrayList<>(numRows);
 
                 for (String line: fileContentByLine) {
-                    String[] dataArray = line.split("\t");
+                    String[] dataArray = line.split("\t", -1);
+                    if (dataArray.length != tmpHeader.length)
+                        throw new IllegalArgumentException("UKMOD row has a different number of columns from its header: " + policyName + ".txt");
                     List<String> usedVars = new ArrayList<>();
                     for (Integer ind: indices.values()) usedVars.add(dataArray[ind]);
                     fileContentByLineSplit.add(usedVars.toArray(new String[0]));
@@ -541,7 +568,7 @@ public class TaxDonorDataParser {
                 String columnName = header[i];
                 if (policyInvariantAttributeNames.contains(columnName)) { //PB RMK: If name of variable has been misspelled for example, this will not pick it up - will proceed but produce a file with the variable missing and crash later
                     firstFilenameMapColumnNameToIndex.put(header[i], i);
-                    bufferWriter.append(columnName + delimiter);
+                    bufferWriter.append(DonorInputValidation.csvField(columnName) + delimiter);
                 }
             }
 
@@ -553,7 +580,7 @@ public class TaxDonorDataParser {
                     String columnName = header[i];
                     if (policyOutputVariables.contains(columnName)) {
                         mapColumnNameToIndex.put(columnName, i);
-                        bufferWriter.append(columnName + "_" + filename + delimiter);		//Note that the policy dependent variable names have an additional label that follows the filename of the specific EUROMOD policy output file.
+                        bufferWriter.append(DonorInputValidation.csvField(columnName + "_" + filename) + delimiter);		//Note that the policy dependent variable names have an additional label that follows the filename of the specific EUROMOD policy output file.
                     }
                 }
             }
@@ -568,7 +595,7 @@ public class TaxDonorDataParser {
                         if (!columnName.equals(allFilesByName.get(filename).get(0)[column])) {
                             throw new IllegalArgumentException("ERROR - column names do not match!");
                         }
-                        bufferWriter.append(allFilesByName.get(filename).get(row)[column] + delimiter);
+                        bufferWriter.append(DonorInputValidation.csvField(allFilesByName.get(filename).get(row)[column]) + delimiter);
                     }
                 }
                 bufferWriter.append(newLine);
@@ -581,8 +608,10 @@ public class TaxDonorDataParser {
         }
         finally {
             try {
-                bufferWriter.flush();
-                bufferWriter.close();
+                if (bufferWriter != null) {
+                    bufferWriter.flush();
+                    bufferWriter.close();
+                }
             } catch (IOException e) {
                 e.printStackTrace();
             } catch (Throwable e) {

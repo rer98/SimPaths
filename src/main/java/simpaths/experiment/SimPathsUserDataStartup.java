@@ -136,6 +136,16 @@ public final class SimPathsUserDataStartup implements WebStartupProvider {
         for (var e : files.entrySet()) if (!Files.isRegularFile(e.getValue()) || Files.isSymbolicLink(e.getValue()))
             throw new IllegalArgumentException("Missing input: " + e.getKey());
         validatePopulationHeader(files.get("InitialPopulations/"+pop));
+        String benefitUnit = simpaths.model.taxes.database.DonorInputValidation.readBenefitUnitColumn(
+                files.get("system_bu_names.xlsx"), Country.UK);
+        var policies = new ArrayList<>(schedule(request));
+        policies.sort(Comparator.comparingInt(row -> Integer.parseInt(row.get(1))));
+        boolean first = true;
+        for (var row : policies) {
+            simpaths.model.taxes.database.DonorInputValidation.validateDonorHeader(
+                    files.get("EUROMODoutput/" + row.getFirst()), benefitUnit, first);
+            first = false;
+        }
         files.remove("DatabaseCountryYear.xlsx"); files.remove("EUROMODpolicySchedule.xlsx");
         return files;
     }

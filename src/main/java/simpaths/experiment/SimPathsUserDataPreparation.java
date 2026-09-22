@@ -64,6 +64,9 @@ public final class SimPathsUserDataPreparation {
             reader.join(5000);
             if (child.exitValue()!=0) throw new IOException("Input preparation failed. Check the population columns, donor consistency and policy schedule, then review and retry. Active inputs were preserved.");
             SimPathsSetupService.verifyDatabase(candidate.resolve("input"), Country.UK, year);
+            // The worker has exited: provision on the closed candidate, before installation
+            // and before the startup controller records approved file versions.
+            microsim.web.server.DatabaseQueryAccess.provision(candidate.resolve("input"));
             // Install only files from this attempt, with rollback on filesystem errors.
             try { install(candidate, input, attempt.resolve("backup")); }
             catch (IOException e) {

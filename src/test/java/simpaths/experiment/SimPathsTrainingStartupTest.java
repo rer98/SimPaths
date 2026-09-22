@@ -38,6 +38,8 @@ class SimPathsTrainingStartupTest {
     }
     @Test void selectedImportsAreIndependentAndChangedScheduleNeedsConfirmation() throws Exception {
         fixtures();
+        try (var connection = java.sql.DriverManager.getConnection("jdbc:h2:file:" + input.resolve("input"), "sa", "");
+             var statement = connection.createStatement()) { statement.execute("CREATE TABLE FIXTURE(ID INT)"); }
         for (String choice : new String[]{"none", "population", "tax"}) {
             try (var parameters = mockStatic(Parameters.class);
                  var population = mockStatic(DataParser.class);

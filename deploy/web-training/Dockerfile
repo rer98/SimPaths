@@ -9,6 +9,7 @@ COPY webserver.properties README.md license.txt COPYRIGHT.md ./
 COPY input/ input/
 # Fresh context contains no input database or saved processed population.
 RUN java -Xmx3g -Djava.awt.headless=true -cp app.jar simpaths.experiment.SimPathsWebBootstrap --prepare-only
+RUN java -cp app.jar microsim.web.server.DatabaseQueryAccess input/input query-access.json
 RUN mkdir -p output
 EXPOSE 7070
 ENV JAVA_OPTS=""

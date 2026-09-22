@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """(C) Copyright 2026, by Ross Richardson
 
-Verify the training context excludes existing databases and ordinary private data.
+Verify the user-data context excludes existing databases and ordinary private data.
 
 @author ross richardson
 """
@@ -11,7 +11,7 @@ import tempfile
 import unittest
 import zipfile
 
-spec = importlib.util.spec_from_file_location('training_package', Path(__file__).with_name('package_image.py'))
+spec = importlib.util.spec_from_file_location('user_data_package', Path(__file__).with_name('package_image.py'))
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
@@ -27,13 +27,13 @@ class PackagingTests(unittest.TestCase):
                         'input/input.mv.db', 'input/private.csv', 'input/EUROMODoutput/private.txt',
                         'input/InitialPopulations/private.csv', 'input/parameters.xlsx',
                         'webserver.properties', 'license.txt', 'COPYRIGHT.md',
-                        'deploy/web-training/Dockerfile', 'deploy/web-training/README.md']
+                        'deploy/web-user-data/Dockerfile', 'deploy/web-user-data/README.md']
             for relative in fixtures:
                 path = repo / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text('fixture')
             with zipfile.ZipFile(repo / 'singlerun.jar', 'w') as archive:
-                archive.writestr('simpaths/experiment/SimPathsTrainingStartup.class', b'fixture')
+                archive.writestr('simpaths/experiment/SimPathsUserDataStartup.class', b'fixture')
                 archive.writestr('microsim/web/server/DatabaseQueryAccess.class', b'fixture')
             output = root / 'context'
             module.package(repo, output)

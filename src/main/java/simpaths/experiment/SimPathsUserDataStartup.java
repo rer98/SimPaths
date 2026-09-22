@@ -136,15 +136,17 @@ public final class SimPathsUserDataStartup implements WebStartupProvider {
         for (var e : files.entrySet()) if (!Files.isRegularFile(e.getValue()) || Files.isSymbolicLink(e.getValue()))
             throw new IllegalArgumentException("Missing input: " + e.getKey());
         validatePopulationHeader(files.get("InitialPopulations/"+pop));
-        String benefitUnit = simpaths.model.taxes.database.DonorInputValidation.readBenefitUnitColumn(
-                files.get("system_bu_names.xlsx"), Country.UK);
         var policies = new ArrayList<>(schedule(request));
         policies.sort(Comparator.comparingInt(row -> Integer.parseInt(row.get(1))));
-        boolean first = true;
+        long policyBytes = 0;
         for (var row : policies) {
-            simpaths.model.taxes.database.DonorInputValidation.validateDonorHeader(
-                    files.get("EUROMODoutput/" + row.getFirst()), benefitUnit, first);
-            first = false;
+            Path file = files.get("EUROMODoutput/" + row.getFirst());
+            policyBytes += Files.size(file);
+            if (policyBytes > SimPathsWebInputBudget.POLICY_BYTES)
+                throw new IllegalArgumentException("Selected policies exceed the 4 GiB preparation-work budget, including reused files.");
+            var header = SimPathsWebInputBudget.header(file, '\t');
+            if (!header.containsAll(Arrays.asList(Parameters.DONOR_POLICY_VARIABLES)))
+                throw new IllegalArgumentException("UKMOD header is missing required policy columns");
         }
         files.remove("DatabaseCountryYear.xlsx"); files.remove("EUROMODpolicySchedule.xlsx");
         return files;
@@ -154,10 +156,11 @@ public final class SimPathsUserDataStartup implements WebStartupProvider {
         required.addAll(Arrays.asList(Parameters.PERSON_VARIABLES_INITIAL));
         required.addAll(Arrays.asList(Parameters.BENEFIT_UNIT_VARIABLES_INITIAL));
         required.addAll(Arrays.asList(Parameters.HOUSEHOLD_VARIABLES_INITIAL));
-        try (var rows = new org.h2.tools.Csv().read(path.toString(), null, null)) {
-            var metadata = rows.getMetaData();
-            for (int i=1; i<=metadata.getColumnCount(); i++) required.remove(metadata.getColumnName(i));
-        } catch (java.sql.SQLException e) { throw new IllegalArgumentException("Cannot read starting-population CSV header"); }
+        try (var rows = new microsim.web.server.CsvRecordReader(Files.newBufferedReader(path), ',', 1024*1024, 65536, 2048)) {
+            var header = rows.readRecord();
+            if (header == null) throw new IOException("Empty CSV");
+            for (String name : header) required.remove(name);
+        } catch (IOException e) { throw new IllegalArgumentException("Cannot read starting-population CSV header within input limits"); }
         if (!required.isEmpty()) throw new IllegalArgumentException("Starting-population CSV is missing required columns: " + String.join(", ", required));
     }
     static Map<String,String> versions(Map<String,Path> files) throws IOException {

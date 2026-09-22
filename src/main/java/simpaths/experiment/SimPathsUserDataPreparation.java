@@ -43,17 +43,21 @@ public final class SimPathsUserDataPreparation {
                     .map(p -> Path.of(p).toAbsolutePath().toString()).collect(java.util.stream.Collectors.joining(File.pathSeparator));
             Files.createDirectories(attempt.resolve("tmp"));
             progress.accept("Starting isolated input preparation; the current input database is unchanged.");
-            process = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+            var worker = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java").toString(),
                     "-Xmx3g", "-XX:+ExitOnOutOfMemoryError", "-Djava.awt.headless=true", "-Djava.io.tmpdir="+attempt.resolve("tmp"), "-cp", cp,
                     SimPathsUserDataPreparation.class.getName(), Integer.toString(year))
-                    .directory(attempt.toFile()).redirectErrorStream(true).start();
+                    .directory(attempt.toFile()).redirectErrorStream(true);
+            worker.environment().clear();
+            worker.environment().put("LANG", "C.UTF-8");
+            worker.environment().put("TMPDIR", attempt.resolve("tmp").toString());
+            process = worker.start();
             Process child = process;
             shutdown = new Thread(child::destroyForcibly, "stop-input-preparation");
             Runtime.getRuntime().addShutdownHook(shutdown);
             // Read continuously so the worker cannot block on a full output pipe. Only known progress is published.
             var reader = Thread.ofPlatform().daemon().start(() -> {
                 try (var lines = child.inputReader()) {
-                    for (String line; (line=lines.readLine())!=null;) {
+                    for (String line; (line=SimPathsWebInputBudget.boundedLine(lines))!=null;) {
                         if (line.startsWith("WEB_PREP:")) progress.accept(line.substring(9));
                     }
                 } catch (IOException ignored) { }
@@ -126,6 +130,7 @@ public final class SimPathsUserDataPreparation {
         String stage = "checking files";
         try {
             int year = Integer.parseInt(args[0]);
+            SimPathsWebInputBudget.validateDirectory(Path.of("input"));
             Parameters.setTrainingFlag(false); Parameters.validateStartYear(year);
             Parameters.startYear = year; Parameters.endYear = Math.max(year,2026);
             Parameters.setWorkingDirectory(Path.of(".").toAbsolutePath().normalize().toString());

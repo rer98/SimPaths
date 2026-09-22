@@ -35,6 +35,8 @@ class PackagingTests(unittest.TestCase):
             with zipfile.ZipFile(repo / 'singlerun.jar', 'w') as archive:
                 archive.writestr('simpaths/experiment/SimPathsUserDataStartup.class', b'fixture')
                 archive.writestr('microsim/web/server/DatabaseQueryAccess.class', b'fixture')
+                archive.writestr('microsim/web/server/BackendAuth.class', b'fixture')
+                archive.writestr('microsim/web/server/WorkbookBudget.class', b'fixture')
             output = root / 'context'
             module.package(repo, output)
             for relative in ['input/input.mv.db', 'input/private.csv', 'input/EUROMODoutput/private.txt',

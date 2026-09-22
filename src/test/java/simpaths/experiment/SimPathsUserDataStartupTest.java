@@ -67,7 +67,7 @@ class SimPathsUserDataStartupTest {
         var messages = new java.util.concurrent.CopyOnWriteArrayList<String>();
         assertThrows(IOException.class, () -> SimPathsUserDataPreparation.run(input,stage,Map.of("economic_time_series.xlsx",bad),
                 List.of(List.of("policy_2019.txt","2019","2019","Example")),2019,messages::add));
-        assertTrue(messages.stream().anyMatch(m -> m.contains("Preparation failed while loading parameter workbooks")), messages.toString());
+        assertTrue(messages.stream().anyMatch(m -> m.contains("Preparation failed while checking files")), messages.toString());
         assertEquals("existing database",Files.readString(input.resolve("input.mv.db")));
         assertEquals("existing schedule",Files.readString(input.resolve("EUROMODpolicySchedule.xlsx")));
         try (var files = Files.list(stage)) { assertEquals(0,files.count()); }

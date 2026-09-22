@@ -18,7 +18,9 @@ def package(repo, output):
     jar = repo / 'singlerun.jar'
     with zipfile.ZipFile(jar) as archive:
         if not {'simpaths/experiment/SimPathsTrainingStartup.class',
-                'microsim/web/server/DatabaseQueryAccess.class'}.issubset(archive.namelist()):
+                'microsim/web/server/DatabaseQueryAccess.class',
+                'microsim/web/server/BackendAuth.class',
+                'microsim/web/server/WorkbookBudget.class'}.issubset(archive.namelist()):
             raise ValueError('Build the updated SimPaths jar first')
     selected = list((repo / 'input').glob('*.xlsx')) + list((repo / 'input').glob('*.xls'))
     for directory, suffixes in [('InitialPopulations/training', {'.csv'}),

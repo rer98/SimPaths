@@ -7,7 +7,11 @@
 
 FROM eclipse-temurin:25-jre@sha256:bb036ed6cfdc57e3da7c22634d15f1b840d2caf76183861c80e81ca4b5104abb
 
-RUN apt-get update && apt-get install -y xvfb libxtst6 libxi6 libxrender1 && rm -rf /var/lib/apt/lists/*
+# Security floors from the September 2026 image scan; allow newer distro fixes.
+RUN apt-get update && apt-get install -y xvfb libxtst6 libxi6 libxrender1 libexpat1 libxml2-16 \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libexpat1)" ge 2.7.4-1ubuntu0.1 \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libxml2-16)" ge 2.15.2+dfsg-0.1ubuntu0.2 \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

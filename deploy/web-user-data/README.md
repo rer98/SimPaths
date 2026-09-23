@@ -25,6 +25,11 @@ and active inputs intact; correct the inputs and review again. The worker has a
 each and 2 GiB total candidates, with a 1 GiB free-space reserve. Preparation checks
 space for candidate copies plus a 2 GiB working reserve; this is not a guarantee
 that arbitrary large donor datasets will fit. Discard candidate uploads to free space.
+Confirmed disk-full or disk-quota errors during preparation appear in the startup
+dialog and console with instructions to free space and retry. Raw importer
+diagnostics remain hidden. There is no continuous free-space monitor. If input
+installation cannot be rolled back, preparation files are retained for operator
+recovery and the message instructs the user not to Build.
 
 Use **Configure startup inputs** in Input Files to revisit startup
 before the first Build. After the first Build, population, donor and schedule choices are locked for the

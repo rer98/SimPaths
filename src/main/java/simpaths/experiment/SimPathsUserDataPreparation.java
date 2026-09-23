@@ -20,6 +20,11 @@ public final class SimPathsUserDataPreparation {
     private SimPathsUserDataPreparation() {}
     static void run(Path input, Path workspace, Map<String,Path> sources, List<List<String>> schedule,
             int year, Consumer<String> progress) throws Exception {
+        try { runAttempt(input, workspace, sources, schedule, year, progress); }
+        catch (Exception failure) { throw SimPathsPreparationStorage.forDisplay(failure); }
+    }
+    private static void runAttempt(Path input, Path workspace, Map<String,Path> sources, List<List<String>> schedule,
+            int year, Consumer<String> progress) throws Exception {
         Files.createDirectories(workspace);
         long sourceBytes = 0;
         for (var file : sources.values()) sourceBytes += Files.size(file);
@@ -32,6 +37,7 @@ public final class SimPathsUserDataPreparation {
         boolean cleanup = true;
         Process process = null;
         Thread shutdown = null;
+        Exception failure = null;
         try {
             Path candidate = attempt.resolve("input"); Files.createDirectories(candidate);
             for (var entry : sources.entrySet()) {
@@ -66,7 +72,7 @@ public final class SimPathsUserDataPreparation {
                 child.destroyForcibly(); throw new IOException("Preparation exceeded one hour; reduce the input size or check the dataset");
             }
             reader.join(5000);
-            if (child.exitValue()!=0) throw new IOException("Input preparation failed. Check the population columns, donor consistency and policy schedule, then review and retry. Active inputs were preserved.");
+            SimPathsPreparationStorage.requireWorkerSuccess(child.exitValue());
             SimPathsSetupService.verifyDatabase(candidate.resolve("input"), Country.UK, year);
             // The worker has exited: provision on the closed candidate, before installation
             // and before the startup controller records approved file versions.
@@ -77,14 +83,25 @@ public final class SimPathsUserDataPreparation {
                 if (e.getSuppressed().length > 0) {
                     cleanup = false;
                     progress.accept("Input installation rollback failed; preparation files retained for operator recovery. Do not Build.");
+                    if (SimPathsPreparationStorage.exhausted(e))
+                        throw new SimPathsPreparationStorage.Exhausted(e, true);
                 }
                 throw e;
             }
             progress.accept("Prepared inputs validated and installed. Configure parameters and Build.");
+        } catch (Exception e) {
+            failure = e;
+            throw e;
         } finally {
             if (process != null && process.isAlive()) { process.destroyForcibly(); process.waitFor(10, TimeUnit.SECONDS); }
             if (shutdown != null) Runtime.getRuntime().removeShutdownHook(shutdown);
-            if (cleanup) deleteTree(attempt);
+            if (cleanup) {
+                try { deleteTree(attempt); }
+                catch (IOException e) {
+                    if (failure != null) failure.addSuppressed(e);
+                    else throw e;
+                }
+            }
         }
     }
     static void install(Path candidate, Path input, Path backup) throws IOException {
@@ -125,8 +142,10 @@ public final class SimPathsUserDataPreparation {
     public static void main(String[] args) {
         PrintStream progress = System.out;
         // Importers can print data in diagnostics. Never forward their raw output to the session log.
-        System.setOut(new PrintStream(OutputStream.nullOutputStream()));
-        System.setErr(new PrintStream(OutputStream.nullOutputStream()));
+        var quietOut = new SimPathsPreparationStorage.QuietDiagnostics();
+        var quietErr = new SimPathsPreparationStorage.QuietDiagnostics();
+        System.setOut(quietOut);
+        System.setErr(quietErr);
         String stage = "checking files";
         try {
             int year = Integer.parseInt(args[0]);
@@ -139,31 +158,37 @@ public final class SimPathsUserDataPreparation {
             Parameters.setPopulationInitialisationInputFileName("population_initial_UK");
             stage = "loading parameter workbooks"; progress.println("WEB_PREP:Loading parameter workbooks");
             Parameters.loadTimeSeriesFactorMaps(Country.UK); Parameters.instantiateAlignmentMaps();
+            quietOut.checkStorage(); quietErr.checkStorage();
             stage = "importing the starting population"; progress.println("WEB_PREP:Importing the starting population");
             try (var connection = DriverManager.getConnection("jdbc:h2:file:"+Path.of("input/input").toAbsolutePath(),"sa", "")) {
                 // The legacy parser logs SQL exceptions. Detect those in this worker without changing desktop code.
-                var errors = new java.util.concurrent.atomic.AtomicBoolean();
-                PrintStream previous = System.err;
-                System.setErr(new PrintStream(new OutputStream() { public void write(int value) { errors.set(true); } }));
-                try { DataParser.createDatabaseForPopulationInitialisationByYearFromCSV(Country.UK,
-                        "population_initial_UK", new ArrayList<>(List.of(year)), connection); }
-                finally { System.setErr(previous); }
-                if (errors.get()) throw new IOException("Population import reported an error");
+                quietErr.clearOutputSeen();
+                DataParser.createDatabaseForPopulationInitialisationByYearFromCSV(Country.UK,
+                        "population_initial_UK", new ArrayList<>(List.of(year)), connection);
+                quietOut.checkStorage(); quietErr.checkStorage();
+                if (quietErr.outputSeen()) throw new IOException("Population import reported an error");
             }
             stage = "preparing tax/benefit donor data"; progress.println("WEB_PREP:Preparing tax/benefit donor data");
             TaxDonorDataParser.constructAggregateTaxDonorPopulationCSVfile(Country.UK, false);
+            quietOut.checkStorage(); quietErr.checkStorage();
             TaxDonorDataParser.databaseFromCSV(Country.UK, year, false);
+            quietOut.checkStorage(); quietErr.checkStorage();
             Parameters.loadTimeSeriesFactorForTaxDonor(Country.UK);
             TaxDonorDataParser.populateDonorTaxUnitTables(Country.UK, false);
+            quietOut.checkStorage(); quietErr.checkStorage();
             stage = "validating prepared tables"; progress.println("WEB_PREP:Validating prepared tables");
             SimPathsSetupService.verifyDatabase(Path.of("input/input"), Country.UK, year);
             XLSXfileWriter.createXLSX(Parameters.getInputDirectory(), Parameters.DatabaseCountryYearFilename,
                     "Data", new String[]{"Country","Year"}, new Object[][]{{"UK",year}});
+            quietOut.checkStorage(); quietErr.checkStorage();
             progress.println("WEB_PREP:Preparation complete");
             System.exit(0); // Also closes worker-only persistence resources.
         } catch (Exception e) {
-            progress.println("WEB_PREP:Preparation failed while " + stage + ". Check the selected input files.");
-            System.exit(1);
+            int exitCode = SimPathsPreparationStorage.workerExitCode(e, quietOut, quietErr);
+            progress.println("WEB_PREP:" + (exitCode == SimPathsPreparationStorage.EXHAUSTED_EXIT
+                    ? SimPathsPreparationStorage.MESSAGE
+                    : "Preparation failed while " + stage + ". Check the selected input files."));
+            System.exit(exitCode);
         }
     }
 }

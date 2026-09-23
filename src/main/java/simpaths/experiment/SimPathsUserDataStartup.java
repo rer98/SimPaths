@@ -171,9 +171,9 @@ public final class SimPathsUserDataStartup implements WebStartupProvider {
     @Override public Map<String,Object> reviewRequest(Map<String,Object> request) throws Exception {
         if (!Set.of("source","year","schedule").equals(request.keySet())) throw new IllegalArgumentException("Unexpected startup fields");
         var rows = schedule(request); var files = selectedFiles(request);
-        return Map.of("warnings", List.of("Prepare the selected UK population and donor systems in a separate Java process. Replace the active input database, generated donor CSV, selected inputs and policy schedule only after successful validation.",
-                "Bundled training directories remain examples. Training mode is disabled; Build will not copy their schedule over your selection.",
-                "Preparation needs temporary disk space. Missing or invalid inputs leave Build unavailable; correct them and retry."),
+        return Map.of("warnings", List.of("Click Continue to prepare the selected UK population and tax/benefit donor data. After successful validation, this will replace the active input database, generated donor CSV, selected inputs and policy schedule.",
+                "The bundled training files remain available as examples. This configuration disables training mode, so Build will not copy the training policy schedule over your selection.",
+                "If inputs are missing or invalid, preparation cannot complete and Build remains unavailable. Correct the inputs and review your selections again."),
                 "schedule", rows, "files", versions(files), "year", year(request), "source", request.get("source"));
     }
     @Override public void prepareRequest(Map<String,Object> request, Consumer<String> progress) throws Exception {

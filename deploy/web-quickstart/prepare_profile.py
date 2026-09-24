@@ -37,7 +37,7 @@ def profile_id(population):
 
 def profile_readme(population):
     profile_for(population)
-    return (f'# SimPaths Quick Start — {population:,} people\n\n'
+    return (f'# SimPaths UK Quick Start — {population:,} people\n\n'
             f'This session uses a prepared UK population of **{population:,} requested people**, starting in 2019.\n\n'
             + (HERE / 'README.md').read_text())
 

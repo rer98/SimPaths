@@ -45,12 +45,15 @@ verified prepared package and fails with a preparation/provisioning message when
 that package is missing, incompatible, empty or inaccessible. It never silently
 falls back to ordinary population construction or overwrites existing inputs.
 
-The coordinating repository provides `prepare_quick_start_profile.py` to create
-base inputs and save the processed population in a new external staging directory,
-then verify it and perform a fresh-JVM loading check. `package_quick_start_image.py`
-creates an isolated Docker build context from that package and the current JAR.
-See that repository's `quickstart/README.md` for commands. These tools can move
-into SimPaths through a later reviewed change.
+This repository provides `deploy/web-quickstart/prepare_profile.py` to create base
+inputs and save the processed population in a new external staging directory,
+then verify it and perform a fresh-JVM loading check.
+`deploy/web-quickstart/package_image.py` creates an isolated Docker build context
+from that package and the current JAR. See the
+[Quick Start operator guide](deploy/web-quickstart/OPERATIONS.md) for commands and
+[web image overview](deploy/WEB_IMAGES.md) for the other configurations and shared
+image tools. The coordinating repository retains cross-repository release and
+browser acceptance workflows; its old preparation/packaging commands are wrappers.
 
 The existing administrative command remains available where raw training sources
 are installed:
@@ -99,8 +102,9 @@ copy. Rebuild checks also inspect the retained first-build persistence database.
 The explicit generated Docker context includes only the selected prepared runtime
 inputs. It does not relax the SimPaths repository `.dockerignore`. Each container
 has its own writable input/database files; do not share a writable H2 volume across
-sessions. This manual image path does not implement production orchestration or
-the future interactive SingleRun setup UI.
+sessions. Cross-repository release orchestration is separate from these
+model-specific packaging tools. Interactive training and user-data startup have
+their own configurations under `deploy/`.
 
 Each build keeps its native input/output directory. The output database remains
 shared by all runs within the JVM, with distinct experiment IDs for SQL comparison.
@@ -110,5 +114,6 @@ remains an independent setting (default CSV export).
 The starting-population and processed-population factories retain the agreed
 same-path reuse, replacement on path change, per-operation entity-manager cleanup
 and final JVM-shutdown cleanup. No factory lifetime changes are part of this
-Quick Start integration. `allowDetailedDataAccess` retains its existing setting;
-the future training-only interactive deployment is a separate profile decision.
+Quick Start integration. Detailed-data access is enabled for the public training
+profiles. The user-data configuration separately controls the assistant's access
+to detailed records, as described in its packaged guide.

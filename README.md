@@ -9,3 +9,11 @@ SimPaths is an open-source framework for modelling individual and household life
 SimPaths models currently exist for the UK, Greece, Hungary, Italy, and Poland. This page refers to the UK model; the other European models are available at the corresponding [SimPathsEU](https://github.com/simpaths/SimPathsEU) page. 
 
 The entire SimPaths documentation is available on its [website](https://simpaths.github.io/SimPaths/), which includes: a detailed description of its building blocks; instructions on how to set up and run the model; information about contributing to the model's development.
+
+## Maintaining the web deployments
+
+The [web release maintainer guide](deploy/MAINTAINER_GUIDE.md) describes how to
+build, validate and deploy updated Quick Start, configurable training and
+user-supplied data images. These workflows run from SimPaths with matching
+JAS-mine-core and JAS-mine-web checkouts. The separate development/coordinating
+repository is not required.

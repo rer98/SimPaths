@@ -106,11 +106,17 @@ desktop/web launch details.
 
 ## Release orchestration and documentation-only updates
 
-The coordinating repository retains `quickstart/build_release.py`, release
-promotion, browser acceptance and benchmark evidence. It builds the matching
-core and model, reuses verified prepared bases, and calls the tools in the
-checkout specified by `--simpaths`. Its Java/deployment source checks require
-the changes to be committed before a full release build.
+This repository owns `deploy/web-quickstart/build_release.py` and
+`promote_release.py`, with browser runners in `deploy/acceptance/`. The builder
+tests the matching core and model, reuses verified prepared bases, and calls the
+tools in the checkout specified by `--simpaths`. Source and deployment-tool
+changes must be committed before a full release build. Reusable promotion and
+retention operations are loaded from the selected JAS-mine-web checkout.
+
+See the [maintainer guide](../MAINTAINER_GUIDE.md) for base selection, first-time
+preparation, one/two-profile releases, acceptance, promotion and transfer. No
+`solveit_SimPathsWeb` checkout is required; its old commands are compatibility
+entry points, and its benchmark evidence remains historical.
 
 For README-only changes, use `python3 deploy/update_model_readmes.py --apply`
 instead of rebuilding databases. See [WEB_IMAGES.md](../WEB_IMAGES.md) for
@@ -118,11 +124,13 @@ the catalogue option, rollback and verification procedure.
 
 ## Local checks
 
-From SimPaths:
+From SimPaths, use the Python environment prepared in the
+[maintainer guide](../MAINTAINER_GUIDE.md). Release-workflow tests additionally
+exercise browser command help and need the acceptance/frontend Python dependencies:
 
 ```bash
-python3 -m unittest discover -s deploy/web-quickstart -p 'test_*.py'
-python3 -m unittest discover -s deploy -p 'test_*.py'
+"$SIMPATHS_TEST_ENV/bin/python" -m unittest discover -s deploy/web-quickstart -p 'test_*.py'
+"$SIMPATHS_TEST_ENV/bin/python" -m unittest discover -s deploy -p 'test_*.py'
 ```
 
 These tests use small fixtures and mocked Docker operations. They do not prepare

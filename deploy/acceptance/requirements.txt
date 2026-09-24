@@ -1,0 +1,11 @@
+# (C) Copyright 2026, by Ross Richardson
+#
+# Requirements browser.
+#
+# @author ross richardson
+#
+
+playwright==1.63.0
+
+# Compose acceptance configuration generation.
+PyYAML

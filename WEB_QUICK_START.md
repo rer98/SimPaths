@@ -52,8 +52,9 @@ then verify it and perform a fresh-JVM loading check.
 from that package and the current JAR. See the
 [Quick Start operator guide](deploy/web-quickstart/OPERATIONS.md) for commands and
 [web image overview](deploy/WEB_IMAGES.md) for the other configurations and shared
-image tools. The coordinating repository retains cross-repository release and
-browser acceptance workflows; its old preparation/packaging commands are wrappers.
+image tools. The [maintainer guide](deploy/MAINTAINER_GUIDE.md) covers the complete
+release and browser acceptance workflow, now owned by SimPaths. The old coordinating
+repository commands are compatibility wrappers.
 
 The existing administrative command remains available where raw training sources
 are installed:

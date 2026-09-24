@@ -5,6 +5,10 @@ Operator notes for packaging all SimPaths web images and their guides.
 
 # SimPaths web images: operator notes
 
+For the complete update, acceptance and publication process, start with the
+[web release maintainer guide](MAINTAINER_GUIDE.md). All SimPaths release and
+acceptance commands are owned here; no coordinating checkout is needed.
+
 Model-specific deployment files live together in this repository:
 
 | Configuration | User guide | Packaging/preparation |
@@ -85,7 +89,9 @@ User-data startup enforces upload and preparation-work budgets and reports
 confirmed disk-full/quota errors. Its free-space checks are admission checks,
 not a guarantee that arbitrary data can be processed within the available space.
 
-The coordinator holds the browser acceptance scripts and recorded evidence.
+Browser acceptance scripts live in `deploy/acceptance/`; release and promotion
+entry points live in `deploy/web-quickstart/`. Reports go to the operator's chosen
+evidence directory. The former coordinator retains historical evidence only.
 Training tests cover neither preparation option, population only, tax only and
 both. User-data tests use public training files through the upload route; a
 compatible non-training research dataset still needs separate acceptance.

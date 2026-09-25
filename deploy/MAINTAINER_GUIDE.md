@@ -14,6 +14,10 @@ These instructions cover UK SingleRun: Quick Start 20,000/50,000, configurable
 training and user-supplied data. They do not implement MultiRun or provision a
 production VM.
 
+The separate [MultiRun configuration tooling](multirun/README.md) validates draft
+settings and parameter sweeps without launching simulations. It is not yet a
+MultiRun release/deployment workflow.
+
 ## 1. Checkouts and tools
 
 Use Linux, Java 25/JDK, Maven, local Docker, Python 3.11+ and Chromium via

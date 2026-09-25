@@ -1,0 +1,20 @@
+# (C) Copyright 2026, by Ross Richardson
+# Independently specified native baseline for the local MultiRun comparison.
+# @author ross richardson
+maxNumberOfRuns: 3
+executeWithGui: false
+randomSeed: 606
+startYear: 2019
+endYear: 2020
+popSize: 2000
+model_args:
+  savingRate: 0.04
+collector_args:
+  exportToCSV: true
+  exportToDatabase: false
+  persistPersons: true
+  persistBenefitUnits: true
+parameter_args:
+  trainingFlag: false
+innovation_args:
+  randomSeedInnov: true

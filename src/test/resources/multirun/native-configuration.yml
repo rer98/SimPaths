@@ -1,0 +1,69 @@
+# (C) Copyright 2026, by Ross Richardson
+# Native configuration generated from deploy/multirun/example.yml for Java assignment checks.
+# @author ross richardson
+collector_args:
+  calculateGiniCoefficients: false
+  dataDumpStartTime: 0
+  dataDumpTimePeriod: 1.0
+  exportToCSV: true
+  exportToDatabase: false
+  persistAlignmentStatistics: true
+  persistBenefitUnits: true
+  persistDemographicStatistics: true
+  persistHealthStatistics: true
+  persistHouseholds: true
+  persistLabourStatistics: true
+  persistPersons: true
+  persistWealthIncomeStatistics: true
+  persistWellbeingByGender: true
+countryString: United Kingdom
+endYear: 2022
+executeWithGui: false
+innovation_args:
+  flagDatabaseSetup: false
+  intertemporalElasticityInnov: false
+  labourSupplyElasticityInnov: false
+  randomSeedInnov: true
+integrationTest: false
+maxNumberOfRuns: 10
+model_args:
+  addRegressionStochasticComponent: true
+  alignCohabitation: true
+  alignEducation: false
+  alignEmployment: false
+  alignFertility: false
+  alignInSchool: false
+  alignPopulation: true
+  donorPoolAveraging: true
+  enableIntertemporalOptimisations: false
+  fixRandomSeed: true
+  fixRegressionStochasticComponent: false
+  fixTimeTrend: true
+  flagDefaultToTimeSeriesAverages: false
+  flagSuppressChildcareCosts: false
+  flagSuppressSocialCareCosts: false
+  ignoreTargetsAtPopulationLoad: false
+  initialisePotentialEarningsFromDatabase: true
+  labourMarketCovid19On: false
+  lifetimeIncomeGenerate: false
+  lifetimeIncomeImpute: false
+  maxAge: 130
+  printSBAMMatchingMatrix: false
+  projectFormalChildcare: true
+  projectMortality: true
+  projectSocialCare: true
+  sIndexAlpha: 2.0
+  sIndexDelta: 0.98
+  sIndexTimeWindow: 5
+  saveImperfectTaxDBMatches: false
+  savingRate: 0.04
+  taxDonorUpratingByWage: false
+  timeTrendStopsIn: 2023
+  timeTrendStopsInMonetaryProcesses: 2023
+  useSavedBehaviour: false
+  useWeights: false
+parameter_args:
+  trainingFlag: false
+popSize: 50000
+randomSeed: 606
+startYear: 2019

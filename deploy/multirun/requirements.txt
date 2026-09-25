@@ -1,0 +1,4 @@
+# (C) Copyright 2026, by Ross Richardson
+# Tested YAML parser for the MultiRun configuration tooling.
+# @author ross richardson
+PyYAML==6.0.3

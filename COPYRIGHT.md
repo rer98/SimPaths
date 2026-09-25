@@ -24,6 +24,22 @@ Upstream baseline used to identify new files: `b223738b9cdf1d814cc3c6f09b04bc493
 - `WEB_QUICK_START.md`
 - `deploy/_workflow.py`
 - `deploy/MAINTAINER_GUIDE.md`
+- `deploy/multirun/configuration.py`
+- `deploy/multirun/schema.py`
+- `deploy/multirun/yaml_input.py`
+- `deploy/multirun/test_configuration.py`
+- `deploy/multirun/requirements.txt`
+- `deploy/multirun/example.yml`
+- `deploy/multirun/README.md`
+- `deploy/multirun/artifacts.py`
+- `deploy/multirun/local_process.py`
+- `deploy/multirun/prepare_training.py`
+- `deploy/multirun/compare_native.py`
+- `deploy/multirun/native_reference.yml`
+- `deploy/multirun/run_local_proof.py`
+- `deploy/multirun/test_artifacts.py`
+- `src/test/java/simpaths/experiment/SimPathsMultiRunConfigurationTest.java`
+- `src/test/resources/multirun/native-configuration.yml`
 - `deploy/test_release_workflows.py`
 - `deploy/web-quickstart/build_release.py`
 - `deploy/web-quickstart/promote_release.py`
@@ -65,4 +81,7 @@ Upstream baseline used to identify new files: `b223738b9cdf1d814cc3c6f09b04bc493
 
 ## Artifacts attributed here without modifying their contents
 
-None.
+Local MultiRun preparation receipts, configuration snapshots and comparison reports
+are attributed through the `COPYRIGHT.md` generated alongside each evidence set.
+Model binaries, datasets, scientific outputs and third-party logs retain their
+existing attribution and licences.

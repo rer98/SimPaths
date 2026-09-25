@@ -1,0 +1,24 @@
+# (C) Copyright 2026, by Ross Richardson
+# Draft parameter sweep for configuration review; no dataset or job is created.
+# @author ross richardson
+schema_version: simpaths.multirun.v1-draft
+model_release: selected-catalogue-release
+dataset_revision: selected-prepared-dataset
+experiment:
+  name: Savings comparison
+common:
+  country: UK
+  start_year: 2019
+  end_year: 2022
+  population: 50000
+seed_plan:
+  mode: standard
+  profile: simpaths-standard-v1
+  repetitions: 10
+sweep:
+  id_prefix: savings
+  combination: all
+  base: {}
+  parameters:
+    model_args.savingRate: [0.04, 0.05, 0.06]
+output_contract: simpaths.visualiser.v1-draft

@@ -274,3 +274,36 @@ separate native comparison for that question.
 The generic dispatcher, supervisor and database store live in JAS-mine-web. The
 model translation, input verification and scientific-output checks live here.
 Neither repository imports anything from private development/planning projects.
+
+### Run the same proof in Docker
+
+Use an installed, approved Temurin 25 runtime image with the usual native libraries:
+
+```bash
+python -m deploy.multirun.run_queue_proof \
+  --frontend /path/to/JAS-mine-web \
+  --container-image simpaths-interactive:uk-user-data \
+  --output /path/to/new/container-proof-evidence
+```
+
+The proof resolves that tag to an immutable image ID before submission. It uses
+the existing image as a runtime: the JAR and prepared public inputs are verified
+separately using their preparation receipt. No model-image rebuild is required.
+The queue pins the runtime image; the prepared receipt pins the JAR and input
+bytes. Only trusted public-data runtime images are suitable for this maintainer
+proof; production images must not embed another user's or provider's data.
+
+The frontend runner first runs its PostgreSQL and Docker worker tests. Preparation
+still uses the trusted local public-data preparation JVM. Each of the two Run Sets
+then runs in its own Docker container, one at a time, with two CPUs, 4 GiB memory,
+a 2 GiB Java heap, a process limit and an independent execution deadline. The
+container sees read-only prepared inputs and launch files and a private writable
+workspace. It receives no queue credentials, Docker socket or external network.
+The native Java model, configuration and output validation are unchanged.
+
+The platform executor verifies termination and removes each container before
+deleting its large workspace. Evidence includes immutable container IDs and the
+launch policy. Uncertain Docker state retains the workspace for reconciliation.
+CPU/RAM/process limits are enforced, but bind-workspace storage monitoring is not
+a hard filesystem quota. Quota-backed storage and shared SingleRun/batch admission
+remain production prerequisites; this command does not enable web submissions.

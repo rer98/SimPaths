@@ -40,8 +40,11 @@ def execute_proof(output):
     output = output.absolute()
     output.mkdir(mode=0o700)
     write_attribution(output)
-    report = {"passed": False, "scope": "trusted local public-data queue execution",
+    image = os.environ.get("SIMPATHS_QUEUE_PROOF_IMAGE")
+    report = {"passed": False, "scope": "Docker public-data queue execution" if image else "trusted local public-data queue execution",
               "scientific_reproducibility": "Not tested here; reported receipt-flag RNG issue remains open"}
+    if image:
+        report["runtime_image_id"] = image
     schema = "proof_batch_" + uuid4().hex
     queue = Queue(os.environ["JASMINE_BATCH_TEST_DSN"], "simpaths-local-proof", schema=schema)
     # Large copies use temporary storage, independently of the evidence folder.
@@ -60,14 +63,31 @@ def execute_proof(output):
         queue.create_pool(Resources(2000, 4096, 6144),
             policy=Policy(per_user_active=1, attempt_seconds=1500, total_seconds=4500))
         queue.approve("local-proof")
-        arguments = submission_arguments(proof_configuration().editable_configuration(), prepared)
+        if image:
+            from deploy.multirun.container_adapter import SimPathsContainerAdapter, container_submission
+            arguments = container_submission(proof_configuration().editable_configuration(), prepared, image)
+        else:
+            arguments = submission_arguments(proof_configuration().editable_configuration(), prepared)
         queue.register_dataset(arguments["dataset_id"], receipt["sha256"])
         queue.grant_dataset("local-proof", arguments["dataset_id"])
         experiment = queue.submit("local-proof", "queue-proof", **arguments, resources=Resources(2000, 4096, 6144),
                                   baseline=arguments["run_sets"][0]["id"])
         report["experiment_id"] = experiment
-        executor = LocalExecutor(work / "attempts")
-        worker = Worker(queue, executor, SimPathsLocalAdapter(prepared), "local-worker")
+        if image:
+            from jasmine_web.batch.docker_executor import DockerExecutor
+            executor = DockerExecutor(work / "attempts", approved_images=[image], input_roots=[prepared])
+            adapter = SimPathsContainerAdapter(prepared, image)
+        else:
+            executor = LocalExecutor(work / "attempts")
+            adapter = SimPathsLocalAdapter(prepared)
+        worker = Worker(queue, executor, adapter, "proof-worker")
+        known_leases = {}
+        def tick(**options):
+            known_leases.update(worker.leases)
+            try:
+                return worker.tick(**options)
+            finally:
+                known_leases.update(worker.leases)
         print("Running two queued Run Sets, each with seeds 606, 607, 608", flush=True)
         finished = set()
         next_progress = time.monotonic() + 30
@@ -75,7 +95,7 @@ def execute_proof(output):
         with worker.open():
             try:
                 while True:
-                    for job_id, state in worker.tick(claim_new=False):
+                    for job_id, state in tick(claim_new=False):
                         print(f"Run Set {job_id}: {state}", flush=True)
                     snapshot = queue.inspect("local-proof", experiment)
                     for job in snapshot["jobs"]:
@@ -93,7 +113,7 @@ def execute_proof(output):
                                 evidence.mkdir(mode=0o700, exist_ok=True)
                                 for option in (directory / "work/output").glob("*/input/options.txt"):
                                     shutil.copy2(option, evidence / (option.parent.parent.name + "-options.txt"))
-                                for filename in ("exit.json", "execution.log", "identity.json"):
+                                for filename in ("exit.json", "execution.log", "identity.json", "container-policy.json", "container.json"):
                                     if (directory / filename).is_file():
                                         shutil.copy2(directory / filename, evidence / filename)
                                 write_json(evidence / "repetitions.json", worker.adapter.validate(
@@ -101,6 +121,8 @@ def execute_proof(output):
                                     # persisted request; output is still private.
                                     SimpleNamespace(specification=snapshot["specification"],
                                          configuration_id=job["configuration_id"]), directory / "work"))
+                                if image:
+                                    executor.cleanup(known_leases[identity["attempt_id"]])
                                 shutil.rmtree(directory / "work")
                             finished.add(job["id"])
                     states = [job["state"] for job in snapshot["jobs"]]
@@ -111,7 +133,7 @@ def execute_proof(output):
                     if any(state in ("review", "cancelled") for state in states):
                         raise RuntimeError("A queued Run Set did not complete; inspect the retained evidence")
                     if not worker.leases:
-                        worker.tick()  # Admit after earlier large workspaces were removed.
+                        tick()  # Admit after earlier large workspaces were removed.
                     if time.monotonic() >= next_progress:
                         print("Queue states: " + ", ".join(states), flush=True)
                         next_progress = time.monotonic() + 30
@@ -119,13 +141,16 @@ def execute_proof(output):
             finally:
                 all_stopped = True
                 until = time.monotonic() + 15
-                for lease in worker.leases.values():
+                for lease in known_leases.values():
                     try:
-                        executor.stop(lease, "cancelled")
+                        if executor.inspect(lease)["state"] != "stopped":
+                            executor.stop(lease, "cancelled")
                         while executor.inspect(lease)["state"] == "running" and time.monotonic() < until:
                             time.sleep(0.1)
                         if executor.inspect(lease)["state"] != "stopped":
                             all_stopped = False
+                        elif image:
+                            executor.cleanup(lease)
                     except Exception:
                         # A full disk or unreadable receipt is not evidence that
                         # the process stopped. Never erase a live workspace.
@@ -148,7 +173,7 @@ def execute_proof(output):
             for path in (work / "attempts").glob("batch-*"):
                 evidence = output / "attempt-diagnostics" / path.name
                 evidence.mkdir(mode=0o700, parents=True, exist_ok=True)
-                for name in ("execution.log", "supervisor.log", "exit.json", "identity.json"):
+                for name in ("execution.log", "supervisor.log", "exit.json", "identity.json", "container-policy.json", "container.json", "removed.json"):
                     if (path / name).is_file():
                         shutil.copy2(path / name, evidence / name)
             shutil.rmtree(work, ignore_errors=True)
@@ -165,6 +190,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--frontend", type=Path, help="JAS-mine-web checkout")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--container-image", help="Installed approved Temurin 25 image; enables isolated Docker execution")
     parser.add_argument("--execute-proof", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.execute_proof:
@@ -180,7 +206,14 @@ def main():
     command = [sys.executable, str(args.frontend.resolve() / "scripts/test_batch_queue.py"),
         "--output", str(args.output.resolve()), "--proof-script", str(Path(__file__).resolve()),
         "--proof-requirements", str(Path(__file__).with_name("requirements.txt"))]
-    return subprocess.call(command)
+    env = dict(os.environ)
+    env.pop("SIMPATHS_QUEUE_PROOF_IMAGE", None)
+    if args.container_image:
+        image = subprocess.check_output(["docker", "image", "inspect", args.container_image,
+                                          "--format", "{{.Id}}"], text=True).strip()
+        env["SIMPATHS_QUEUE_PROOF_IMAGE"] = image
+        command.append("--docker-tests")
+    return subprocess.call(command, env=env)
 
 
 if __name__ == "__main__":

@@ -38,6 +38,9 @@ Upstream baseline used to identify new files: `b223738b9cdf1d814cc3c6f09b04bc493
 - `deploy/multirun/native_reference.yml`
 - `deploy/multirun/run_local_proof.py`
 - `deploy/multirun/test_artifacts.py`
+- `deploy/multirun/queue_adapter.py`
+- `deploy/multirun/run_queue_proof.py`
+- `deploy/multirun/test_queue_adapter.py`
 - `src/test/java/simpaths/experiment/SimPathsMultiRunConfigurationTest.java`
 - `src/test/resources/multirun/native-configuration.yml`
 - `deploy/test_release_workflows.py`

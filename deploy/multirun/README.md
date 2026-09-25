@@ -112,8 +112,9 @@ and collector settings. The scientific configuration is still a draft:
   Population/UKMOD/workbook uploads, Run Set input/schedule overrides, immutable
   production preparation receipts, resource admission and actual job provenance
   are later integration work; unknown fields are never silently ignored.
-- No browser form, queue, PostgreSQL migration or retry execution is included.
-  Retry controls belong to platform state, not scientific YAML.
+- No browser form or platform queue implementation is included here. The local
+  queue proof below uses the generic JAS-mine-web worker; retry controls belong
+  to platform state, not scientific YAML.
 
 `Limits` are trusted mechanical parser/expansion ceilings: 64 KiB input, depth 16,
 16,000 nodes, 4,096 characters per scalar, 100 Run Sets, 1,000 repetitions and
@@ -212,3 +213,64 @@ signed provenance or an authorisation decision. This public-example workflow doe
 not establish arbitrary uploaded-dataset compatibility, provider-output privacy,
 production retry/completion semantics, representative 50,000-person performance,
 or agreement with the forthcoming visualiser schema. Those remain separate work.
+
+## Isolated PostgreSQL queue execution proof
+
+The model-owned `queue_adapter.py` connects this configuration and preparation
+contract to JAS-mine-web's generic local worker. The scientific Java code is
+unchanged. This is a maintainer proof with trusted bundled public data, not a
+production upload service or a replacement for the comparison above.
+
+With `multirun.jar` built, Java available, Python requirements installed and a
+JAS-mine-web checkout containing the batch worker:
+
+```bash
+python -m deploy.multirun.run_queue_proof \
+  --frontend /path/to/JAS-mine-web \
+  --output /path/to/new/queue-proof-evidence
+```
+
+The command uses the frontend's generic disposable PostgreSQL test runner. It
+installs dependencies in a temporary environment, runs its database/worker tests,
+then prepares public training inputs and submits two fixed saving-rate Run Sets.
+Each has 2,000 people, 2019–2020 and seeds 606–608. It runs one JVM at a time on the
+laptop; no model Docker image rebuild or running `app.py` is needed. Expect a
+similar preparation time to the earlier local proof, followed by six simulations.
+
+Large prepared/workspace copies use the system temporary directory independently
+of the evidence directory. Each attempt copies and verifies its model JAR and
+prepared input inventory; writable H2 files are never shared between Run Sets.
+Completed large workspaces are removed before admitting the next configuration.
+The launch space check allows for one full private input copy, the native first
+run's snapshot of top-level workbooks/database files, the model JAR and a 1 GiB
+reserve. It does not count the UKMOD text files as a second native snapshot.
+The reserve is specific to this small proof, not a production storage quota.
+On normal success or failure, all temporary model copies and the disposable
+database are removed. If process termination is uncertain, the report identifies
+the retained workspace rather than deleting files beneath a possibly live process.
+
+The generic queue's digest field identifies the copied JAR in this local proof.
+Production execution must bind approved container-image and JAR identities through
+release metadata. The adapter resolves the dataset from a trusted prepared-data
+path and checks the queued receipt fingerprint and seed plan before launching.
+This proof is limited to 2019–2020, at most 2,000 people and three repetitions.
+Research-scale execution and uploaded datasets need separate validation.
+
+Completion requires normal process exit, exactly the expected seeds, matching
+exported model settings and complete annual Person/BenefitUnit CSVs. The adapter
+hashes all CSV files and returns per-seed receipts. Native `options.txt` does not
+export `ignoreTargetsAtPopulationLoad`, `lifetimeIncomeGenerate`,
+`lifetimeIncomeImpute` or `sIndexTimeWindow`; their runtime values are not independently
+confirmed by these receipts. Their launcher assignment is covered by the existing
+Java configuration fixture. Collector settings are submitted in generated YAML;
+required CSV outputs and annual completeness are checked directly.
+
+Evidence contains options, private logs, fingerprints and final queue states,
+rather than retaining large scientific CSV/database copies. A passing queued proof
+establishes completion of those configured runs. It does not establish fixed-seed
+scientific reproducibility or change the outstanding shared-RNG issue. Use the
+separate native comparison for that question.
+
+The generic dispatcher, supervisor and database store live in JAS-mine-web. The
+model translation, input verification and scientific-output checks live here.
+Neither repository imports anything from private development/planning projects.

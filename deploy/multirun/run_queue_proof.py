@@ -26,6 +26,8 @@ from deploy.multirun.compare_native import proof_configuration
 from deploy.multirun.local_process import require_local_runtime
 from deploy.multirun.prepare_training import prepare
 from deploy.multirun.queue_adapter import SimPathsLocalAdapter, submission_arguments
+from deploy.multirun.prepared_dataset import allocation, read_quickstart, verify_snapshot
+from deploy.multirun.configuration import normalise
 
 
 def execute_proof(output):
@@ -36,7 +38,9 @@ def execute_proof(output):
     from jasmine_web.batch.worker import Worker
     from psycopg import sql
 
-    require_local_runtime()
+    reused = os.environ.get("SIMPATHS_QUEUE_PREPARED")
+    if not reused:
+        require_local_runtime()
     output = output.absolute()
     output.mkdir(mode=0o700)
     write_attribution(output)
@@ -54,23 +58,38 @@ def execute_proof(output):
     safe_cleanup = True
     try:
         print(f"Temporary model workspaces: {work}", flush=True)
-        receipt = prepare(ROOT / "input", ROOT / "multirun.jar", work / "prepared")
-        prepared = work / "prepared"
+        if reused:
+            prepared = Path(reused)
+            receipt = read_quickstart(prepared)
+            verify_snapshot(prepared, receipt)
+            if not image:
+                raise ValueError("Prepared Quick Start proof requires container execution")
+            print("Reusing verified prepared dataset: " + receipt["revision"], flush=True)
+            report["reused_dataset_revision"] = receipt["revision"]
+        else:
+            receipt = prepare(ROOT / "input", ROOT / "multirun.jar", work / "prepared")
+            prepared = work / "prepared"
         report["prepared_fingerprint"] = receipt["sha256"]
+        configuration = proof_configuration().editable_configuration()
+        if reused:
+            configuration["dataset_revision"] = receipt["revision"]
+            configuration["common"]["population"] = receipt["identity"]["population"]
+        configuration = normalise(configuration).editable_configuration()
+        resources = Resources(**allocation(receipt))
         queue.migrate()
         # One JVM at a time on the laptop. The model configurations/seed plan
         # remain the same when production admission allows more concurrent jobs.
-        queue.create_pool(Resources(2000, 4096, 6144),
+        queue.create_pool(resources,
             policy=Policy(per_user_active=1, attempt_seconds=1500, total_seconds=4500))
         queue.approve("local-proof")
         if image:
             from deploy.multirun.container_adapter import SimPathsContainerAdapter, container_submission
-            arguments = container_submission(proof_configuration().editable_configuration(), prepared, image)
+            arguments = container_submission(configuration, prepared, image)
         else:
-            arguments = submission_arguments(proof_configuration().editable_configuration(), prepared)
+            arguments = submission_arguments(configuration, prepared)
         queue.register_dataset(arguments["dataset_id"], receipt["sha256"])
         queue.grant_dataset("local-proof", arguments["dataset_id"])
-        experiment = queue.submit("local-proof", "queue-proof", **arguments, resources=Resources(2000, 4096, 6144),
+        experiment = queue.submit("local-proof", "queue-proof", **arguments, resources=resources,
                                   baseline=arguments["run_sets"][0]["id"])
         report["experiment_id"] = experiment
         if image:
@@ -116,6 +135,9 @@ def execute_proof(output):
                                 for filename in ("exit.json", "execution.log", "identity.json", "container-policy.json", "container.json"):
                                     if (directory / filename).is_file():
                                         shutil.copy2(directory / filename, evidence / filename)
+                                if reused and (directory / "execution.log").read_text().count(
+                                        "Found processed dataset - preparing for simulation") != len(snapshot["specification"]["seeds"]):
+                                    raise RuntimeError("Not every repetition reused the prepared population")
                                 write_json(evidence / "repetitions.json", worker.adapter.validate(
                                     # Reconstruct this completed lease from its
                                     # persisted request; output is still private.
@@ -160,11 +182,13 @@ def execute_proof(output):
         if fingerprint(prepared / "model.jar") != receipt["identity"]["model"]:
             raise RuntimeError("Prepared model changed during proof")
         report["passed"] = True
+        if reused:
+            report["processed_population_reused_each_repetition"] = True
     except BaseException as error:
         report["error_type"] = type(error).__name__
         raise
     finally:
-        prepared = work / "prepared"
+        prepared = Path(reused) if reused else work / "prepared"
         for name in ("receipt.json", "preparation.log"):
             if (prepared / name).is_file():
                 shutil.copy2(prepared / name, output / name)
@@ -191,6 +215,7 @@ def main():
     parser.add_argument("--frontend", type=Path, help="JAS-mine-web checkout")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--container-image", help="Installed approved Temurin 25 image; enables isolated Docker execution")
+    parser.add_argument("--prepared", type=Path, help="Reuse an imported Quick Start dataset; do not prepare again")
     parser.add_argument("--execute-proof", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.execute_proof:
@@ -199,15 +224,22 @@ def main():
         return 0
     if not args.frontend:
         parser.error("--frontend must identify the JAS-mine-web checkout")
-    require_local_runtime()
-    if not (ROOT / "multirun.jar").is_file():
-        parser.error("Build multirun.jar first")
+    if not args.prepared:
+        require_local_runtime()
+        if not (ROOT / "multirun.jar").is_file():
+            parser.error("Build multirun.jar first")
     # Generic platform test infrastructure owns PostgreSQL and dependency setup.
     command = [sys.executable, str(args.frontend.resolve() / "scripts/test_batch_queue.py"),
         "--output", str(args.output.resolve()), "--proof-script", str(Path(__file__).resolve()),
         "--proof-requirements", str(Path(__file__).with_name("requirements.txt"))]
     env = dict(os.environ)
     env.pop("SIMPATHS_QUEUE_PROOF_IMAGE", None)
+    env.pop("SIMPATHS_QUEUE_PREPARED", None)
+    if args.prepared:
+        prepared = args.prepared.expanduser().resolve(strict=True)
+        receipt = read_quickstart(prepared)
+        env["SIMPATHS_QUEUE_PREPARED"] = str(prepared)
+        args.container_image = args.container_image or receipt["identity"]["source_image"]
     if args.container_image:
         image = subprocess.check_output(["docker", "image", "inspect", args.container_image,
                                           "--format", "{{.Id}}"], text=True).strip()

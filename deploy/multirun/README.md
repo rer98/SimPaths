@@ -307,3 +307,74 @@ launch policy. Uncertain Docker state retains the workspace for reconciliation.
 CPU/RAM/process limits are enforced, but bind-workspace storage monitoring is not
 a hard filesystem quota. Quota-backed storage and shared SingleRun/batch admission
 remain production prerequisites; this command does not enable web submissions.
+
+### Reuse the prepared Quick Start training datasets
+
+The 20,000- and 50,000-person Quick Start images can supply reusable example
+datasets. This imports their prepared database and matching workbooks; it does
+not regenerate their population or donors. Use only installed, maintainer-approved
+public training images. This command is not an uploaded-database import service.
+Training results are for learning/testing, not substantive research analysis.
+
+Preview an import, then add `--apply`:
+
+```bash
+python -m deploy.multirun.import_quickstart \
+  --population 20000 \
+  --frontend /path/to/JAS-mine-web \
+  --output /path/to/new/prepared-20000
+```
+
+For the other profile, use `--population 50000` and a separate new output directory.
+The default source is that profile's frontend catalogue image; `--image` selects
+an explicitly approved installed image instead. `--jar` defaults to this checkout's
+`multirun.jar`. Java 25's `javac` is needed to compile the small verification helper.
+No source checkout, model image, existing dataset or catalogue entry is modified.
+
+The importer resolves an immutable image ID, streams only ordinary database and
+workbook files from a stopped container, and records their hashes. It explicitly
+selects the bundled training policy schedule, as Quick Start does at Build, then
+checks population metadata/counts and required donor tables using the selected
+JAR in an isolated, read-only container. A receipt is published only after success.
+The receipt binds the original profile, source image, model JAR, selected schedule
+and prepared file contents. Failed imports remove their large partial copies;
+uncertain verification-container state retains them for reconciliation.
+
+Run the queued proof using the imported dataset:
+
+```bash
+python -m deploy.multirun.run_queue_proof \
+  --frontend /path/to/JAS-mine-web \
+  --prepared /path/to/prepared-20000 \
+  --output /path/to/new/reuse-proof-evidence
+```
+
+This uses the recorded runtime image and JAR, skips preparation, and gives each
+Run Set a separate writable input copy. It verifies that all three repetitions
+actually loaded the saved population, checks native settings/annual outputs, and
+verifies the unchanged source afterwards. The example remains available for later
+experiments; the proof removes only its own attempt workspaces and containers.
+Its default comparison uses saving rates 0.04 and 0.06, seeds 606–608 and 2019–2020.
+
+The prepared examples retain the 2019 start year and exact requested population
+size. Their supplied policy coverage ends in 2026; weights and population-target
+settings must match the preparation. The initial adapter permits at most three
+repetitions. Other inputs/settings that need a new preparation must produce a new
+dataset revision. A different runtime image or JAR also needs revalidation.
+The saved population retains its person/benefit-unit seeds; changing the native
+MultiRun seed does not resample the starting population. Reuse is not evidence of
+scientific equivalence to rebuilding a population or a fix for the reported RNG issue.
+
+For initial validation, the 20,000-person profile uses a 2 GiB heap/4 GiB container;
+50,000 uses a 3 GiB heap/5 GiB container. Both have two CPUs and a 10 GiB scratch
+allowance. These allocations need measurement for longer research workloads.
+Allow disk space for the retained dataset, a private copy, the native input snapshot
+and outputs. Import/proof commands neither prune existing images nor delete retained
+datasets. Store production datasets in managed persistent storage with quotas;
+a temporary laptop directory is only a test location.
+
+The same immutable-source/private-copy rule is planned for uploaded and provider
+datasets, including reuse across authorised experiments while retained. That
+ingestion and permission integration is not enabled here. Ownership, provider
+restrictions and permission to download microdata must come from platform records,
+not a file hash or a user's claim. A private execution copy grants no download right.

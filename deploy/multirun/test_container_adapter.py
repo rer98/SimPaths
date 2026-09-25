@@ -34,10 +34,11 @@ class ContainerAdapterTests(unittest.TestCase):
     def test_request_is_readonly_input_plan_with_jar_hash_and_native_yaml(self):
         command = self.adapter.container_command(self.lease, self.fixture.work)
         self.assertEqual(command.image, IMAGE)
-        self.assertEqual(command.argv, ('/bin/sh', '/request/run.sh'))
+        self.assertEqual(command.argv, ('/bin/sh', '/request/run.sh', '2g'))
         self.assertEqual(command.inputs, str(self.fixture.prepared))
         manifest = (self.fixture.work / 'inputs.sha256').read_text()
         self.assertIn('a' * 64 + '  /inputs/model.jar', manifest)
+        self.assertEqual((self.fixture.work / 'input-files.txt').read_text(), '')
         self.assertEqual((self.fixture.work / 'run.yml').read_text(),
                          self.fixture.configuration.native_yaml('savings-0001'))
         self.assertNotIn(str(self.fixture.prepared), (self.fixture.work / 'run.sh').read_text())

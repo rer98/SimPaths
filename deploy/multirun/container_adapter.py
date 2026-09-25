@@ -13,6 +13,7 @@ from types import SimpleNamespace
 
 from .artifacts import ArtifactError, relative_name
 from .queue_adapter import SimPathsLocalAdapter, require_workspace_space, submission_arguments
+from .prepared_dataset import FORMAT, allocation, verify_snapshot
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,9 @@ class SimPathsContainerAdapter(SimPathsLocalAdapter):
         super().__init__(prepared)
         if not re.fullmatch(r"sha256:[a-f0-9]{64}", image):
             raise ArtifactError("Resolve the approved runtime image ID before submission")
+        if (self.receipt["identity"]["format"] == FORMAT
+                and self.receipt["identity"]["source_image"] != image):
+            raise ArtifactError("Revalidate the prepared dataset before changing its runtime image")
         self.image = image
 
     def _configuration(self, lease):
@@ -39,8 +43,11 @@ class SimPathsContainerAdapter(SimPathsLocalAdapter):
 
     def container_command(self, lease, request):
         config = self._configuration(lease)
-        if lease.resources["memory_mib"] < 4096 or lease.resources["cpu_millis"] < 2000:
-            raise ArtifactError("This proof requires at least 4 GiB RAM and two CPUs")
+        minimum = allocation(self.receipt)
+        if any(lease.resources[key] < value for key, value in minimum.items()):
+            raise ArtifactError("Allocation is below the prepared example's CPU, RAM or storage requirement")
+        if self.receipt["identity"]["format"] == FORMAT:
+            verify_snapshot(self.prepared, self.receipt)
         require_workspace_space(self.receipt["identity"], request)
         (request / "run.yml").write_text(config.native_yaml(lease.configuration_id))
         shutil.copyfile(Path(__file__).with_name("container_run.sh"), request / "run.sh")
@@ -53,7 +60,9 @@ class SimPathsContainerAdapter(SimPathsLocalAdapter):
                 raise ArtifactError("Invalid prepared input checksum")
             manifest.append(item["sha256"] + "  /inputs/" + name)
         (request / "inputs.sha256").write_text("\n".join(manifest) + "\n")
-        return ContainerExecution(self.image, ("/bin/sh", "/request/run.sh"), str(self.prepared))
+        (request / "input-files.txt").write_text("".join(name + "\n" for name in sorted(identity["prepared"])))
+        heap = "3g" if self.receipt["identity"].get("population") == 50000 else "2g"
+        return ContainerExecution(self.image, ("/bin/sh", "/request/run.sh", heap), str(self.prepared))
 
 
 def container_submission(configuration, prepared, image):

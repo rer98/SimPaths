@@ -19,6 +19,7 @@ from .artifacts import (ArtifactError, copy_verified, digest, fingerprint, inven
 from .configuration import normalise
 from .local_process import java_command, require_local_runtime
 from .prepare_training import RECEIPT_VERSION, ROOT
+from . import prepared_dataset
 
 # These supported model fields are absent from the native options.txt writer.
 # Their assignment is covered by the existing Java configuration fixture; do not
@@ -38,6 +39,8 @@ def read_prepared(prepared):
     fingerprint(prepared / "receipt.json")  # Reject symlinks/non-ordinary files.
     receipt = json.loads((prepared / "receipt.json").read_text())
     identity = receipt["identity"]
+    if identity["format"] == prepared_dataset.FORMAT:
+        return prepared_dataset.check_receipt(receipt)
     if (identity["format"] != RECEIPT_VERSION or identity["source"] != "bundled-public-training"
             or identity["country"] != "UK" or identity["start_year"] != 2019
             or digest(identity) != receipt["sha256"]):
@@ -51,7 +54,9 @@ def submission_arguments(configuration, prepared):
     frozen = normalised.as_dict()
     receipt = read_prepared(prepared)
     common = frozen["common"]
-    if (common["start_year"] != 2019 or common["end_year"] != 2020
+    if receipt["identity"]["format"] == prepared_dataset.FORMAT:
+        prepared_dataset.validate_selection(frozen, receipt)
+    elif (common["start_year"] != 2019 or common["end_year"] != 2020
             or common["population"] > 2000 or len(frozen["seed_plan"]["seeds"]) > 3):
         raise ArtifactError("Local queue proof supports 2019–2020, at most 2000 people and three repetitions")
     runs = []
@@ -114,8 +119,8 @@ def require_workspace_space(identity, workspace):
 
     ExperimentManager.setupExperiment copies only top-level .xls/.xlsx/.db
     entries. MultiRun disables further snapshots after the first repetition.
-    Keep 1 GiB for database growth, CSVs, logs and temporary files in this small
-    2,000-person proof; this is not a general research-job storage estimate.
+    Keep 1 GiB for database growth, CSVs, logs and temporary files. This is a
+    minimum launch check, not a general research-job storage estimate or quota.
     """
     inputs = identity["prepared"]
     native_copy = sum(item["bytes"] for name, item in inputs.items()
@@ -212,7 +217,8 @@ def execute():
     (work / "tmp").mkdir(mode=0o700)
     (work / "config/run.yml").write_text(config.native_yaml(request["run_set_id"]))
     command = java_command(work / "model.jar", "simpaths.experiment.SimPathsMultiRun",
-                           "-config", "run.yml", "-P", "root")
+                           "-config", "run.yml", "-P", "root",
+                           heap="3g" if identity.get("population") == 50000 else "2g")
     # Keep the supervised PID and its parent-death guard when replacing Python.
     os.execv(command[0], command)
 

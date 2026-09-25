@@ -373,8 +373,63 @@ and outputs. Import/proof commands neither prune existing images nor delete reta
 datasets. Store production datasets in managed persistent storage with quotas;
 a temporary laptop directory is only a test location.
 
-The same immutable-source/private-copy rule is planned for uploaded and provider
-datasets, including reuse across authorised experiments while retained. That
-ingestion and permission integration is not enabled here. Ownership, provider
-restrictions and permission to download microdata must come from platform records,
-not a file hash or a user's claim. A private execution copy grants no download right.
+### Prepare uploaded or provider inputs
+
+`prepare_inputs.py` reuses the existing `SimPathsUserDataStartup` and
+`SimPathsUserDataPreparation` validation inside an isolated container. It accepts
+the selected population CSV, UKMOD text files, declared parameter workbooks and
+a policy schedule. It does not accept input databases. Country/year and schedule
+workbooks are generated from the validated selection. The existing file,
+decompression, tabular-record and policy-work limits apply.
+The active policy schedule must also include a UKMOD output whose **policy system
+year** matches the model's base price year (currently 2015), even if the simulation
+starts later. The container helper reads that requirement from the selected model
+JAR and rejects a missing base-year policy before starting database preparation.
+
+The internal platform bridge is `dataset_service.prepare_owned()`. Its caller
+supplies an authenticated owner and opaque upload IDs; JAS-mine-web resolves the
+private files and checks approval, ownership and hashes. A dataset is registered
+only after successful Java preparation and post-preparation checks. Failed
+preparation removes large temporary copies; uncertain container shutdown retains
+its workspace for recovery and never publishes a ready receipt. No HTTP endpoint
+or experiment page is enabled by this increment.
+
+`dataset_service.publish_provider()` is a separate administrator-only operation.
+It registers a verified prepared revision without granting execution or raw-data
+download permission. Origins and grants are platform records, not claims in a
+browser request or the model receipt. Reuse the registered dataset revision for
+later compatible experiments. Every Run Set/retry still receives a writable copy;
+the original remains unchanged. Changed inputs, schedule, model JAR or runtime
+require a new verified receipt. These receipts describe imported source tables,
+not a fixed saved population like the Quick Start profiles.
+
+The selected-input execution adapter is container-only. The current proof keeps
+the development bounds of at most 50,000 people, three repetitions and an end year
+no later than 2026. Larger research workloads require measurement and review.
+Preparation uses 2 CPUs, a 512 MiB parent heap and the existing 3 GiB child heap,
+within a 5 GiB container, with a one-hour deadline. Its 12 GiB workspace monitor
+is not a hard filesystem quota.
+
+Run the full public-example proof from SimPaths:
+
+```bash
+python -m deploy.multirun.run_input_proof \
+  --frontend /path/to/JAS-mine-web \
+  --image simpaths-interactive:uk-user-data \
+  --output /path/to/new/upload-proof
+```
+
+This uses disposable PostgreSQL and private temporary storage. It rejects an
+invalid population, prepares valid public examples as uploads, checks own/provider
+artifact access, and runs two configurations with seeds 606–608. Large source,
+prepared and run copies are removed after confirmed shutdown; evidence remains.
+The currently installed model JAR/runtime are reused; no image rebuild is needed.
+The proof supplies the 2015, 2019 and 2020 UKMOD examples for its 2019–2020 runs.
+Its lightweight schedule regression also checks the original incomplete schedule
+and corrected schedule against the native model's policy validation in the JAR.
+
+Before production, integrate these trusted service APIs with authenticated
+submission, durable preparation-job admission/recovery, managed prepared-file
+locations, retention and hard storage quotas. Reviewed aggregation rules are also
+required before publishing provider-derived aggregate downloads. The existing
+SingleRun application, Redis coordination and Cloud Run mode are unchanged.

@@ -25,8 +25,8 @@ from deploy.multirun.artifacts import (fingerprint, verify,
 from deploy.multirun.compare_native import proof_configuration
 from deploy.multirun.local_process import require_local_runtime
 from deploy.multirun.prepare_training import prepare
-from deploy.multirun.queue_adapter import SimPathsLocalAdapter, submission_arguments
-from deploy.multirun.prepared_dataset import allocation, read_quickstart, verify_snapshot
+from deploy.multirun.queue_adapter import SimPathsLocalAdapter, submission_arguments, read_prepared
+from deploy.multirun.prepared_dataset import FORMAT, allocation, verify_snapshot
 from deploy.multirun.configuration import normalise
 
 
@@ -60,7 +60,7 @@ def execute_proof(output):
         print(f"Temporary model workspaces: {work}", flush=True)
         if reused:
             prepared = Path(reused)
-            receipt = read_quickstart(prepared)
+            receipt = read_prepared(prepared)
             verify_snapshot(prepared, receipt)
             if not image:
                 raise ValueError("Prepared Quick Start proof requires container execution")
@@ -73,7 +73,9 @@ def execute_proof(output):
         configuration = proof_configuration().editable_configuration()
         if reused:
             configuration["dataset_revision"] = receipt["revision"]
-            configuration["common"]["population"] = receipt["identity"]["population"]
+            configuration["common"]["population"] = receipt["identity"].get("population", 2000)
+            configuration["common"]["start_year"] = receipt["identity"]["start_year"]
+            configuration["common"]["end_year"] = receipt["identity"]["start_year"] + 1
         configuration = normalise(configuration).editable_configuration()
         resources = Resources(**allocation(receipt))
         queue.migrate()
@@ -135,7 +137,7 @@ def execute_proof(output):
                                 for filename in ("exit.json", "execution.log", "identity.json", "container-policy.json", "container.json"):
                                     if (directory / filename).is_file():
                                         shutil.copy2(directory / filename, evidence / filename)
-                                if reused and (directory / "execution.log").read_text().count(
+                                if reused and receipt["identity"]["format"] == FORMAT and (directory / "execution.log").read_text().count(
                                         "Found processed dataset - preparing for simulation") != len(snapshot["specification"]["seeds"]):
                                     raise RuntimeError("Not every repetition reused the prepared population")
                                 write_json(evidence / "repetitions.json", worker.adapter.validate(
@@ -182,7 +184,7 @@ def execute_proof(output):
         if fingerprint(prepared / "model.jar") != receipt["identity"]["model"]:
             raise RuntimeError("Prepared model changed during proof")
         report["passed"] = True
-        if reused:
+        if reused and receipt["identity"]["format"] == FORMAT:
             report["processed_population_reused_each_repetition"] = True
     except BaseException as error:
         report["error_type"] = type(error).__name__
@@ -215,7 +217,7 @@ def main():
     parser.add_argument("--frontend", type=Path, help="JAS-mine-web checkout")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--container-image", help="Installed approved Temurin 25 image; enables isolated Docker execution")
-    parser.add_argument("--prepared", type=Path, help="Reuse an imported Quick Start dataset; do not prepare again")
+    parser.add_argument("--prepared", type=Path, help="Reuse validated prepared inputs; do not prepare again")
     parser.add_argument("--execute-proof", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.execute_proof:
@@ -237,7 +239,7 @@ def main():
     env.pop("SIMPATHS_QUEUE_PREPARED", None)
     if args.prepared:
         prepared = args.prepared.expanduser().resolve(strict=True)
-        receipt = read_quickstart(prepared)
+        receipt = read_prepared(prepared)
         env["SIMPATHS_QUEUE_PREPARED"] = str(prepared)
         args.container_image = args.container_image or receipt["identity"]["source_image"]
     if args.container_image:

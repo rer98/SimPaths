@@ -36,11 +36,14 @@ class ExecutionCommand:
 
 def read_prepared(prepared):
     prepared = Path(prepared)
-    fingerprint(prepared / "receipt.json")  # Reject symlinks/non-ordinary files.
+    if fingerprint(prepared / "receipt.json")["bytes"] > 1024*1024:
+        raise ArtifactError("Prepared receipt exceeds 1 MiB")
     receipt = json.loads((prepared / "receipt.json").read_text())
     identity = receipt["identity"]
     if identity["format"] == prepared_dataset.FORMAT:
         return prepared_dataset.check_receipt(receipt)
+    if identity["format"] == prepared_dataset.INPUT_FORMAT:
+        return prepared_dataset.check_input_receipt(receipt)
     if (identity["format"] != RECEIPT_VERSION or identity["source"] != "bundled-public-training"
             or identity["country"] != "UK" or identity["start_year"] != 2019
             or digest(identity) != receipt["sha256"]):
@@ -56,6 +59,8 @@ def submission_arguments(configuration, prepared):
     common = frozen["common"]
     if receipt["identity"]["format"] == prepared_dataset.FORMAT:
         prepared_dataset.validate_selection(frozen, receipt)
+    elif receipt['identity']['format'] == prepared_dataset.INPUT_FORMAT:
+        prepared_dataset.validate_input_selection(frozen, receipt)
     elif (common["start_year"] != 2019 or common["end_year"] != 2020
             or common["population"] > 2000 or len(frozen["seed_plan"]["seeds"]) > 3):
         raise ArtifactError("Local queue proof supports 2019–2020, at most 2000 people and three repetitions")
@@ -90,6 +95,8 @@ class SimPathsLocalAdapter:
         return config
 
     def command(self, lease, work):
+        if self.receipt['identity']['format'] == prepared_dataset.INPUT_FORMAT:
+            raise ArtifactError('Selected user/provider inputs require the container adapter')
         config = self._configuration(lease)
         # All expensive copying/hashing runs under the supervisor's deadline.
         write_json(work / "request.json", dict(prepared=str(self.prepared),
@@ -203,6 +210,8 @@ def execute():
     request = json.loads((work / "request.json").read_text())
     prepared = Path(request["prepared"])
     receipt = read_prepared(prepared)
+    if receipt['identity']['format'] == prepared_dataset.INPUT_FORMAT:
+        raise ArtifactError('Selected user/provider inputs require container execution')
     if receipt["sha256"] != request["prepared_fingerprint"]:
         raise ArtifactError("Prepared dataset revision changed before execution")
     config = normalise(request["configuration"])

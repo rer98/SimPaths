@@ -13,6 +13,7 @@ import re
 from .artifacts import ArtifactError, digest, fingerprint, relative_name, verify
 
 FORMAT = "simpaths.multirun.prepared-quickstart.v1"
+INPUT_FORMAT = "simpaths.multirun.prepared-inputs.v1"
 SOURCE = "maintainer-quickstart-public-training"
 
 
@@ -93,7 +94,41 @@ def validate_selection(configuration, receipt):
 def allocation(receipt):
     large = receipt["identity"].get("population") == 50000
     return dict(cpu_millis=2000, memory_mib=5120 if large else 4096,
-                storage_mib=10240 if receipt["identity"]["format"] == FORMAT else 6144)
+                storage_mib=10240 if receipt["identity"]["format"] in (FORMAT, INPUT_FORMAT) else 6144)
+
+
+def check_input_receipt(receipt):
+    identity = receipt['identity']
+    year = identity['start_year']
+    if (identity['format'] != INPUT_FORMAT or identity['source'] != 'validated-selected-files'
+            or identity['country'] != 'UK' or type(year) is not int or not 2011 <= year <= 2024
+            or not re.fullmatch(r'sha256:[a-f0-9]{64}', identity['source_image'])
+            or receipt['sha256'] != digest(identity) or receipt['revision'] != 'inputs-'+digest(identity)):
+        raise ArtifactError('Invalid prepared input receipt')
+    check_manifest(identity['prepared'])
+    check_manifest({'model.jar': identity['model']})
+    for kind in ('defaults', 'uploads'):
+        check_manifest(identity['sources'][kind])
+    from .prepare_inputs import selection
+    request = identity['selection']
+    if request != selection({k:v for k,v in request.items() if k!='source'}) or request['year'] != year:
+        raise ArtifactError('Prepared selection changed')
+    for name in ('input.mv.db', 'tax_donor_population_UK.csv', 'DatabaseCountryYear.xlsx',
+                 'EUROMODpolicySchedule.xlsx'):
+        if identity['prepared'].get(name,{}).get('bytes',0) <= 0:
+            raise ArtifactError('Prepared inputs are incomplete')
+    return receipt
+
+
+def validate_input_selection(configuration, receipt):
+    check_input_receipt(receipt)
+    common = configuration['common']
+    if common['country'] != 'UK' or common['start_year'] != receipt['identity']['start_year']:
+        raise ArtifactError('Configuration does not match the prepared start year')
+    # Development proof limits until resource/scientific coverage is measured.
+    if (common['end_year'] > 2026 or common['population'] > 50000
+            or len(configuration['seed_plan']['seeds']) > 3):
+        raise ArtifactError('Prepared-input proof supports up to 50,000 people, 2026 and three repetitions')
 
 
 def read_quickstart(prepared):

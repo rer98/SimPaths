@@ -23,8 +23,8 @@ has its own validated population/years; all cards share the seed sequence.
 
 **Create input dataset** appears to the left of **New experiment**, which remains
 the initially visible page. Give uploaded inputs a name before preparation. The
-name is retained with the published dataset; selectors refresh automatically when
-preparation completes, preserving current choices. Previously prepared datasets
+name is retained with the published dataset; selectors refresh automatically, including datasets still being prepared, while
+preserving current choices. Previously prepared datasets
 without names retain their generated descriptions. Dataset names are labels, not
 content identities: two datasets can have the same name, with their IDs distinguishing
 them. A disappearing permission does not silently switch a selected dataset.
@@ -114,18 +114,45 @@ binds only to loopback. Do not expose it using a tunnel or reverse proxy.
    count, seeds, population/years, input identities and highlighted model differences.
    The input comparison uses the baseline, or the first card when no baseline is
    selected. File differences do not establish scientific comparability. Submit.
-4. Open **My jobs**, refresh, then close and reopen the page. Confirm that the
+4. Open **My jobs**, wait for automatic updates, then close and reopen the page. Confirm that the
    same jobs remain visible. Cancellation and retry controls apply to one
    configuration, not every configuration in the experiment.
 5. For the upload path, choose **Create input dataset**, enter a name, then upload a population CSV and
    UKMOD files, check the policy schedule (including a policy starting in 2015),
-   then review and submit preparation. On completion, use **Use prepared dataset**.
+   then review and click **Create input dataset**. It queues preparation immediately.
+   Select the named dataset in **New experiment** while it is still preparing;
+   submitted configurations wait for validated inputs before becoming runnable.
    Prepared uploads can be reused in later experiments without preparing again.
+6. Open **My datasets** to see only your created datasets. Cancel a pending
+   preparation through its impact review, or delete a ready dataset after explicit
+   confirmation. Choose replacement inputs for never-started dependent configurations
+   or cancel those configurations. Running/retrying configurations retain their inputs;
+   requested deletion waits until they finish or are cancelled. Source uploads,
+   existing results and job history are kept separately.
 
 Parameter workbooks must be declared model inputs. This page does not accept
 input database files or archives. The native SimPaths validators still decide
 whether a selection is usable. Keep local tests to public example data until
 production storage controls and retention are completed.
+
+## Waiting, replacement and deletion
+
+Preparation runs even if no experiment depends on it. Waiting configurations retain
+submission age and reserve no execution CPU/RAM. Once preparation succeeds, their
+settings, seeds, input identity and resources are validated again. Normal queue
+fairness and capacity determine when they start; readiness does not guarantee the
+next slot. Failure blocks only configurations using those inputs.
+
+Input replacement requires a review and is allowed only before a configuration has
+started. It retains the original parameters, seeds and queue age, and records the
+change. Incompatible years, population requirements or model versions are rejected.
+Started work and its retries keep fixed inputs. A changed job or preparation status
+invalidates an open action review; review again to see the current consequences.
+
+Requested deletion is shown as **Awaiting deletion** while references remain.
+The worker removes unreferenced prepared files from managed storage and recovers
+interrupted removal on restart. Provider examples are excluded from **My datasets**.
+Seven-day expiry and 96-hour warning emails are not yet implemented in this preview.
 
 ## Persistence and restart
 
@@ -139,8 +166,9 @@ and the launcher starts it again next time.
 
 Ctrl+C stops the browser server and dispatcher. Already launched containers keep
 their independent deadlines; queued work resumes after the launcher restarts.
-Restart after updating both repositories to apply migration 006. It preserves
-existing jobs and records each job's dataset, fingerprint, image and allocation.
+Restart after updating both repositories to apply migration 007 (and earlier
+migrations when needed). It preserves existing jobs, registers owned prepared
+inputs for management and gives unfinished preparation a selectable dataset ID.
 Do not run an older dispatcher against the upgraded schema. Stop the local
 launcher before updating, then restart it normally; do not delete its database.
 Recovery may wait for the previous lease to expire (up to about one minute).
@@ -162,7 +190,7 @@ python tests/browser/batch_workflow.py
 This runs the PostgreSQL/Docker regressions in a disposable database, then a
 real browser against tiny synthetic jobs. It checks grouped uploads, signed
 review/submission, shared seeds, baseline, page reopening, cancellation, retry
-opt-out, owner isolation and narrow layout. It does not rebuild model images or
+opt-out, owner isolation, pending-input dependencies, confirmed deletion and narrow layout. It does not rebuild model images or
 repeat the full native SimPaths preparation proof. Reports are retained under
 `~/simpaths-benchmarks/`; its temporary database and model files are removed.
 If the queue suite passed and only a browser check needs repeating, add

@@ -51,33 +51,62 @@ class SubmissionModel:
         if config.as_dict()['dataset_revision'] != resolved['dataset_id']:
             raise ArtifactError('Configuration must use the selected prepared dataset')
         choices = resolved.get('datasets', {resolved['dataset_id']: resolved})
-        receipts = {}
-        for key in self.dataset_ids(request) | {resolved['dataset_id']}:
-            chosen = choices.get(key)
-            if chosen is None:
-                raise ArtifactError('Input dataset is unavailable')
-            receipt = read_prepared(chosen['location'])
-            if receipt['sha256'] != chosen['prepared_fingerprint']:
-                raise ArtifactError('Prepared dataset changed')
-            verify_snapshot(chosen['location'], receipt)
-            receipts[key] = receipt
-        if len({r['identity']['model']['sha256'] for r in receipts.values()}) != 1:
+        if not self.dataset_ids(request) <= choices.keys():
+            raise ArtifactError('Input dataset is unavailable')
+        if len({self.model_identity(chosen) for chosen in choices.values()}) != 1:
             raise ArtifactError('All configurations must use inputs prepared for the same model version')
         runs, budgets = [], []
         for item in config.as_dict()['run_sets']:
             single = config.run_configuration(item['id'])
             chosen = choices[single['dataset_revision']]
-            args = container_submission(single, chosen['location'], chosen['model_digest'])
-            resources = allocation(receipts[single['dataset_revision']])
-            if single['common']['population'] > 20000:
-                resources['memory_mib'] = 5120
-            runs.append(dict(args['run_sets'][0], execution=dict(dataset_id=chosen['dataset_id'],
-                model_digest=chosen['model_digest'], resources=resources)))
-            budgets.append(resources)
+            run,resources = self.bind_run(chosen,dict(id=item['id'],parameters=single),config.as_dict()['seed_plan']['seeds'])
+            runs.append(dict(run, execution=dict(dataset_id=chosen['dataset_id'],
+                model_digest=chosen['model_digest'], resources=resources.__dict__)))
+            budgets.append(resources.__dict__)
         return dict(label=config.as_dict()['experiment']['name'], dataset_id=resolved['dataset_id'],
             model_digest=resolved['model_digest'], seed_plan=config.as_dict()['seed_plan']['seeds'],
             run_sets=runs, baseline=request.get('baseline'), auto_retry=request.get('auto_retry', True),
             resources=Resources(**budgets[0]))
+
+    def model_identity(self, resolved):
+        if resolved.get('state')=='pending':
+            return resolved['definition']['model']['release']['model']['sha256']
+        return read_prepared(resolved['location'])['identity']['model']['sha256']
+
+    def bind_run(self, resolved, run, seeds):
+        from jasmine_web.batch.policy import Resources
+        config=normalise(run['parameters'])
+        data=config.as_dict()
+        if data['dataset_revision']!=resolved['dataset_id'] or data['seed_plan']['seeds']!=seeds or [r['id'] for r in data['run_sets']]!=[run['id']]:
+            raise ArtifactError('Configuration identity or seeds changed')
+        if resolved.get('state')=='pending':
+            year=resolved['definition']['model']['selection']['year']
+            common=data['common']
+            if (common['country']!='UK' or common['start_year']!=year or common['end_year']>2026
+                    or common['population']>50000 or len(seeds)>3):
+                raise ArtifactError('Configuration must match the selected inputs and supported population/years')
+            resources=dict(cpu_millis=2000,memory_mib=4096,storage_mib=10240)
+            result=dict(id=run['id'],parameters=config.editable_configuration())
+        else:
+            receipt=read_prepared(resolved['location'])
+            if receipt['sha256']!=resolved['prepared_fingerprint']:
+                raise ArtifactError('Prepared dataset changed')
+            verify_snapshot(resolved['location'],receipt)
+            args=container_submission(config.editable_configuration(),resolved['location'],resolved['model_digest'])
+            result=args['run_sets'][0]
+            resources=allocation(receipt)
+        if data['common']['population']>20000:
+            resources['memory_mib']=5120
+        return result,Resources(**resources)
+
+    def replace_run(self, previous, resolved, run, seeds):
+        if self.model_identity(previous)!=self.model_identity(resolved):
+            raise ArtifactError('Replacement inputs must use the same model version')
+        data=normalise(run['parameters']).editable_configuration()
+        data['dataset_revision']=resolved['dataset_id']
+        for item in data['run_sets']:
+            item.pop('dataset_revision',None)
+        return self.bind_run(resolved,dict(id=run['id'],parameters=data),seeds)
 
     def dataset_ids(self, request):
         data = normalise(request['configuration']).as_dict()

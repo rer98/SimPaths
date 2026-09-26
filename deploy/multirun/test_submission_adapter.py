@@ -189,6 +189,61 @@ class SubmissionAdapterTests(unittest.TestCase):
             with self.assertRaises(ArtifactError):
                 self.model.experiment(resolved,dict(configuration=config,**change))
 
+    def pending(self):
+        definition=self.lease.specification['run_sets'][0]['parameters']
+        return dict(state='pending',dataset_id='pending-owned',definition=definition,
+            prepared_fingerprint=digest(definition),model_digest=self.image)
+
+    def pending_config(self):
+        config=normal_fixed(proof_configuration().editable_configuration())
+        config['dataset_revision']='pending-owned'
+        return config
+
+    def test_pending_inputs_allow_configuration_without_opening_a_database(self):
+        config=self.pending_config()
+        with patch('deploy.multirun.submission_adapter.read_prepared',side_effect=AssertionError('No prepared data yet')):
+            plan=self.model.experiment(self.pending(),dict(configuration=config))
+        self.assertEqual(plan['seed_plan'],['606','607','608'])
+        self.assertEqual(plan['dataset_id'],'pending-owned')
+        self.assertEqual(len(plan['run_sets']),len(config['run_sets']))
+        with self.assertRaises(ArtifactError):
+            config['common']['start_year']=2018
+            self.model.experiment(self.pending(),dict(configuration=config))
+
+    def test_pending_configuration_binds_only_matching_validated_ready_inputs(self):
+        self.result()
+        self.adapter.validate(self.lease,self.work)
+        target=self.adapter.artifacts/self.lease.execution_key
+        receipt=read_prepared(target)
+        ready=dict(dataset_id='pending-owned',location=str(target),model_digest=self.image,
+                   prepared_fingerprint=receipt['sha256'])
+        plan=self.model.experiment(self.pending(),dict(configuration=self.pending_config()))
+        run=plan['run_sets'][0]
+        bound,resources=self.model.bind_run(ready,run,plan['seed_plan'])
+        self.assertEqual(bound['id'],run['id'])
+        from deploy.multirun.configuration import normalise
+        self.assertEqual(normalise(bound['parameters']).as_dict()['seed_plan']['seeds'],plan['seed_plan'])
+        self.assertEqual(resources.memory_mib,4096)
+        with self.assertRaises(ArtifactError):
+            self.model.bind_run(ready,run,['606'])
+        (target/'input/parameters.xlsx').chmod(0o600)
+        (target/'input/parameters.xlsx').write_text('changed')
+        with self.assertRaises(ArtifactError):
+            self.model.bind_run(ready,run,plan['seed_plan'])
+
+    def test_replacement_preserves_parameters_and_seeds_and_rejects_model_change(self):
+        old=self.pending()
+        new=dict(old,dataset_id='replacement')
+        plan=self.model.experiment(old,dict(configuration=self.pending_config()))
+        run=plan['run_sets'][0]
+        bound,_=self.model.replace_run(old,new,run,plan['seed_plan'])
+        self.assertEqual(bound['parameters']['dataset_revision'],'replacement')
+        self.assertEqual(bound['parameters']['seed_plan'],run['parameters']['seed_plan'])
+        self.assertEqual(bound['parameters']['common'],run['parameters']['common'])
+        changed=deepcopy(new)
+        changed['definition']['model']['release']['model']['sha256']='b'*64
+        with self.assertRaises(ArtifactError):self.model.replace_run(old,changed,run,plan['seed_plan'])
+
     def test_proof_releases_temporary_payload_after_removal_and_keeps_dataset(self):
         self.result()
         self.adapter.validate(self.lease,self.work)

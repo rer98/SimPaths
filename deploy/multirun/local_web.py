@@ -84,7 +84,7 @@ def retire_finished(queue, executor):
     """
     from jasmine_web.batch.local_executor import atomic_json
     with queue._connection() as c:
-        rows=c.execute('''SELECT a.*,j.configuration_id,e.specification,j.resources,j.dataset_id,j.model_digest,j.prepared_fingerprint
+        rows=c.execute('''SELECT a.*,j.configuration_id,e.specification,j.resources,j.dataset_id,j.model_digest,j.prepared_fingerprint,j.execution_run
             FROM attempts a JOIN jobs j ON j.id=a.job_id JOIN experiments e ON e.id=j.experiment_id
             WHERE a.pool_id=%s AND a.phase='finished' ORDER BY a.finished_at''',(queue.pool_id,)).fetchall()
     for row in rows:
@@ -188,8 +188,10 @@ def main(argv=None):
             with worker.open():
                 while not stop.is_set():
                     try:
+                        service.lifecycle.reconcile()
                         worker.tick(claim_new=False)
                         retire_finished(q,executor)
+                        service.lifecycle.retire(state/'artifacts')
                         worker.tick()
                         health['message']=''
                     except Exception as error:
@@ -213,7 +215,8 @@ def main(argv=None):
     from jasmine_web.batch.browser import create_app
     import uvicorn
     origin=f'http://127.0.0.1:{args.port}'
-    app=create_app(Submissions(access,datasets,BrowserModel(releases)),origin=origin,local_codes=True,
+    service=Submissions(access,datasets,BrowserModel(releases))
+    app=create_app(service,origin=origin,local_codes=True,
                    lifespan=lifespan,worker_status=lambda:health['message'])
     print('Open '+origin+' — local preview, one active job at a time.',flush=True)
     uvicorn.run(app,host='127.0.0.1',port=args.port,proxy_headers=False,access_log=False)

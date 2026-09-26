@@ -167,12 +167,24 @@ class NormalisedExperiment:
     def editable_yaml(self):
         return yaml.safe_dump(self.editable_configuration(), sort_keys=True)
 
+    def run_configuration(self, run_set_id):
+        """Collapse inheritance to one self-contained executable configuration."""
+        editable = self.editable_configuration()
+        editable.pop('sweep', None)
+        item = next((r for r in self.as_dict()['run_sets'] if r['id'] == run_set_id), None)
+        if item is None:
+            raise ConfigurationError('run_set_id', 'Run Set not found')
+        editable['dataset_revision'] = item.pop('dataset_revision', editable['dataset_revision'])
+        editable['common'] = item.pop('common', editable['common'])
+        editable['run_sets'] = [item]
+        return editable
+
     def native_configuration(self, run_set_id):
         data = self.as_dict()
         run_set = next((item for item in data["run_sets"] if item["id"] == run_set_id), None)
         if run_set is None:
             raise ConfigurationError("run_set_id", "Run Set not found")
-        common, seeds = data["common"], data["seed_plan"]
+        common, seeds = run_set.get("common", data["common"]), data["seed_plan"]
         return {
             "countryString": "United Kingdom", "startYear": common["start_year"],
             "endYear": common["end_year"], "popSize": common["population"],
@@ -191,6 +203,21 @@ class NormalisedExperiment:
         return yaml.safe_dump(self.native_configuration(run_set_id), sort_keys=True)
 
 
+def _common(value, path):
+    common = dict(_mapping(value, path,
+                           {"country", "start_year", "end_year", "population"},
+                           {"country", "start_year", "end_year", "population"}))
+    if common["country"] != "UK":
+        raise ConfigurationError(path + ".country", "this draft profile supports UK only")
+    for key in ("start_year", "end_year", "population"):
+        _count(common[key], path + "." + key, INT_MAX)
+    if not 2011 <= common["start_year"] <= 2024:
+        raise ConfigurationError(path + ".start_year", "outside this model version's 2011–2024 bounds")
+    if common["end_year"] < common["start_year"]:
+        raise ConfigurationError(path + ".end_year", "must not precede start_year")
+    return common
+
+
 def normalise(document, *, limits=Limits()):
     """Validate settings only; dataset/release resolution and preparation are separate."""
     check_tree(document, limits)
@@ -202,42 +229,39 @@ def normalise(document, *, limits=Limits()):
     if document["output_contract"] != OUTPUT_CONTRACT:
         raise ConfigurationError("output_contract", "unsupported output contract")
     experiment = _mapping(document["experiment"], "experiment", {"name"}, {"name"})
-    common = dict(_mapping(document["common"], "common",
-                           {"country", "start_year", "end_year", "population"},
-                           {"country", "start_year", "end_year", "population"}))
-    if common["country"] != "UK":
-        raise ConfigurationError("common.country", "this draft profile supports UK only")
-    for key in ("start_year", "end_year", "population"):
-        _count(common[key], "common." + key, INT_MAX)
-    if not 2011 <= common["start_year"] <= 2024:
-        raise ConfigurationError("common.start_year", "outside this model version's 2011–2024 bounds")
-    if common["end_year"] < common["start_year"]:
-        raise ConfigurationError("common.end_year", "must not precede start_year")
+    common = _common(document["common"], "common")
     seed_plan = _seed_plan(document["seed_plan"], limits)
     run_sets, ids, fingerprints = [], set(), set()
 
-    def add_run(identifier, name, settings, path):
+    def add_run(identifier, name, settings, path, overrides=None):
         identifier = _identifier(identifier, path + ".id")
         name = _name(name, path + ".name")
         if identifier in ids:
             raise ConfigurationError(path + ".id", "duplicate Run Set ID")
-        fingerprint = _json(settings)
+        overrides = overrides or {}
+        fingerprint = _json(dict(settings=settings, dataset=overrides.get('dataset_revision', document['dataset_revision']),
+                                 common=overrides.get('common', common)))
         if fingerprint in fingerprints:
             raise ConfigurationError(path, "duplicate effective configuration; review the Run Sets")
         if len(run_sets) >= limits.max_run_sets or (len(run_sets) + 1) * seed_plan["repetitions"] > limits.max_simulations:
             raise ConfigurationError("run_sets", "expanded work exceeds the configured limits")
         ids.add(identifier)
         fingerprints.add(fingerprint)
-        run_sets.append({"id": identifier, "name": name, **settings})
+        run_sets.append({"id": identifier, "name": name, **settings, **overrides})
 
     manual = document.get("run_sets", [])
     if type(manual) is not list or len(manual) > limits.max_run_sets:
         raise ConfigurationError("run_sets", "expected a bounded list")
     for i, item in enumerate(manual):
         path = f"run_sets[{i}]"
-        _mapping(item, path, {"id", "name", "model_args", "collector_args"}, {"id", "name"})
+        _mapping(item, path, {"id", "name", "model_args", "collector_args", "dataset_revision", "common"}, {"id", "name"})
         settings = _settings({key: item[key] for key in ("model_args", "collector_args") if key in item}, path)
-        add_run(item["id"], item["name"], settings, path)
+        overrides = {}
+        if 'dataset_revision' in item:
+            overrides['dataset_revision'] = _identifier(item['dataset_revision'], path + '.dataset_revision')
+        if 'common' in item:
+            overrides['common'] = _common(item['common'], path + '.common')
+        add_run(item["id"], item["name"], settings, path, overrides)
 
     recipe = None
     if "sweep" in document:

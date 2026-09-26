@@ -84,7 +84,7 @@ def retire_finished(queue, executor):
     """
     from jasmine_web.batch.local_executor import atomic_json
     with queue._connection() as c:
-        rows=c.execute('''SELECT a.*,j.configuration_id,e.specification,e.resources
+        rows=c.execute('''SELECT a.*,j.configuration_id,e.specification,j.resources,j.dataset_id,j.model_digest,j.prepared_fingerprint
             FROM attempts a JOIN jobs j ON j.id=a.job_id JOIN experiments e ON e.id=j.experiment_id
             WHERE a.pool_id=%s AND a.phase='finished' ORDER BY a.finished_at''',(queue.pool_id,)).fetchall()
     for row in rows:

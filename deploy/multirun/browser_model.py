@@ -26,7 +26,7 @@ class BrowserModel(SubmissionModel):
                 help='Upload population_initial_UK_YEAR.csv for your first year and the UKMOD text files. '
                      'Include a policy starting in 2015 for the model’s base-price calculations. '
                      'Add each policy to the schedule below. Replacement parameter workbooks are optional.'),
-            note='All configurations use the selected prepared dataset and policy schedule. '
+            note='Configurations inherit the default input dataset, or use their own selected dataset. '
                  'Each configuration uses the same seed sequence, beginning 606, 607, 608. '
                  'Configurations can run in parallel when capacity is available. '
                  'This local version supports up to three repetitions per configuration. '
@@ -44,7 +44,12 @@ class BrowserModel(SubmissionModel):
                 else f"Your prepared UK inputs — {identity['start_year']}")
         values = dict(start_year=identity['start_year'], population=identity.get('population',20000),
                       end_year=min(2026,identity['start_year']+1))
-        return dict(id=resolved['dataset_id'],name=name,values=values,
+        return dict(id=resolved['dataset_id'],name=resolved.get('display_name') or name,values=values,
+                    inputs=dict(fingerprint=receipt['sha256'],
+                        population=identity['prepared'].get('input.mv.db'),
+                        workbooks={k: v for k,v in identity['prepared'].items() if k.lower().endswith('.xlsx')},
+                        schedule=identity.get('selection',{}).get('schedule'),
+                        policy_years=identity.get('policy_years')),
                     locked=['start_year','population'] if training else ['start_year'])
 
     def browser_configuration(self, dataset, form):
@@ -55,7 +60,7 @@ class BrowserModel(SubmissionModel):
                 or type(form['auto_retry']) is not bool):
             raise ArtifactError('Supply the experiment fields, 1–10 configurations and 1–3 repetitions')
         for run in form['run_sets']:
-            if not isinstance(run,dict) or set(run) != {'id','name','model_args'}:
+            if not isinstance(run,dict) or set(run) - {'id','name','model_args','dataset_revision','common'} or not {'id','name','model_args'} <= set(run):
                 raise ArtifactError('Each configuration needs a name and model settings')
         configuration = dict(schema_version=SCHEMA_VERSION,model_release=next(iter(self.releases)),
             dataset_revision=dataset,experiment=dict(name=form['name']),common=dict(country='UK',**form['common']),
@@ -71,7 +76,8 @@ class BrowserModel(SubmissionModel):
         # Show all settings, including those identical across configurations, so
         # a review remains useful for a single configuration and default values.
         return dict(name=data['experiment']['name'],common=data['common'],
-            configurations=[dict(id=r['id'],name=r['name'],settings=r['model_args']) for r in runs],
+            configurations=[dict(id=r['id'],name=r['name'],settings=r['model_args'],
+                common=r.get('common',data['common']), dataset=r.get('dataset_revision',data['dataset_revision'])) for r in runs],
             different=different,auto_retry=request['auto_retry'])
 
 

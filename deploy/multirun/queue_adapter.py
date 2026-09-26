@@ -64,6 +64,10 @@ def submission_arguments(configuration, prepared):
     elif (common["start_year"] != 2019 or common["end_year"] != 2020
             or common["population"] > 2000 or len(frozen["seed_plan"]["seeds"]) > 3):
         raise ArtifactError("Local queue proof supports 2019–2020, at most 2000 people and three repetitions")
+    for run in frozen['run_sets']:
+        if (run.get('dataset_revision', frozen['dataset_revision']) != frozen['dataset_revision']
+                or run.get('common', common) != common):
+            raise ArtifactError('Resolve each configuration through the submission service before queueing')
     runs = []
     for item in frozen["run_sets"]:
         editable = normalised.editable_configuration()

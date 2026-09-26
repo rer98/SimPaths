@@ -97,6 +97,18 @@ class SubmissionAdapterTests(unittest.TestCase):
         self.assertEqual(fingerprint(Path(command.inputs)/'model.jar'),fingerprint(self.releases['approved']['jar']))
         self.assertFalse(any(str(value['path']) in arg for value in self.uploads.values() for arg in command.argv))
 
+    def test_low_space_reports_counts_before_copying_inputs_or_compiling(self):
+        from jasmine_web.batch.docker_executor import InsufficientWorkspaceSpace
+        with patch('deploy.multirun.submission_adapter.shutil.disk_usage',
+                   return_value=SimpleNamespace(free=1 << 30)), \
+             patch('deploy.multirun.submission_adapter.subprocess.run') as compiler:
+            with self.assertRaises(InsufficientWorkspaceSpace) as rejected:
+                self.adapter.container_command(self.lease, self.request)
+        self.assertGreater(rejected.exception.required_bytes, 2 << 30)
+        self.assertEqual(rejected.exception.available_bytes, 1 << 30)
+        self.assertFalse((self.request / 'sources').exists())
+        compiler.assert_not_called()
+
     def test_changed_model_or_upload_stops_before_dispatch(self):
         self.releases['approved']['jar'].write_bytes(b'changed')
         with self.assertRaises(ArtifactError):

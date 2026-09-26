@@ -50,16 +50,40 @@ class SubmissionModel:
             raise ArtifactError('Use fixed configuration cards for this first submission workflow')
         if config.as_dict()['dataset_revision'] != resolved['dataset_id']:
             raise ArtifactError('Configuration must use the selected prepared dataset')
-        receipt = read_prepared(resolved['location'])
-        if receipt['sha256'] != resolved['prepared_fingerprint']:
-            raise ArtifactError('Prepared dataset changed')
-        verify_snapshot(resolved['location'], receipt)
-        args = container_submission(config.editable_configuration(), resolved['location'], resolved['model_digest'])
-        resources = allocation(receipt)
-        if config.as_dict()['common']['population'] > 20000:
-            resources['memory_mib'] = 5120
-        return dict(**args, baseline=request.get('baseline'), auto_retry=request.get('auto_retry', True),
-                    resources=Resources(**resources))
+        choices = resolved.get('datasets', {resolved['dataset_id']: resolved})
+        receipts = {}
+        for key in self.dataset_ids(request) | {resolved['dataset_id']}:
+            chosen = choices.get(key)
+            if chosen is None:
+                raise ArtifactError('Input dataset is unavailable')
+            receipt = read_prepared(chosen['location'])
+            if receipt['sha256'] != chosen['prepared_fingerprint']:
+                raise ArtifactError('Prepared dataset changed')
+            verify_snapshot(chosen['location'], receipt)
+            receipts[key] = receipt
+        if len({r['identity']['model']['sha256'] for r in receipts.values()}) != 1:
+            raise ArtifactError('All configurations must use inputs prepared for the same model version')
+        runs, budgets = [], []
+        for item in config.as_dict()['run_sets']:
+            single = config.run_configuration(item['id'])
+            chosen = choices[single['dataset_revision']]
+            args = container_submission(single, chosen['location'], chosen['model_digest'])
+            resources = allocation(receipts[single['dataset_revision']])
+            if single['common']['population'] > 20000:
+                resources['memory_mib'] = 5120
+            runs.append(dict(args['run_sets'][0], execution=dict(dataset_id=chosen['dataset_id'],
+                model_digest=chosen['model_digest'], resources=resources)))
+            budgets.append(resources)
+        return dict(label=config.as_dict()['experiment']['name'], dataset_id=resolved['dataset_id'],
+            model_digest=resolved['model_digest'], seed_plan=config.as_dict()['seed_plan']['seeds'],
+            run_sets=runs, baseline=request.get('baseline'), auto_retry=request.get('auto_retry', True),
+            resources=Resources(**budgets[0]))
+
+    def dataset_ids(self, request):
+        data = normalise(request['configuration']).as_dict()
+        return {data['dataset_revision']} | {r.get('dataset_revision', data['dataset_revision'])
+                                             for r in data['run_sets']}
+
 
 
 class PreparationAdapter:
@@ -99,8 +123,10 @@ class PreparationAdapter:
             raise ArtifactError('Preparation workspaces and retained artifacts must share a filesystem')
         expected = params['uploads']
         needed = 3*sum(v['bytes'] for v in expected.values()) + sum(v['bytes'] for v in release['defaults'].values()) + (2<<30)
-        if shutil.disk_usage(request).free < needed:
-            raise ArtifactError('Insufficient space for preparation and its working reserve')
+        available = shutil.disk_usage(request).free
+        if available < needed:
+            from jasmine_web.batch.docker_executor import InsufficientWorkspaceSpace
+            raise InsufficientWorkspaceSpace(needed, available)
         sources = request/'sources'
         sources.mkdir(mode=0o700)
         model = fingerprint(configured['jar'], sources/'model.jar')

@@ -46,6 +46,49 @@ class BrowserModelTests(unittest.TestCase):
         self.assertEqual(summary['different'],['savingRate'])
         self.assertEqual(len(summary['configurations']),2)
 
+    def test_different_populations_freeze_separate_inputs_and_native_settings(self):
+        from deploy.multirun.configuration import normalise
+        other, receipt = self.fixture.dataset(50000)
+        alternative = dict(location=str(other),dataset_id=receipt['revision'],
+            prepared_fingerprint=receipt['sha256'],model_digest=prepared_fixture.IMAGE)
+        form=deepcopy(self.form)
+        form['run_sets'][1].update(dataset_revision=receipt['revision'],
+            common=dict(country='UK',population=50000,start_year=2019,end_year=2025))
+        # Input changes alone constitute a distinct configuration.
+        form['run_sets'][1]['model_args']=form['run_sets'][0]['model_args'].copy()
+        request=self.model.browser_configuration(self.receipt['revision'],form)
+        snapshot=normalise(request['configuration'])
+        from deploy.multirun.configuration import normalise_yaml
+        self.assertEqual(normalise_yaml(snapshot.editable_yaml()).as_dict(),snapshot.as_dict())
+        self.assertEqual(self.model.dataset_ids(request),{self.receipt['revision'],receipt['revision']})
+        old=list(sys.path)
+        self.addCleanup(lambda:setattr(sys,'path',old))
+        sys.path.insert(0,str(frontend_path()))
+        resolved=dict(self.resolved,datasets={self.receipt['revision']:self.resolved,receipt['revision']:alternative})
+        plan=self.model.experiment(resolved,request)
+        self.assertEqual([r['execution']['resources']['memory_mib'] for r in plan['run_sets']],[4096,5120])
+        for run,population,end_year,dataset in zip(plan['run_sets'],[20000,50000],[2020,2025],
+                                                  [self.receipt['revision'],receipt['revision']]):
+            config=normalise(run['parameters'])
+            self.assertEqual(config.as_dict()['dataset_revision'],dataset)
+            native=config.native_configuration(run['id'])
+            self.assertEqual((native['popSize'],native['endYear'],native['randomSeed']),(population,end_year,606))
+            self.assertEqual(config.as_dict()['seed_plan']['seeds'],['606','607','608'])
+        self.assertEqual(normalise(request['configuration']).native_configuration('comparison')['popSize'],50000)
+        self.assertEqual(self.model.browser_summary(request)['configurations'][1]['common']['population'],50000)
+        with self.assertRaisesRegex(ArtifactError,'unavailable'):
+            self.model.experiment(self.resolved,request)
+        alternative['prepared_fingerprint']='0'*64
+        with self.assertRaisesRegex(ArtifactError,'changed'):
+            self.model.experiment(resolved,request)
+
+    def test_dataset_name_and_safe_input_comparison_metadata(self):
+        description=self.model.describe_dataset(dict(self.resolved,display_name='Baseline policies'))
+        self.assertEqual(description['name'],'Baseline policies')
+        self.assertIsNotNone(description['inputs']['population'])
+        self.assertIn('EUROMODpolicySchedule.xlsx',description['inputs']['workbooks'])
+        self.assertNotIn(str(self.path),str(description))
+
     def test_unknown_fields_and_unsupported_repetitions_rejected(self):
         for change in ({'owner':'other'},{'image':'evil'},{'repetitions':4},{'auto_retry':'yes'}):
             with self.assertRaises(ArtifactError):

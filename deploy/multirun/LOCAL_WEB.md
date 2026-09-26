@@ -14,9 +14,20 @@ shared seed sequence and submit. **My jobs** shows durable status, attempt count
 cancellation and automatic-retry controls. A browser refresh or closure does not
 cancel submitted work.
 
-All cards in an experiment currently share the chosen prepared dataset and policy
-schedule; the cards vary the exposed model parameters. Selecting different policy
-schedules or workbook overrides per card is not part of this first browser slice.
+The **Default input dataset** supplies inputs to every card unless that card
+selects an alternative. Each dataset contains its prepared population/donor database,
+UKMOD policy schedule and parameter workbooks. To compare a different schedule,
+workbook set or population, create or select a second dataset and choose it on the
+comparison card. Different inputs must use the same model JAR version. Each card
+has its own validated population/years; all cards share the seed sequence.
+
+**Create input dataset** appears to the left of **New experiment**, which remains
+the initially visible page. Give uploaded inputs a name before preparation. The
+name is retained with the published dataset; selectors refresh automatically when
+preparation completes, preserving current choices. Previously prepared datasets
+without names retain their generated descriptions. Dataset names are labels, not
+content identities: two datasets can have the same name, with their IDs distinguishing
+them. A disappearing permission does not silently switch a selected dataset.
 
 The configuration cards show all model parameters supported by this web profile,
 in their `SimPathsModel` declaration order, with no special prominence for saving
@@ -96,13 +107,17 @@ binds only to loopback. Do not expose it using a tunnel or reverse proxy.
    population and first year are fixed; leave the final year at 2020.
 2. Leave the first configuration's saving rate at its default. Duplicate it,
    rename the copy, and change its saving rate. Duplicate cards must differ in
-   at least one effective setting before submission.
+   at least one effective setting or input dataset before submission. Alternatively,
+   select the 50,000-person training dataset on the copy; its saved population
+   becomes 50,000 while the first card still inherits the 20,000-person default.
 3. Select the first configuration as the baseline. Review the total simulation
-   count, seeds, common fields and highlighted differences. Submit.
+   count, seeds, population/years, input identities and highlighted model differences.
+   The input comparison uses the baseline, or the first card when no baseline is
+   selected. File differences do not establish scientific comparability. Submit.
 4. Open **My jobs**, refresh, then close and reopen the page. Confirm that the
    same jobs remain visible. Cancellation and retry controls apply to one
    configuration, not every configuration in the experiment.
-5. For the upload path, choose **Prepare inputs**. Upload a population CSV and
+5. For the upload path, choose **Create input dataset**, enter a name, then upload a population CSV and
    UKMOD files, check the policy schedule (including a policy starting in 2015),
    then review and submit preparation. On completion, use **Use prepared dataset**.
    Prepared uploads can be reused in later experiments without preparing again.
@@ -124,6 +139,10 @@ and the launcher starts it again next time.
 
 Ctrl+C stops the browser server and dispatcher. Already launched containers keep
 their independent deadlines; queued work resumes after the launcher restarts.
+Restart after updating both repositories to apply migration 006. It preserves
+existing jobs and records each job's dataset, fingerprint, image and allocation.
+Do not run an older dispatcher against the upgraded schema. Stop the local
+launcher before updating, then restart it normally; do not delete its database.
 Recovery may wait for the previous lease to expire (up to about one minute).
 Stopping the frontend is therefore not the way to cancel a job: use **Cancel**.
 Do not remove its state, imported datasets or Docker volume while work is active.

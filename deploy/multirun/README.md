@@ -48,6 +48,8 @@ is false so explicit prepared schedules are not replaced by training copies.
 - `snapshot.editable_configuration()` / `editable_yaml()`: export for subsequent
   editing/import; preserves resolved fields and sweep values. `as_dict()` is an
   evidence format, not the editable input format.
+- `snapshot.run_configuration(id)`: one self-contained configuration with its
+  effective input dataset and population/year settings, for trusted resolution.
 - `snapshot.native_configuration(id)` / `native_yaml(id)`: native runner settings.
 - `snapshot.configuration_sha256`: content identity of the resolved snapshot,
   including its labels and reference IDs; not proof of dataset permission,
@@ -90,6 +92,22 @@ value list retains its order, giving deterministic generated IDs. Explicit and
 generated Run Sets share workload limits. Duplicate IDs or effective configurations
 are rejected for review in this initial tool. Sweep values override that field in
 the base configuration, and all resolved differences are visible in the snapshot.
+
+### Alternative inputs within one experiment
+
+A manual Run Set can optionally specify `dataset_revision` and `common`
+(country, population, start year and end year). Omitted values inherit the experiment
+defaults. `common`, when provided, must contain all four fields. The draft schema
+remains backward compatible: older configurations retain their normalised content.
+Duplicate detection considers effective inputs, common settings and model settings.
+Sweep-generated runs continue to inherit experiment defaults.
+
+The submission service resolves and authorises every selected dataset, verifies its
+receipt/files, requires matching model JARs, and creates a separate frozen execution
+specification and resource allocation for each Run Set. It validates each against
+its own saved population and policy horizon. The low-level single-dataset queue
+helper rejects unresolved mixed inputs. Browser cards and review expose these
+choices; browser YAML import/export and sweep generation remain separate work.
 
 ## Scope and remaining integration
 

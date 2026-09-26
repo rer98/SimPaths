@@ -5,6 +5,8 @@ Model form translation, immutable dataset defaults and local cleanup regressions
 @author ross richardson
 """
 from copy import deepcopy
+from pathlib import Path
+import re
 import sys
 import unittest
 from unittest.mock import Mock
@@ -13,7 +15,7 @@ from types import SimpleNamespace
 from deploy._workflow import frontend_path
 from deploy.multirun.artifacts import ArtifactError
 from deploy.multirun.browser_model import BrowserModel
-from deploy.multirun.schema import ConfigurationError
+from deploy.multirun.schema import ConfigurationError, MODEL_FIELDS
 from deploy.multirun import test_prepared_dataset as prepared_fixture
 
 
@@ -52,6 +54,23 @@ class BrowserModelTests(unittest.TestCase):
         malicious['run_sets'][0]['model_args']['class']='java.lang.Runtime'
         with self.assertRaises(ConfigurationError):
             self.model.browser_configuration('dataset',malicious)
+
+    def test_form_covers_supported_model_fields_in_java_declaration_order(self):
+        fields=self.model.browser_form()['fields']
+        names=[field['id'] for field in fields]
+        self.assertEqual(len(names),len(set(names)))
+        self.assertEqual(set(names),set(MODEL_FIELDS))
+        source=(Path(__file__).resolve().parents[2]/'src/main/java/simpaths/model/SimPathsModel.java').read_text()
+        source=re.sub(r'/\*.*?\*/|//[^\n]*','',source,flags=re.S)
+        declared=re.findall(r'\b(?:private|public|protected)\s+\w+\s+(\w+)\s*=',source)
+        self.assertEqual(names,[name for name in declared if name in MODEL_FIELDS])
+        # Presentation changes preserve every submitted model default.
+        form=deepcopy(self.form)
+        form['run_sets']=form['run_sets'][:1]
+        form['run_sets'][0]['model_args']={field['id']:field['default'] for field in fields}
+        request=self.model.browser_configuration(self.receipt['revision'],form)
+        self.assertEqual(request['configuration']['run_sets'][0]['model_args'],
+                         {key:field.default for key,field in MODEL_FIELDS.items()})
 
     def test_duplicate_cards_require_a_real_parameter_difference(self):
         form=deepcopy(self.form)

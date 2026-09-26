@@ -18,6 +18,17 @@ All cards in an experiment currently share the chosen prepared dataset and polic
 schedule; the cards vary the exposed model parameters. Selecting different policy
 schedules or workbook overrides per card is not part of this first browser slice.
 
+The configuration cards show all model parameters supported by this web profile,
+in their `SimPathsModel` declaration order, with no special prominence for saving
+rate. This includes parameters without `@GUIparameter`; that annotation controls
+the interactive GUI, not native MultiRun YAML assignment. The supported list is
+explicit in `schema.py`, with presentation metadata in `browser_model.py`.
+Population, years and the shared seed plan are configured separately. Advanced
+capabilities and output settings not exposed in this browser remain controlled by
+the profile; the native launcher's ability to assign a field does not establish
+that it is suitable for this web workflow. YAML import/export and sweep expansion
+exist in the configuration tooling, but are not yet connected to the browser form.
+
 This preview supports 1–10 configurations and 1–3 repetitions each, using seeds
 606, 607, 608. The local pool admits one job at a time, with two CPUs and up to
 5 GiB container memory. Its allowance does not coordinate with the separate

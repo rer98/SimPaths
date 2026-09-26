@@ -20,8 +20,8 @@ class BrowserModel(SubmissionModel):
             common=[dict(id='population',label='Simulated population',kind='int',default=20000,min=1,max=50000),
                     dict(id='start_year',label='First year',kind='int',default=2019,min=2011,max=2024),
                     dict(id='end_year',label='Last year',kind='int',default=2020,min=2011,max=2026)],
-            fields=[dict(id=k,label=LABELS.get(k,k),kind=f.kind,default=f.default)
-                    for k,f in MODEL_FIELDS.items()],
+            fields=[dict(id=k,label=LABELS[k],kind=MODEL_FIELDS[k].kind,default=MODEL_FIELDS[k].default)
+                    for k in MODEL_FIELD_ORDER],
             preparation=dict(year=2019, minimum_year=2011, maximum_year=2024,
                 help='Upload population_initial_UK_YEAR.csv for your first year and the UKMOD text files. '
                      'Include a policy starting in 2015 for the model’s base-price calculations. '
@@ -67,12 +67,28 @@ class BrowserModel(SubmissionModel):
     def browser_summary(self, request):
         data = normalise(request['configuration']).as_dict()
         runs = data['run_sets']
-        different = [key for key in MODEL_FIELDS if len({str(r['model_args'][key]) for r in runs}) > 1]
+        different = [key for key in MODEL_FIELD_ORDER if len({str(r['model_args'][key]) for r in runs}) > 1]
         # Show all settings, including those identical across configurations, so
         # a review remains useful for a single configuration and default values.
         return dict(name=data['experiment']['name'],common=data['common'],
             configurations=[dict(id=r['id'],name=r['name'],settings=r['model_args']) for r in runs],
             different=different,auto_retry=request['auto_retry'])
+
+
+# Presentation order follows SimPathsModel declarations, including supported
+# fields without @GUIparameter. Keep it separate from the execution schema:
+# changing presentation must not change frozen experiment identities/defaults.
+MODEL_FIELD_ORDER = (
+    'maxAge', 'fixTimeTrend', 'timeTrendStopsIn', 'timeTrendStopsInMonetaryProcesses',
+    'sIndexTimeWindow', 'sIndexAlpha', 'sIndexDelta', 'savingRate',
+    'initialisePotentialEarningsFromDatabase', 'useWeights', 'ignoreTargetsAtPopulationLoad',
+    'projectMortality', 'alignPopulation', 'alignFertility', 'alignEducation',
+    'alignInSchool', 'alignCohabitation', 'alignEmployment',
+    'addRegressionStochasticComponent', 'fixRegressionStochasticComponent',
+    'labourMarketCovid19On', 'projectFormalChildcare', 'donorPoolAveraging',
+    'taxDonorUpratingByWage', 'projectSocialCare', 'flagSuppressChildcareCosts',
+    'flagSuppressSocialCareCosts', 'flagDefaultToTimeSeriesAverages',
+)
 
 
 LABELS = {
@@ -82,4 +98,17 @@ LABELS = {
     'sIndexDelta':'Security index discount factor', 'projectMortality':'Project mortality',
     'projectFormalChildcare':'Project formal childcare', 'projectSocialCare':'Project social care',
     'useWeights':'Use population weights', 'donorPoolAveraging':'Average across tax donors',
+    'fixTimeTrend':'Fix time trend',
+    'initialisePotentialEarningsFromDatabase':'Initialise potential earnings from input data',
+    'ignoreTargetsAtPopulationLoad':'Ignore targets when loading population',
+    'alignPopulation':'Align population', 'alignFertility':'Align fertility',
+    'alignEducation':'Align education', 'alignInSchool':'Align school participation',
+    'alignCohabitation':'Align cohabitation', 'alignEmployment':'Align employment',
+    'addRegressionStochasticComponent':'Include regression stochastic component',
+    'fixRegressionStochasticComponent':'Fix regression stochastic component',
+    'labourMarketCovid19On':'Use COVID-19 labour supply module',
+    'taxDonorUpratingByWage':'Uprate tax donor incomes by wage growth',
+    'flagSuppressChildcareCosts':'Suppress childcare costs',
+    'flagSuppressSocialCareCosts':'Suppress social care costs',
+    'flagDefaultToTimeSeriesAverages':'Use time-series averages',
 }

@@ -98,6 +98,12 @@ Upstream baseline used to identify new files: `b223738b9cdf1d814cc3c6f09b04bc493
 
 ## Artifacts attributed here without modifying their contents
 
+The durable MultiRun preparation/submission adapter and proof are attributed in
+their source headers: `deploy/multirun/submission_adapter.py`,
+`deploy/multirun/queued_preparation_proof.py` and
+`deploy/multirun/test_submission_adapter.py`. Generated proof evidence retains
+the attribution recorded below.
+
 Local MultiRun preparation receipts, configuration snapshots and comparison reports
 are attributed through the `COPYRIGHT.md` generated alongside each evidence set.
 Model binaries, datasets, scientific outputs and third-party logs retain their

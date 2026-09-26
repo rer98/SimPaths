@@ -433,3 +433,56 @@ submission, durable preparation-job admission/recovery, managed prepared-file
 locations, retention and hard storage quotas. Reviewed aggregation rules are also
 required before publishing provider-derived aggregate downloads. The existing
 SingleRun application, Redis coordination and Cloud Run mode are unchanged.
+
+### Durable preparation and authenticated submission adapter
+
+`submission_adapter.SubmissionModel` connects model validation to JAS-mine-web's
+authenticated review/submit service. Maintainers configure release IDs with a
+pinned image, model JAR and default workbooks. Review freezes their hashes, the
+preparation helper and selected uploads. Changed files are rejected at dispatch.
+No model scientific code or image rebuild is required for this adapter.
+
+`PreparationAdapter` runs preparation through the generic queue's existing Docker
+executor. `DispatchAdapter` routes preparation and simulations through one worker
+and resource pool. Preparation therefore shares admission, deadlines, cancellation
+and restart recovery with Run Sets. The upload roots, executor roots and prepared
+artifact roots must be private service-owned directories; configure the executor's
+approved input roots to cover its request staging and retained prepared artifacts.
+Keep execution and prepared-artifact roots on the same filesystem so publication
+can atomically move the large input tree without an additional copy.
+
+After confirmed container termination, the adapter checks the Java success marker,
+selected input integrity, required generated files and prepared receipt. It moves
+the large input tree to a private retained location instead of copying it again.
+If interrupted, recovery validates that same location and resumes publication.
+The queue atomically registers one ready dataset and completes the job. Keep the
+retained artifact directory when removing the stopped attempt workspace. A failed
+publication leaves private state for recovery, never a browser-ready dataset.
+
+Run the real proof with dispatcher replacement during preparation:
+
+```bash
+python -m deploy.multirun.run_input_proof \
+  --frontend /path/to/JAS-mine-web \
+  --queued-preparation \
+  --output /path/to/new/queued-preparation-proof
+```
+
+This extends the input proof above: its disposable queue expires the stopped
+dispatcher's lease, adopts the same preparation container with a new dispatcher,
+requires success on attempt 1 and then runs the two native configurations from
+the prepared result. Before those runs, it removes the confirmed-stopped
+preparation attempt's staged sources and working files. The ready dataset and
+small diagnostic/removal receipts remain. Uncertain container removal retains
+all mounted files; the proof does not weaken the execution disk-space reserve.
+The generic suite separately tests authenticated review,
+revocation, publication rollback and shared preparation/simulation admission.
+The proof uses captured/synthetic identities; it sends no email.
+
+The first submission adapter accepts fixed configurations, an optional baseline
+and automatic retry preference. The existing bounded proof limits (including
+three repetitions) still apply. Sweep normalisation remains available independently;
+the first page will use fixed configuration cards. Browser routes/pages, SMTP
+configuration and team-approval administration are the next integration step.
+Retained files still need storage accounting, expiry and hard quotas before public
+deployment. Private planning files are not dependencies of these services.

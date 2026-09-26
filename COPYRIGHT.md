@@ -108,3 +108,9 @@ Local MultiRun preparation receipts, configuration snapshots and comparison repo
 are attributed through the `COPYRIGHT.md` generated alongside each evidence set.
 Model binaries, datasets, scientific outputs and third-party logs retain their
 existing attribution and licences.
+
+The local MultiRun browser model, launcher, tests and guide are attributed in
+their headers. Generated local-service `training-imports.json`, `release.json`
+and `payload-retired.json` records are (C) Copyright 2026, by Ross Richardson;
+@author ross richardson. Credentials are private runtime state and are not
+published. Copied model/data files retain their existing notices and licences.

@@ -482,7 +482,8 @@ The proof uses captured/synthetic identities; it sends no email.
 The first submission adapter accepts fixed configurations, an optional baseline
 and automatic retry preference. The existing bounded proof limits (including
 three repetitions) still apply. Sweep normalisation remains available independently;
-the first page will use fixed configuration cards. Browser routes/pages, SMTP
-configuration and team-approval administration are the next integration step.
+the local browser page uses fixed configuration cards. See
+[Local browser preview](LOCAL_WEB.md) for approval, startup and acceptance commands.
+SMTP configuration and production team-approval administration remain later work.
 Retained files still need storage accounting, expiry and hard quotas before public
 deployment. Private planning files are not dependencies of these services.

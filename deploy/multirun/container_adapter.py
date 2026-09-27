@@ -12,7 +12,7 @@ import shutil
 from types import SimpleNamespace
 
 from .artifacts import ArtifactError, relative_name
-from .queue_adapter import SimPathsLocalAdapter, require_workspace_space, submission_arguments
+from .queue_adapter import SimPathsLocalAdapter, WorkspaceSpaceError, require_workspace_space, submission_arguments
 from .prepared_dataset import FORMAT, INPUT_FORMAT, allocation, verify_snapshot
 
 
@@ -50,7 +50,13 @@ class SimPathsContainerAdapter(SimPathsLocalAdapter):
             raise ArtifactError("Allocation is below the prepared example's CPU, RAM or storage requirement")
         if self.receipt["identity"]["format"] in (FORMAT, INPUT_FORMAT):
             verify_snapshot(self.prepared, self.receipt)
-        require_workspace_space(self.receipt["identity"], request)
+        try:
+            require_workspace_space(self.receipt["identity"], request)
+        except WorkspaceSpaceError as error:
+            # Use the same durable, count-only storage outcome as preparation.
+            # Other validation failures must not be misclassified as low space.
+            from jasmine_web.batch.docker_executor import InsufficientWorkspaceSpace
+            raise InsufficientWorkspaceSpace(error.required_bytes, error.available_bytes) from error
         (request / "run.yml").write_text(config.native_yaml(lease.configuration_id))
         shutil.copyfile(Path(__file__).with_name("container_run.sh"), request / "run.sh")
         manifest = []

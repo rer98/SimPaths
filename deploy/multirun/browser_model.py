@@ -37,7 +37,8 @@ class BrowserModel(SubmissionModel):
             definition=resolved['definition'];model=definition['model'];year=model['selection']['year']
             return dict(id=resolved['dataset_id'],name=resolved.get('display_name') or 'Your pending UK inputs',
                 values=dict(start_year=year,population=20000,end_year=min(2026,year+1)),locked=['start_year'],
-                inputs=dict(fingerprint=resolved['definition_hash'],
+                inputs=dict(fingerprint=resolved['definition_hash'],comparison_state='pending',files={},
+                    source_files={**model['release']['defaults'],**definition['uploads']},
                     population={k:v for k,v in definition['uploads'].items() if k.endswith('.csv')},
                     workbooks={**model['release']['defaults'],**{k:v for k,v in definition['uploads'].items() if k.endswith(('.xls','.xlsx'))}},
                     schedule=model['selection']['schedule']))
@@ -53,7 +54,9 @@ class BrowserModel(SubmissionModel):
         values = dict(start_year=identity['start_year'], population=identity.get('population',20000),
                       end_year=min(2026,identity['start_year']+1))
         return dict(id=resolved['dataset_id'],name=resolved.get('display_name') or name,values=values,
-                    inputs=dict(fingerprint=receipt['sha256'],
+                    inputs=dict(fingerprint=receipt['sha256'],comparison_state='prepared',
+                        files={k:v for k,v in identity['prepared'].items()
+                               if k=='input.mv.db' or k.lower().endswith(('.xlsx','.xls'))},
                         population=identity['prepared'].get('input.mv.db'),
                         workbooks={k: v for k,v in identity['prepared'].items() if k.lower().endswith('.xlsx')},
                         schedule=identity.get('selection',{}).get('schedule'),

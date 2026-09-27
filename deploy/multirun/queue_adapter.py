@@ -34,6 +34,14 @@ class ExecutionCommand:
     env: dict
 
 
+class WorkspaceSpaceError(ArtifactError):
+    """Model workspace preflight with counts for the platform's storage outcome."""
+    def __init__(self, required_bytes, available_bytes):
+        self.required_bytes, self.available_bytes = required_bytes, available_bytes
+        super().__init__("Insufficient space for private inputs, native snapshot and 1 GiB reserve: "
+                         f"need {required_bytes / 1024**3:.2f} GiB; available {available_bytes / 1024**3:.2f} GiB")
+
+
 def read_prepared(prepared):
     prepared = Path(prepared)
     if fingerprint(prepared / "receipt.json")["bytes"] > 1024*1024:
@@ -140,8 +148,7 @@ def require_workspace_space(identity, workspace):
                 + identity["model"]["bytes"] + 1024**3)
     available = shutil.disk_usage(workspace).free
     if available < required:
-        raise ArtifactError("Insufficient space for private inputs, native snapshot and 1 GiB reserve: "
-                            f"need {required / 1024**3:.2f} GiB; available {available / 1024**3:.2f} GiB")
+        raise WorkspaceSpaceError(required, available)
 
 
 def validate_outputs(output, configuration, run_set_id):

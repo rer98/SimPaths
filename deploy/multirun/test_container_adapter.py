@@ -5,8 +5,13 @@ Model-owned container adapter checks for image/JAR binding and prepared requests
 @author ross richardson
 """
 from types import SimpleNamespace
+import json
+import sys
 import unittest
+from unittest.mock import Mock, patch
+from uuid import uuid4
 
+from deploy._workflow import frontend_path
 from deploy.multirun.artifacts import ArtifactError
 from deploy.multirun.container_adapter import SimPathsContainerAdapter, container_submission
 from deploy.multirun import test_queue_adapter
@@ -59,6 +64,31 @@ class ContainerAdapterTests(unittest.TestCase):
         (self.fixture.work / 'output/606/csv/Person.csv').write_text('')
         with self.assertRaises(ArtifactError):
             self.adapter.validate(self.lease, self.fixture.work)
+
+    def test_low_space_is_durable_storage_rejection_without_docker_launch(self):
+        old_path = list(sys.path)
+        self.addCleanup(lambda: setattr(sys, 'path', old_path))
+        sys.path.insert(0, str(frontend_path()))
+        from jasmine_web.batch.docker_executor import DockerExecutor
+        docker = Mock()
+        executor = DockerExecutor(self.fixture.root / 'executor', approved_images=[IMAGE], docker=docker)
+        attempt = str(uuid4())
+        lease = SimpleNamespace(**vars(self.lease), attempt_id=attempt, execution_key='batch-' + attempt)
+        with patch('deploy.multirun.queue_adapter.shutil.disk_usage',
+                   return_value=SimpleNamespace(free=1 << 20)), executor.exclusive():
+            rejected = executor.start(lease, self.adapter)
+            self.assertEqual(rejected['outcome'], 'storage_limit')
+            self.assertGreater(rejected['required_bytes'], 1 << 30)
+            self.assertEqual(rejected['available_bytes'], 1 << 20)
+            workspace = executor.workspace(lease)
+            self.assertFalse((workspace / 'create-intent.json').exists())
+            self.assertFalse((workspace / 'request/run.yml').exists())
+            # Recovery reports the same reason without trying another launch.
+            self.assertEqual(executor.inspect(lease), rejected)
+            self.assertEqual(executor.start(lease, self.adapter), rejected)
+            self.assertEqual(json.loads((workspace / 'exit.json').read_text()), rejected)
+        docker.call.assert_not_called()
+        docker.inspect.assert_not_called()
 
 
 if __name__ == '__main__':

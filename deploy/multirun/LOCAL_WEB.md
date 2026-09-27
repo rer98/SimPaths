@@ -112,8 +112,15 @@ binds only to loopback. Do not expose it using a tunnel or reverse proxy.
    becomes 50,000 while the first card still inherits the 20,000-person default.
 3. Select the first configuration as the baseline. Review the total simulation
    count, seeds, population/years, input identities and highlighted model differences.
-   The input comparison uses the baseline, or the first card when no baseline is
-   selected. File differences do not establish scientific comparability. Submit.
+   File labels compare with the baseline, or name matching configurations when no
+   baseline is selected. Expand **Show file differences** for individual changed
+   or missing files. **How input files are compared** explains the size/checksum
+   checks: they identify changed files, not changed cells or database records.
+   The schedule row compares the workbook; identical schedules can still refer
+   to different donor data in the separately compared prepared database. Pending
+   generated files say **Awaiting preparation**, with selected sources listed
+   separately. You can submit immediately and wait for preparation, or wait and
+   review again to compare generated files before submitting.
 4. Open **My jobs**, wait for automatic updates, then close and reopen the page. Confirm that the
    same jobs remain visible. Cancellation and retry controls apply to one
    configuration, not every configuration in the experiment.

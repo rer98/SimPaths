@@ -469,6 +469,18 @@ approved input roots to cover its request staging and retained prepared artifact
 Keep execution and prepared-artifact roots on the same filesystem so publication
 can atomically move the large input tree without an additional copy.
 
+Simulation and preparation disk preflights both report the platform's
+`storage_limit` outcome, with required/available byte counts in the private attempt
+receipt. Rejection occurs before container creation; it does not enter unknown
+recovery or automatically retry. Free space must be checked on the execution
+filesystem, which may differ from Docker's storage filesystem.
+
+The local worker removes successful preparation's redundant
+`work/startup/uploads` copies after publication and confirmed container removal.
+It also revisits older cleanup markers that omitted those copies. Original
+uploads, the published dataset, logs and job history remain; unsuccessful
+preparation's startup files remain available for diagnosis.
+
 After confirmed container termination, the adapter checks the Java success marker,
 selected input integrity, required generated files and prepared receipt. It moves
 the large input tree to a private retained location instead of copying it again.

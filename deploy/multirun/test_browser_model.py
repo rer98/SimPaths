@@ -5,6 +5,8 @@ Model form translation, immutable dataset defaults and local cleanup regressions
 @author ross richardson
 """
 from copy import deepcopy
+from contextlib import redirect_stderr
+import io
 import json
 from pathlib import Path
 import re
@@ -26,7 +28,10 @@ class BrowserModelTests(unittest.TestCase):
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
         self.path,self.receipt=self.fixture.dataset()
-        self.model=BrowserModel({'approved':dict(image=prepared_fixture.IMAGE,jar=self.path/'model.jar',defaults=self.path/'input')})
+        defaults=self.fixture.root/'defaults'
+        defaults.mkdir()
+        (defaults/'scenario_CPI.xlsx').write_bytes(b'parameter example')
+        self.model=BrowserModel({'approved':dict(image=prepared_fixture.IMAGE,jar=self.path/'model.jar',defaults=defaults)})
         self.resolved=dict(location=str(self.path),dataset_id=self.receipt['revision'],
                            prepared_fingerprint=self.receipt['sha256'],model_digest=prepared_fixture.IMAGE)
         self.form=dict(name='Comparison',common=dict(population=20000,start_year=2019,end_year=2020),
@@ -46,6 +51,22 @@ class BrowserModelTests(unittest.TestCase):
         summary=self.model.browser_summary(request)
         self.assertEqual(summary['different'],['savingRate'])
         self.assertEqual(len(summary['configurations']),2)
+
+    def test_replaceable_workbooks_share_preparation_allowlist_and_exclude_control_files(self):
+        from deploy.multirun.prepare_inputs import selected_sources
+        defaults=self.model.releases['approved']['defaults']
+        for name in ('Zeta.xls','alpha.xlsx','DatabaseCountryYear.xlsx','EUROMODpolicySchedule.xlsx','notes.txt'):
+            (defaults/name).write_bytes(b'example')
+        (defaults/'linked.xlsx').symlink_to(defaults/'alpha.xlsx')
+        names=self.model.browser_form()['releases'][0]['workbooks']
+        self.assertEqual(names,['alpha.xlsx','scenario_CPI.xlsx','Zeta.xls'])
+        selected,_=selected_sources(defaults,{'population_initial_UK_2019.csv':None,'policy.txt':None},
+            dict(year=2019,schedule=[['policy.txt','2019','2019','']]))
+        self.assertEqual(names,list(selected))
+        for name in names:
+            self.assertEqual(self.model.browser_workbook('approved',name),defaults/name)
+        for name in ('../scenario_CPI.xlsx','SCENARIO_CPI.xlsx','input.mv.db','linked.xlsx','DatabaseCountryYear.xlsx','EUROMODpolicySchedule.xlsx'):
+            with self.assertRaises(ArtifactError):self.model.browser_workbook('approved',name)
 
     def test_different_populations_freeze_separate_inputs_and_native_settings(self):
         from deploy.multirun.configuration import normalise
@@ -123,6 +144,70 @@ class BrowserModelTests(unittest.TestCase):
         malicious['run_sets'][0]['model_args']['class']='java.lang.Runtime'
         with self.assertRaises(ConfigurationError):
             self.model.browser_configuration('dataset',malicious)
+
+    def test_deployment_repetition_limit_controls_description_form_and_direct_submission(self):
+        old=list(sys.path)
+        self.addCleanup(lambda:setattr(sys,'path',old))
+        sys.path.insert(0,str(frontend_path()))
+        self.assertEqual(self.model.browser_form()['max_repetitions'],3)
+        for limit in (1,6,1000):
+            with self.subTest(limit=limit):
+                model=BrowserModel(self.model.releases,max_repetitions=limit)
+                descriptor=model.browser_form()
+                self.assertEqual(descriptor['max_repetitions'],limit)
+                word='repetition' if limit==1 else 'repetitions'
+                self.assertIn(f'up to {limit} {word} per configuration',descriptor['note'])
+                form=deepcopy(self.form)
+                form['repetitions']=limit
+                request=model.browser_configuration(self.resolved['dataset_id'],form)
+                plan=model.experiment(self.resolved,request)
+                self.assertEqual(plan['seed_plan'],[str(606+i) for i in range(limit)])
+                form['repetitions']=limit+1
+                with self.assertRaises(ArtifactError):
+                    model.browser_configuration(self.resolved['dataset_id'],form)
+                # The service also checks its trusted setting when bypassing
+                # the browser-form translator with a configuration document.
+                request['configuration']['seed_plan']['repetitions']=limit+1
+                with self.assertRaises(ConfigurationError):
+                    model.experiment(self.resolved,request)
+
+    def test_invalid_operator_limit_and_launch_arguments_fail_early(self):
+        from deploy.multirun.local_web import parse_args
+        for value in (0,-1,1001,True,3.5,'6',None):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                BrowserModel(self.model.releases,max_repetitions=value)
+        self.assertEqual(parse_args(['serve','--console-codes']).max_repetitions,3)
+        for limit in (1,6,1000):
+            self.assertEqual(parse_args(['serve','--console-codes','--max-repetitions',str(limit)]).max_repetitions,limit)
+        for value in ('0','-1','1001','1.5','many'):
+            with self.subTest(value=value), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as result:
+                parse_args(['serve','--console-codes','--max-repetitions',value])
+            self.assertEqual(result.exception.code,2)
+
+    def test_accepted_quickstart_job_retains_repetitions_after_admission_limit_is_lowered(self):
+        from deploy.multirun.configuration import normalise
+        from deploy.multirun.container_adapter import SimPathsContainerAdapter
+        old=list(sys.path)
+        self.addCleanup(lambda:setattr(sys,'path',old))
+        sys.path.insert(0,str(frontend_path()))
+        larger=BrowserModel(self.model.releases,max_repetitions=6)
+        form=deepcopy(self.form)
+        form['repetitions']=6
+        request=larger.browser_configuration(self.resolved['dataset_id'],form)
+        plan=larger.experiment(self.resolved,request)
+        with self.assertRaises(ConfigurationError):
+            self.model.experiment(self.resolved,request)
+        bound,resources=self.model.bind_run(self.resolved,plan['run_sets'][0],plan['seed_plan'])
+        self.assertEqual(normalise(bound['parameters']).as_dict()['seed_plan']['seeds'],plan['seed_plan'])
+        spec=dict(plan,seeds=plan['seed_plan'],prepared_fingerprint=self.receipt['sha256'])
+        lease=SimpleNamespace(specification=spec,configuration_id=bound['id'],resources=resources.__dict__)
+        work=self.fixture.root/'larger-request'
+        work.mkdir()
+        adapter=SimPathsContainerAdapter(self.path,prepared_fixture.IMAGE)
+        with patch('deploy.multirun.container_adapter.require_workspace_space'):
+            adapter.container_command(lease,work)
+        self.assertEqual((work/'run.yml').read_text(),normalise(bound['parameters']).native_yaml(bound['id']))
+        self.assertEqual(normalise(bound['parameters']).native_configuration(bound['id'])['maxNumberOfRuns'],6)
 
     def test_form_covers_supported_model_fields_in_java_declaration_order(self):
         fields=self.model.browser_form()['fields']

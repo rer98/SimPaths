@@ -40,8 +40,10 @@ the profile; the native launcher's ability to assign a field does not establish
 that it is suitable for this web workflow. YAML import/export and sweep expansion
 exist in the configuration tooling, but are not yet connected to the browser form.
 
-This preview supports 1–10 configurations and 1–3 repetitions each, using seeds
-606, 607, 608. The local pool admits one job at a time, with two CPUs and up to
+This preview supports 1–10 configurations. Repetitions default to a maximum of 3
+per configuration; the operator can set `--max-repetitions` when starting the
+service. Each configuration uses the same seed sequence, starting at 606 and
+increasing by one per repetition. The local pool admits one job at a time, with two CPUs and up to
 5 GiB container memory. Its allowance does not coordinate with the separate
 SingleRun server: finish other simulation sessions before this local test.
 
@@ -87,6 +89,7 @@ keep them available for later runs.
 python -m deploy.multirun.local_web serve \
   --frontend /path/to/JAS-mine-web \
   --console-codes \
+  --max-repetitions 3 \
   --prepared /path/to/prepared-20000 \
   --prepared /path/to/prepared-50000
 ```
@@ -95,6 +98,28 @@ The `--prepared` arguments are optional and remembered for subsequent starts.
 Only these explicitly imported public training examples are granted to approved
 local identities. Uploaded datasets remain owner-specific. The worker and browser
 server run in this terminal; leave it open while testing.
+
+### Configure the repetition limit
+
+Set `--max-repetitions 10`, for example, to allow users to request up to ten
+repetitions per configuration. The operator setting accepts integers from 1 to
+1,000 and defaults to 3 if omitted. Supply it on each launch; it is not saved in
+the state directory. Invalid values are rejected before connecting to PostgreSQL
+or Docker. The technical ceiling of 1,000 is not a measured production allocation.
+
+The same setting supplies the form's maximum, the New experiment description,
+and server-side validation of new submissions. It applies to prepared training
+data, prepared uploaded data and datasets awaiting preparation. The form initially
+selects three repetitions, or the configured maximum if smaller. Restored drafts
+keep their previously entered count and must satisfy the current limit on review.
+
+Changing the setting requires a service restart and page reload. Lowering it
+restricts new submissions; accepted jobs keep their frozen seed plans through
+preparation, execution and recovery. Repetitions within a configuration remain
+sequential. Increasing their limit does not raise the number of concurrent jobs,
+the per-attempt deadline (currently one hour), the total retry budget or the
+memory/storage allowances. Choose production limits alongside those budgets after
+measuring representative workloads. This option requires no image rebuild.
 
 **Console codes are an explicit local test mode.** Request a code on the page,
 read it in this terminal, and enter it in the browser. This exercises the same
@@ -113,9 +138,9 @@ binds only to loopback. Do not expose it using a tunnel or reverse proxy.
 3. Select the first configuration as the baseline. Review the total simulation
    count, seeds, population/years, input identities and highlighted model differences.
    File labels compare with the baseline, or name matching configurations when no
-   baseline is selected. Expand **Show file differences** for individual changed
-   or missing files. **How input files are compared** explains the size/checksum
-   checks: they identify changed files, not changed cells or database records.
+   baseline is selected. Expand **Compare input files** above the settings table
+   for the size/checksum explanation and individual changed or missing files.
+   These checks identify changed files, not changed cells or database records.
    The schedule row compares the workbook; identical schedules can still refer
    to different donor data in the separately compared prepared database. Pending
    generated files say **Awaiting preparation**, with selected sources listed
@@ -173,9 +198,10 @@ and the launcher starts it again next time.
 
 Ctrl+C stops the browser server and dispatcher. Already launched containers keep
 their independent deadlines; queued work resumes after the launcher restarts.
-Restart after updating both repositories to apply migration 007 (and earlier
+Restart after updating both repositories to apply migration 008 (and earlier
 migrations when needed). It preserves existing jobs, registers owned prepared
 inputs for management and gives unfinished preparation a selectable dataset ID.
+Migration 008 records which uploaded workbooks were edited in the browser.
 Do not run an older dispatcher against the upgraded schema. Stop the local
 launcher before updating, then restart it normally; do not delete its database.
 Recovery may wait for the previous lease to expire (up to about one minute).
@@ -212,3 +238,27 @@ result downloads and Policy Impacts Visualiser integration remain separate work.
 The UI currently reports completion, not downloadable/visualised results. Provider
 microdata is never exposed by these routes. The previously reported model
 receipt-flag reproducibility issue remains with the SimPaths maintainers.
+
+## Editing replacement parameter workbooks
+
+Under **Create input dataset**, expand **Workbooks you can replace**. The list
+comes from the frozen model release and uses the same filenames as preparation
+validation. It excludes `DatabaseCountryYear.xlsx` and `EUROMODpolicySchedule.xlsx`,
+which preparation generates. Click a filename to inspect or edit an original copy,
+or click an uploaded replacement to continue editing that copy.
+
+**Save replacement** selects the saved copy and shows **(updated)** and its save
+time in the upload list. The original stays unchanged. Confirming deselection
+uses the original workbook for the new dataset. A same-name upload can replace an
+edited copy after confirmation. Existing submitted preparations keep the exact
+version they were reviewed and submitted with; editing does not change old jobs.
+If another browser changes the file while you edit, saving fails instead of
+silently overwriting that newer version. Close and reopen the latest copy.
+
+This is a cell-value editor, with worksheet selection and paged rows/columns.
+Numeric, text and boolean cells retain their types. Dates and formula cells are
+read-only. Workbooks containing formulas can be viewed but must be changed and
+recalculated in Excel, then uploaded, to avoid stale calculated values. XLSX saves
+retain other workbook entry contents; advanced legacy XLS features may not survive
+its SheetJS export. Workbook saves remain subject to upload space limits and the
+existing isolated preparation checks. No model image rebuild is needed.

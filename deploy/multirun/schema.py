@@ -13,6 +13,7 @@ import math
 SCHEMA_VERSION = "simpaths.multirun.v1-draft"
 PROFILE_VERSION = "simpaths-uk-basic-v1-draft"
 SEED_PROFILE = "simpaths-standard-v1"
+DEFAULT_MAX_REPETITIONS = 3
 OUTPUT_CONTRACT = "simpaths.visualiser.v1-draft"
 LONG_MIN, LONG_MAX = -(2**63), 2**63 - 1
 INT_MIN, INT_MAX = -(2**31), 2**31 - 1
@@ -42,6 +43,14 @@ class Limits:
         for value in vars(self).values():
             if type(value) is not int or value <= 0:
                 raise ValueError("Limits must be positive integers")
+
+
+def deployment_repetition_limit(value):
+    """Validate the operator's admission limit within the parser/queue ceiling."""
+    ceiling = Limits().max_repetitions
+    if type(value) is not int or not 1 <= value <= ceiling:
+        raise ValueError(f"Maximum repetitions must be an integer from 1 to {ceiling}")
+    return value
 
 
 @dataclass(frozen=True)

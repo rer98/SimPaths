@@ -21,6 +21,7 @@ from .artifacts import ArtifactError, fingerprint
 from .browser_model import BrowserModel
 from .prepared_dataset import FORMAT, verify_snapshot
 from .queue_adapter import read_prepared
+from .schema import DEFAULT_MAX_REPETITIONS, deployment_repetition_limit
 from .submission_adapter import DispatchAdapter, PreparationAdapter
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -121,7 +122,7 @@ def retire_finished(queue, executor):
                                                    preparation_uploads_removed=prepared))
 
 
-def main(argv=None):
+def parse_args(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command',choices=['serve','approve','revoke'])
     parser.add_argument('--frontend',type=Path,default=frontend_path())
@@ -129,8 +130,21 @@ def main(argv=None):
     parser.add_argument('--prepared',type=Path,action='append',default=[],help='Verified Quick Start import; reused in place')
     parser.add_argument('--email',help='Email to approve or revoke; prompted if omitted')
     parser.add_argument('--port',type=int,default=5002)
+    parser.add_argument('--max-repetitions',type=int,default=DEFAULT_MAX_REPETITIONS,
+                        help='Maximum repetitions per configuration in new submissions (1–1000; default: %(default)s)')
     parser.add_argument('--console-codes',action='store_true',help='Required local test mode; codes printed in this terminal')
     args=parser.parse_args(argv)
+    try:
+        deployment_repetition_limit(args.max_repetitions)
+    except ValueError as error:
+        parser.error(str(error))
+    if args.command=='serve' and (not args.console_codes or not 1024<=args.port<=65535):
+        parser.error('This local preview requires --console-codes and an unprivileged port')
+    return args
+
+
+def main(argv=None):
+    args=parse_args(argv)
     sys.path.insert(0,str(args.frontend.resolve(strict=True)))
     from jasmine_web.batch.access import Access
     from jasmine_web.batch.datasets import Datasets
@@ -142,8 +156,6 @@ def main(argv=None):
     from jasmine_web.batch.store import Queue
     from jasmine_web.batch.submission_service import Submissions
     from jasmine_web.batch.worker import Worker
-    if args.command=='serve' and (not args.console_codes or not 1024<=args.port<=65535):
-        parser.error('This local preview requires --console-codes and an unprivileged port')
     os.umask(0o077)
     state=private_directory(args.state)
     q=Queue(local_postgres(state),'simpaths-local')
@@ -224,7 +236,7 @@ def main(argv=None):
     from jasmine_web.batch.browser import create_app
     import uvicorn
     origin=f'http://127.0.0.1:{args.port}'
-    service=Submissions(access,datasets,BrowserModel(releases))
+    service=Submissions(access,datasets,BrowserModel(releases,max_repetitions=args.max_repetitions))
     app=create_app(service,origin=origin,local_codes=True,
                    lifespan=lifespan,worker_status=lambda:health['message'])
     print('Open '+origin+' — local preview, one active job at a time.',flush=True)

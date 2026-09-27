@@ -376,8 +376,9 @@ Its default comparison uses saving rates 0.04 and 0.06, seeds 606–608 and 2019
 
 The prepared examples retain the 2019 start year and exact requested population
 size. Their supplied policy coverage ends in 2026; weights and population-target
-settings must match the preparation. The initial adapter permits at most three
-repetitions. Other inputs/settings that need a new preparation must produce a new
+settings must match the preparation. The submission service defaults to at most
+three repetitions, configurable through the operator's `max_repetitions` setting.
+Other inputs/settings that need a new preparation must produce a new
 dataset revision. A different runtime image or JAR also needs revalidation.
 The saved population retains its person/benefit-unit seeds; changing the native
 MultiRun seed does not resample the starting population. Reuse is not evidence of
@@ -421,9 +422,11 @@ the original remains unchanged. Changed inputs, schedule, model JAR or runtime
 require a new verified receipt. These receipts describe imported source tables,
 not a fixed saved population like the Quick Start profiles.
 
-The selected-input execution adapter is container-only. The current proof keeps
-the development bounds of at most 50,000 people, three repetitions and an end year
-no later than 2026. Larger research workloads require measurement and review.
+The selected-input execution adapter is container-only. The current proof uses
+three repetitions. The submission service defaults to the same limit, and the
+browser launcher exposes `--max-repetitions` to configure it. The development
+bounds remain at most 50,000 people and an end year no later than 2026. Larger
+research workloads require measurement and review.
 Preparation uses 2 CPUs, a 512 MiB parent heap and the existing 3 GiB child heap,
 within a 5 GiB container, with a one-hour deadline. Its 12 GiB workspace monitor
 is not a hard filesystem quota.
@@ -510,8 +513,12 @@ revocation, publication rollback and shared preparation/simulation admission.
 The proof uses captured/synthetic identities; it sends no email.
 
 The first submission adapter accepts fixed configurations, an optional baseline
-and automatic retry preference. The existing bounded proof limits (including
-three repetitions) still apply. Sweep normalisation remains available independently;
+and automatic retry preference. `SubmissionModel(releases, max_repetitions=3)`
+sets the new-submission repetition limit; `BrowserModel` uses the same setting
+for its form and description. Accepted jobs keep their frozen repetitions if the
+operator later lowers the limit. Dataset compatibility and the parser's technical
+ceiling are still checked during execution. Other bounded profile limits remain.
+Sweep normalisation remains available independently;
 the local browser page uses fixed configuration cards. See
 [Local browser preview](LOCAL_WEB.md) for approval, startup and acceptance commands.
 SMTP configuration and production team-approval administration remain later work.

@@ -57,12 +57,19 @@ def selection(request):
     return dict(source='uploads', year=year, schedule=rows)
 
 
-def selected_sources(defaults, uploads, request):
-    """Names are logical filenames; values are resolved private server paths."""
+def replacement_workbooks(defaults):
+    """One allowlist for preparation, workbook listing and original-file access."""
     default = {p.name: p for p in Path(defaults).glob('*.xls*')
-               if re.fullmatch(r'[A-Za-z0-9_-]+\.xlsx?', p.name) and p.name not in RESERVED}
+               if re.fullmatch(r'[A-Za-z0-9_-]+\.xlsx?', p.name) and p.name not in RESERVED
+               and p.is_file() and not p.is_symlink()}
     if not default:
         raise ArtifactError('Model parameter workbooks are missing')
+    return dict(sorted(default.items(), key=lambda item: item[0].lower()))
+
+
+def selected_sources(defaults, uploads, request):
+    """Names are logical filenames; values are resolved private server paths."""
+    default = replacement_workbooks(defaults)
     required = {f"population_initial_UK_{request['year']}.csv"}
     required.update(r[0] for r in request['schedule'])
     if not required <= set(uploads):

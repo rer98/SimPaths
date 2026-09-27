@@ -86,9 +86,8 @@ def validate_selection(configuration, receipt):
         settings = run["model_args"]
         if settings["useWeights"] or settings["ignoreTargetsAtPopulationLoad"]:
             raise ArtifactError("These population settings require a different preparation")
-    # Initial example workflow stays bounded until larger workloads are measured.
-    if len(configuration["seed_plan"]["seeds"]) > 3:
-        raise ArtifactError("Prepared example validation currently supports at most three repetitions")
+    # Repetition admission belongs to SubmissionModel. Rechecking dataset
+    # compatibility during execution must preserve an already accepted seed plan.
 
 
 def allocation(receipt):
@@ -125,10 +124,9 @@ def validate_input_selection(configuration, receipt):
     common = configuration['common']
     if common['country'] != 'UK' or common['start_year'] != receipt['identity']['start_year']:
         raise ArtifactError('Configuration does not match the prepared start year')
-    # Development proof limits until resource/scientific coverage is measured.
-    if (common['end_year'] > 2026 or common['population'] > 50000
-            or len(configuration['seed_plan']['seeds']) > 3):
-        raise ArtifactError('Prepared-input proof supports up to 50,000 people, 2026 and three repetitions')
+    # Dataset/profile bounds are independent of the deployment repetition limit.
+    if common['end_year'] > 2026 or common['population'] > 50000:
+        raise ArtifactError('Prepared-input profile supports up to 50,000 people and an end year of 2026')
 
 
 def read_quickstart(prepared):

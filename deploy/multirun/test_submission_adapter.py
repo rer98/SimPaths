@@ -19,8 +19,11 @@ from uuid import uuid4
 from deploy._workflow import frontend_path
 from deploy.multirun.artifacts import ArtifactError, digest, fingerprint
 from deploy.multirun.compare_native import proof_configuration
+from deploy.multirun.configuration import normalise
+from deploy.multirun.container_adapter import SimPathsContainerAdapter
 from deploy.multirun.prepared_dataset import verify_snapshot
 from deploy.multirun.queue_adapter import read_prepared
+from deploy.multirun.schema import ConfigurationError
 from deploy.multirun.queued_preparation_proof import retire_preparation_attempt
 from deploy.multirun.submission_adapter import SubmissionModel, PreparationAdapter
 
@@ -209,6 +212,40 @@ class SubmissionAdapterTests(unittest.TestCase):
         with self.assertRaises(ArtifactError):
             config['common']['start_year']=2018
             self.model.experiment(self.pending(),dict(configuration=config))
+
+    def test_configured_repetitions_survive_pending_publication_and_lowered_admission_limit(self):
+        config=self.pending_config()
+        config['seed_plan']['repetitions']=6
+        expanded=SubmissionModel(self.releases,max_repetitions=6)
+        plan=expanded.experiment(self.pending(),dict(configuration=config))
+        self.assertEqual(plan['seed_plan'],[str(i) for i in range(606,612)])
+        with self.assertRaises(ConfigurationError):
+            self.model.experiment(self.pending(),dict(configuration=config))
+        with self.assertRaises(ConfigurationError):
+            expanded.experiment(self.pending(),dict(configuration={**config,
+                'seed_plan':{**config['seed_plan'],'repetitions':7}}))
+        run=plan['run_sets'][0]
+        # This run was already admitted before the operator lowered the limit.
+        self.model.bind_run(self.pending(),run,plan['seed_plan'])
+        self.result()
+        self.adapter.validate(self.lease,self.work)
+        target=self.adapter.artifacts/self.lease.execution_key
+        receipt=read_prepared(target)
+        ready=dict(dataset_id='pending-owned',location=str(target),model_digest=self.image,
+                   prepared_fingerprint=receipt['sha256'])
+        expanded.experiment(ready,dict(configuration=config))
+        with self.assertRaises(ConfigurationError):
+            self.model.experiment(ready,dict(configuration=config))
+        bound,resources=self.model.bind_run(ready,run,plan['seed_plan'])
+        spec=dict(plan,run_sets=[bound],seeds=plan['seed_plan'],prepared_fingerprint=receipt['sha256'])
+        lease=SimpleNamespace(specification=spec,configuration_id=bound['id'],resources=resources.__dict__)
+        destination=self.root/'accepted-request'
+        destination.mkdir()
+        with patch('deploy.multirun.container_adapter.require_workspace_space'):
+            SimPathsContainerAdapter(target,self.image).container_command(lease,destination)
+        snapshot=normalise(bound['parameters'])
+        self.assertEqual(snapshot.native_configuration(bound['id'])['maxNumberOfRuns'],6)
+        self.assertEqual((destination/'run.yml').read_text(),snapshot.native_yaml(bound['id']))
 
     def test_pending_configuration_binds_only_matching_validated_ready_inputs(self):
         self.result()

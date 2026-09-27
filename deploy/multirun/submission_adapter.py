@@ -18,12 +18,15 @@ from .container_adapter import ContainerExecution, SimPathsContainerAdapter, con
 from .prepare_inputs import selection, selected_sources
 from .prepared_dataset import INPUT_FORMAT, allocation, check_input_receipt, verify_snapshot
 from .queue_adapter import read_prepared
+from .schema import DEFAULT_MAX_REPETITIONS, Limits, deployment_repetition_limit
 
 
 class SubmissionModel:
     """Server-configured immutable releases; currently the bounded proof profile."""
-    def __init__(self, releases):
+    def __init__(self, releases, *, max_repetitions=DEFAULT_MAX_REPETITIONS):
         self.releases = releases
+        self.max_repetitions = deployment_repetition_limit(max_repetitions)
+        self.submission_limits = Limits(max_repetitions=self.max_repetitions)
 
     def preparation(self, release, uploads, request):
         from jasmine_web.batch.policy import Resources
@@ -45,7 +48,7 @@ class SubmissionModel:
         from jasmine_web.batch.policy import Resources
         if not isinstance(request, dict) or set(request) - {'configuration','baseline','auto_retry'} or 'configuration' not in request:
             raise ArtifactError('Supply a configuration and optional baseline/retry setting')
-        config = normalise(request['configuration'])
+        config = normalise(request['configuration'], limits=self.submission_limits)
         if config.as_dict().get('sweep'):
             raise ArtifactError('Use fixed configuration cards for this first submission workflow')
         if config.as_dict()['dataset_revision'] != resolved['dataset_id']:
@@ -75,6 +78,9 @@ class SubmissionModel:
 
     def bind_run(self, resolved, run, seeds):
         from jasmine_web.batch.policy import Resources
+        # Existing jobs retain their frozen repetitions through preparation,
+        # replacement, dispatch and recovery even if new-submission limits fall.
+        # Admission is enforced by experiment(), not reapplied to accepted work.
         config=normalise(run['parameters'])
         data=config.as_dict()
         if data['dataset_revision']!=resolved['dataset_id'] or data['seed_plan']['seeds']!=seeds or [r['id'] for r in data['run_sets']]!=[run['id']]:
@@ -83,7 +89,7 @@ class SubmissionModel:
             year=resolved['definition']['model']['selection']['year']
             common=data['common']
             if (common['country']!='UK' or common['start_year']!=year or common['end_year']>2026
-                    or common['population']>50000 or len(seeds)>3):
+                    or common['population']>50000):
                 raise ArtifactError('Configuration must match the selected inputs and supported population/years')
             resources=dict(cpu_millis=2000,memory_mib=4096,storage_mib=10240)
             result=dict(id=run['id'],parameters=config.editable_configuration())

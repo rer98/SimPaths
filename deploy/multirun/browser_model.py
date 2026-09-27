@@ -11,12 +11,15 @@ from .prepared_dataset import FORMAT, INPUT_FORMAT
 from .queue_adapter import read_prepared
 from .schema import MODEL_FIELDS, OUTPUT_CONTRACT, SCHEMA_VERSION, SEED_PROFILE
 from .submission_adapter import SubmissionModel
+from .prepare_inputs import replacement_workbooks
 
 
 class BrowserModel(SubmissionModel):
     def browser_form(self):
-        return dict(title='SimPaths UK MultiRun', max_configurations=10, max_repetitions=3,
-            releases=[dict(id=k, name='SimPaths UK — uploaded inputs') for k in self.releases],
+        repetition_word='repetition' if self.max_repetitions==1 else 'repetitions'
+        return dict(title='SimPaths UK MultiRun', max_configurations=10, max_repetitions=self.max_repetitions,
+            releases=[dict(id=k, name='SimPaths UK — uploaded inputs',
+                workbooks=list(replacement_workbooks(v['defaults']))) for k,v in self.releases.items()],
             common=[dict(id='population',label='Simulated population',kind='int',default=20000,min=1,max=50000),
                     dict(id='start_year',label='First year',kind='int',default=2019,min=2011,max=2024),
                     dict(id='end_year',label='Last year',kind='int',default=2020,min=2011,max=2026)],
@@ -29,8 +32,17 @@ class BrowserModel(SubmissionModel):
             note='Configurations inherit the default input dataset, or use their own selected dataset. '
                  'Each configuration uses the same seed sequence, beginning 606, 607, 608. '
                  'Configurations can run in parallel when capacity is available. '
-                 'This local version supports up to three repetitions per configuration. '
+                 f'This deployment supports up to {self.max_repetitions} {repetition_word} per configuration. '
                  'Results visualisation and browser downloads will be added separately.')
+
+    def browser_workbook(self, release, name):
+        """Only public parameter defaults, never prepared/provider microdata."""
+        if release not in self.releases:
+            raise ArtifactError('Select an available model release')
+        allowed = replacement_workbooks(self.releases[release]['defaults'])
+        if name not in allowed:
+            raise ArtifactError('Select an existing replacement parameter workbook')
+        return allowed[name]
 
     def describe_dataset(self, resolved):
         if resolved.get('state')=='pending':
@@ -67,9 +79,9 @@ class BrowserModel(SubmissionModel):
         if (not isinstance(form,dict) or set(form) != {'name','common','repetitions','run_sets','baseline','auto_retry'}
                 or not isinstance(form['common'],dict) or set(form['common']) != {'population','start_year','end_year'}
                 or not isinstance(form['run_sets'],list) or not 1 <= len(form['run_sets']) <= 10
-                or type(form['repetitions']) is not int or not 1 <= form['repetitions'] <= 3
+                or type(form['repetitions']) is not int or not 1 <= form['repetitions'] <= self.max_repetitions
                 or type(form['auto_retry']) is not bool):
-            raise ArtifactError('Supply the experiment fields, 1–10 configurations and 1–3 repetitions')
+            raise ArtifactError(f'Supply the experiment fields, 1–10 configurations and 1–{self.max_repetitions} repetitions')
         for run in form['run_sets']:
             if not isinstance(run,dict) or set(run) - {'id','name','model_args','dataset_revision','common'} or not {'id','name','model_args'} <= set(run):
                 raise ArtifactError('Each configuration needs a name and model settings')
@@ -77,7 +89,7 @@ class BrowserModel(SubmissionModel):
             dataset_revision=dataset,experiment=dict(name=form['name']),common=dict(country='UK',**form['common']),
             seed_plan=dict(mode='standard',profile=SEED_PROFILE,repetitions=form['repetitions']),
             run_sets=form['run_sets'],output_contract=OUTPUT_CONTRACT)
-        canonical = normalise(configuration).editable_configuration()
+        canonical = normalise(configuration, limits=self.submission_limits).editable_configuration()
         return dict(configuration=canonical,baseline=form['baseline'],auto_retry=form['auto_retry'])
 
     def browser_summary(self, request):

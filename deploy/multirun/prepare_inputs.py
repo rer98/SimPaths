@@ -58,7 +58,7 @@ def selection(request):
 
 
 def replacement_workbooks(defaults):
-    """One allowlist for preparation, workbook listing and original-file access."""
+    """Preparation inventory; browser access also requires the public allowlist."""
     default = {p.name: p for p in Path(defaults).glob('*.xls*')
                if re.fullmatch(r'[A-Za-z0-9_-]+\.xlsx?', p.name) and p.name not in RESERVED
                and p.is_file() and not p.is_symlink()}

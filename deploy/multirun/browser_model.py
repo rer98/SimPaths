@@ -11,7 +11,7 @@ from .prepared_dataset import FORMAT, INPUT_FORMAT
 from .queue_adapter import read_prepared
 from .schema import MODEL_FIELDS, OUTPUT_CONTRACT, SCHEMA_VERSION, SEED_PROFILE
 from .submission_adapter import SubmissionModel
-from .prepare_inputs import replacement_workbooks
+from .public_workbooks import public_workbooks
 
 
 class BrowserModel(SubmissionModel):
@@ -19,7 +19,7 @@ class BrowserModel(SubmissionModel):
         repetition_word='repetition' if self.max_repetitions==1 else 'repetitions'
         return dict(title='SimPaths UK MultiRun', max_configurations=10, max_repetitions=self.max_repetitions,
             releases=[dict(id=k, name='SimPaths UK — uploaded inputs',
-                workbooks=list(replacement_workbooks(v['defaults']))) for k,v in self.releases.items()],
+                workbooks=list(public_workbooks(v['defaults']))) for k,v in self.releases.items()],
             common=[dict(id='population',label='Simulated population',kind='int',default=20000,min=1,max=50000),
                     dict(id='start_year',label='First year',kind='int',default=2019,min=2011,max=2024),
                     dict(id='end_year',label='Last year',kind='int',default=2020,min=2011,max=2026)],
@@ -39,7 +39,7 @@ class BrowserModel(SubmissionModel):
         """Only public parameter defaults, never prepared/provider microdata."""
         if release not in self.releases:
             raise ArtifactError('Select an available model release')
-        allowed = replacement_workbooks(self.releases[release]['defaults'])
+        allowed = public_workbooks(self.releases[release]['defaults'])
         if name not in allowed:
             raise ArtifactError('Select an existing replacement parameter workbook')
         return allowed[name]

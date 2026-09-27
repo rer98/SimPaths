@@ -241,6 +241,22 @@ receipt-flag reproducibility issue remains with the SimPaths maintainers.
 
 ## Editing replacement parameter workbooks
 
+Use the download symbol beside an original file in **Workbooks you can replace**
+to save that Excel file unchanged. Edit it locally, recalculate and save, then
+upload it with exactly the same filename. The filename itself still opens the
+browser editor. This also provides the editing workflow for workbooks containing
+formulas, which remain read-only in the browser.
+
+Only existing release defaults whose exact filenames appear in
+`deploy/multirun/public_workbooks.py` can be viewed or downloaded. This declaration
+is separate from preparation's input inventory: adding an Excel file to the input
+directory does not publish it. Maintainers must review the entire workbook,
+including hidden sheets, before adding a name or changing a public release
+default. This is an access allowlist, not automatic detection of microdata.
+Never put restricted microdata into a public default or point release defaults
+at prepared/provider datasets. The browser cannot select arbitrary paths or use
+these controls to download databases, population CSVs or UKMOD donor files.
+
 Under **Create input dataset**, expand **Workbooks you can replace**. The list
 comes from the frozen model release and uses the same filenames as preparation
 validation. It excludes `DatabaseCountryYear.xlsx` and `EUROMODpolicySchedule.xlsx`,

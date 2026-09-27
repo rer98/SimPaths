@@ -52,21 +52,37 @@ class BrowserModelTests(unittest.TestCase):
         self.assertEqual(summary['different'],['savingRate'])
         self.assertEqual(len(summary['configurations']),2)
 
-    def test_replaceable_workbooks_share_preparation_allowlist_and_exclude_control_files(self):
+    def test_browser_workbooks_require_public_names_not_just_excel_extensions(self):
         from deploy.multirun.prepare_inputs import selected_sources
         defaults=self.model.releases['approved']['defaults']
-        for name in ('Zeta.xls','alpha.xlsx','DatabaseCountryYear.xlsx','EUROMODpolicySchedule.xlsx','notes.txt'):
+        excluded=('Zeta.xls','alpha.xlsx','population.xlsx','reg_private.xlsx',
+                  'DatabaseCountryYear.xlsx','EUROMODpolicySchedule.xlsx','notes.txt','input.mv.db','population.csv')
+        for name in (*excluded,'social_care_parameters.xlsx'):
             (defaults/name).write_bytes(b'example')
-        (defaults/'linked.xlsx').symlink_to(defaults/'alpha.xlsx')
+        # An allowed name cannot make a symlink to private content public.
+        linked='scenario_retirementAgeFixed.xlsx'
+        (defaults/linked).symlink_to(defaults/'population.xlsx')
+        (defaults/'private').mkdir()
+        (defaults/'private/scenario_CPI.xlsx').write_bytes(b'private version')
         names=self.model.browser_form()['releases'][0]['workbooks']
-        self.assertEqual(names,['alpha.xlsx','scenario_CPI.xlsx','Zeta.xls'])
+        self.assertEqual(names,['scenario_CPI.xlsx','social_care_parameters.xlsx'])
         selected,_=selected_sources(defaults,{'population_initial_UK_2019.csv':None,'policy.txt':None},
             dict(year=2019,schedule=[['policy.txt','2019','2019','']]))
-        self.assertEqual(names,list(selected))
+        self.assertTrue(set(names)<=selected.keys())
+        self.assertIn('population.xlsx',selected)  # Preparation inventory is not a publication list.
         for name in names:
             self.assertEqual(self.model.browser_workbook('approved',name),defaults/name)
-        for name in ('../scenario_CPI.xlsx','SCENARIO_CPI.xlsx','input.mv.db','linked.xlsx','DatabaseCountryYear.xlsx','EUROMODpolicySchedule.xlsx'):
+        for name in (*excluded,linked,'../scenario_CPI.xlsx','SCENARIO_CPI.xlsx',
+                     'private/scenario_CPI.xlsx',str(defaults/'private/scenario_CPI.xlsx')):
             with self.assertRaises(ArtifactError):self.model.browser_workbook('approved',name)
+        with self.assertRaises(ArtifactError):self.model.browser_workbook('private-dataset','scenario_CPI.xlsx')
+
+    def test_public_workbook_roots_cannot_follow_directory_symlinks(self):
+        link=self.fixture.root/'linked-defaults'
+        link.symlink_to(self.model.releases['approved']['defaults'],target_is_directory=True)
+        self.model.releases['approved']['defaults']=link
+        with self.assertRaisesRegex(ArtifactError,'symlinks'):self.model.browser_form()
+        with self.assertRaisesRegex(ArtifactError,'symlinks'):self.model.browser_workbook('approved','scenario_CPI.xlsx')
 
     def test_different_populations_freeze_separate_inputs_and_native_settings(self):
         from deploy.multirun.configuration import normalise

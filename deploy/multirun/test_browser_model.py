@@ -188,7 +188,7 @@ class BrowserModelTests(unittest.TestCase):
                     model.experiment(self.resolved,request)
 
     def test_invalid_operator_limit_and_launch_arguments_fail_early(self):
-        from deploy.multirun.local_web import parse_args
+        from deploy.multirun.local_web import MAX_UPLOAD_ALLOWANCE_GIB, parse_args
         for value in (0,-1,1001,True,3.5,'6',None):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 BrowserModel(self.model.releases,max_repetitions=value)
@@ -198,6 +198,13 @@ class BrowserModelTests(unittest.TestCase):
         for value in ('0','-1','1001','1.5','many'):
             with self.subTest(value=value), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as result:
                 parse_args(['serve','--console-codes','--max-repetitions',value])
+            self.assertEqual(result.exception.code,2)
+        self.assertEqual(parse_args(['serve','--console-codes']).upload_allowance_gib,2)
+        for limit in (1,4,MAX_UPLOAD_ALLOWANCE_GIB):
+            self.assertEqual(parse_args(['serve','--console-codes','--upload-allowance-gib',str(limit)]).upload_allowance_gib,limit)
+        for value in ('0','-1','1.5','many',str(MAX_UPLOAD_ALLOWANCE_GIB+1)):
+            with self.subTest(upload_allowance=value), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as result:
+                parse_args(['serve','--console-codes','--upload-allowance-gib',value])
             self.assertEqual(result.exception.code,2)
 
     def test_accepted_quickstart_job_retains_repetitions_after_admission_limit_is_lowered(self):

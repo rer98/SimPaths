@@ -25,6 +25,7 @@ from .schema import DEFAULT_MAX_REPETITIONS, deployment_repetition_limit
 from .submission_adapter import DispatchAdapter, PreparationAdapter
 
 ROOT = Path(__file__).resolve().parents[2]
+MAX_UPLOAD_ALLOWANCE_GIB = (2**63 - 1) // (1 << 30)
 
 
 def register_training(datasets, preparations, path):
@@ -132,12 +133,16 @@ def parse_args(argv=None):
     parser.add_argument('--port',type=int,default=5002)
     parser.add_argument('--max-repetitions',type=int,default=DEFAULT_MAX_REPETITIONS,
                         help='Maximum repetitions per configuration in new submissions (1–1000; default: %(default)s)')
+    parser.add_argument('--upload-allowance-gib',type=int,default=2,
+                        help='Retained upload allowance per user in whole GiB (default: %(default)s); does not allocate disk space')
     parser.add_argument('--console-codes',action='store_true',help='Required local test mode; codes printed in this terminal')
     args=parser.parse_args(argv)
     try:
         deployment_repetition_limit(args.max_repetitions)
     except ValueError as error:
         parser.error(str(error))
+    if not 1 <= args.upload_allowance_gib <= MAX_UPLOAD_ALLOWANCE_GIB:
+        parser.error(f'--upload-allowance-gib must be between 1 and {MAX_UPLOAD_ALLOWANCE_GIB}')
     if args.command=='serve' and (not args.console_codes or not 1024<=args.port<=65535):
         parser.error('This local preview requires --console-codes and an unprivileged port')
     return args
@@ -164,13 +169,14 @@ def main(argv=None):
     async def console_mail(email,code):
         print(f'LOCAL TEST CODE for {email}: {code}',flush=True)
     access=Access(q,secret_file(state/'session-secret'),console_mail)
-    datasets=Datasets(q,state/'uploads')
+    datasets=Datasets(q,state/'uploads',owner_limit=args.upload_allowance_gib << 30)
     preparations=Preparations(datasets)
     imports=state/'training-imports.json'
     paths=json.loads(imports.read_text()) if imports.exists() else []
     paths=list(dict.fromkeys(paths+[str(p.absolute()) for p in args.prepared]))
     keys=[]
     if args.command=='serve':
+        print(f'Retained upload allowance: {args.upload_allowance_gib} GiB per user',flush=True)
         for p in paths:
             print('Verifying prepared training inputs: '+p,flush=True)
             keys.append(register_training(datasets,preparations,Path(p)))
@@ -238,7 +244,9 @@ def main(argv=None):
     origin=f'http://127.0.0.1:{args.port}'
     service=Submissions(access,datasets,BrowserModel(releases,max_repetitions=args.max_repetitions))
     app=create_app(service,origin=origin,local_codes=True,
-                   lifespan=lifespan,worker_status=lambda:health['message'])
+                   lifespan=lifespan,worker_status=lambda:health['message'],
+                   site=dict(name='SimPaths UK MultiRun',logo='/static/simpaths-logo.svg',
+                             icon='/static/simpaths-favicon.svg'))
     print('Open '+origin+' — local preview, one active job at a time.',flush=True)
     uvicorn.run(app,host='127.0.0.1',port=args.port,proxy_headers=False,access_log=False)
     return 0

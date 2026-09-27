@@ -7,6 +7,9 @@
 This is a separate local application at **http://127.0.0.1:5002**. It uses the
 tested PostgreSQL queue and container adapters. It does not start `app.py`, use
 Redis, or replace the interactive SingleRun page. No image rebuild is needed.
+The page uses the same SimPaths logo and favicon as SingleRun, with the logo
+beside **SimPaths UK MultiRun**, including before sign-in. The assets are served
+locally by JAS-mine-web.
 
 You can sign in, select prepared training inputs or upload and prepare your own,
 create fixed configuration cards, duplicate them, select a baseline, review the
@@ -121,6 +124,47 @@ the per-attempt deadline (currently one hour), the total retry budget or the
 memory/storage allowances. Choose production limits alongside those budgets after
 measuring representative workloads. This option requires no image rebuild.
 
+### Configure the upload allowance
+
+The default allowance is **2 GiB of retained source uploads per user**. If the
+page reports **Upload storage allowance is full**, restart with
+`--upload-allowance-gib 4`, for example, to raise that allowance to 4 GiB. Supply
+the option on each launch; it is not stored in the state directory. It accepts
+positive whole GiB values that fit the service's 64-bit byte counter; invalid
+values are rejected before connecting to PostgreSQL or Docker. The server prints
+the selected allowance at startup. No image rebuild or database reset is needed.
+
+Keep the same `--state` directory (by default `~/simpaths-multirun-local`) to
+retain approvals, uploads, prepared datasets and submitted jobs. Raising this
+allowance does not allocate storage, free disk space, or change the 512 MiB
+per-file limit, 100-file allowance or preparation/run space checks. Uploads still
+leave at least 1 GiB free on their filesystem. Check free space where the state
+directory lives; `/home` and `/` may be different filesystems. Lowering the
+allowance does not delete existing uploads, but can prevent further uploads.
+
+In **Create input dataset**, **Clear unused files** deletes only unticked sources
+not retained for datasets or submitted preparations. Referenced sources stay
+listed, stored and counted and can be selected again, including after a prepared
+dataset is deleted. On restart, migration 009 restores previously cleared sources
+where no current copy of that filename is listed; the latest retained ready version
+is restored without changing the sources used by existing jobs. Automatic expiry
+of those retained sources is still pending.
+Reuse existing selected population/UKMOD files when creating a dataset with a
+different replacement workbook. Choosing a file whose name is already listed
+compares its contents using a server-calculated SHA-256 and byte count. Identical
+files are selected for reuse without another stored copy, even at full allowance.
+Changed files require confirmation; existing datasets and submitted preparations
+keep their original versions. The comparison transfers the chosen file to the
+server without saving it; a confirmed replacement is then uploaded and remains
+subject to the storage allowance and free-space checks.
+The list shows **Uploaded:** with each file's upload date/time and **Replaces an
+earlier upload** for a confirmed replacement. A workbook uploaded then edited in
+the browser keeps its upload date and adds **Updated:** for the latest saved edit.
+Reusing identical contents changes neither date. A copy edited directly from a
+model original has only an update date. Times use the browser's local timezone.
+Do not remove files directly from the upload
+directory: doing so leaves their database records and references behind.
+
 **Console codes are an explicit local test mode.** Request a code on the page,
 read it in this terminal, and enter it in the browser. This exercises the same
 approval/session checks but does not prove access to an email inbox. The app
@@ -198,10 +242,12 @@ and the launcher starts it again next time.
 
 Ctrl+C stops the browser server and dispatcher. Already launched containers keep
 their independent deadlines; queued work resumes after the launcher restarts.
-Restart after updating both repositories to apply migration 008 (and earlier
+Restart after updating both repositories to apply migration 010 (and earlier
 migrations when needed). It preserves existing jobs, registers owned prepared
 inputs for management and gives unfinished preparation a selectable dataset ID.
 Migration 008 records which uploaded workbooks were edited in the browser.
+Migration 010 distinguishes upload and edit dates. Older edited copies show their
+known update date; the old schema did not preserve their original upload date.
 Do not run an older dispatcher against the upgraded schema. Stop the local
 launcher before updating, then restart it normally; do not delete its database.
 Recovery may wait for the previous lease to expire (up to about one minute).
@@ -263,10 +309,12 @@ validation. It excludes `DatabaseCountryYear.xlsx` and `EUROMODpolicySchedule.xl
 which preparation generates. Click a filename to inspect or edit an original copy,
 or click an uploaded replacement to continue editing that copy.
 
-**Save replacement** selects the saved copy and shows **(updated)** and its save
-time in the upload list. The original stays unchanged. Confirming deselection
-uses the original workbook for the new dataset. A same-name upload can replace an
-edited copy after confirmation. Existing submitted preparations keep the exact
+**Save replacement** selects the saved copy and shows **(updated)** and its latest
+**Updated:** time, alongside **Uploaded:** if the edited copy came from an upload.
+The original stays unchanged. Confirming deselection
+uses the original workbook for the new dataset. A same-name upload with identical
+contents reuses the edited copy; changed contents can replace it after confirmation.
+Existing submitted preparations keep the exact
 version they were reviewed and submitted with; editing does not change old jobs.
 If another browser changes the file while you edit, saving fails instead of
 silently overwriting that newer version. Close and reopen the latest copy.

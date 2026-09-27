@@ -252,6 +252,17 @@ Do not run an older dispatcher against the upgraded schema. Stop the local
 launcher before updating, then restart it normally; do not delete its database.
 Recovery may wait for the previous lease to expire (up to about one minute).
 Stopping the frontend is therefore not the way to cancel a job: use **Cancel**.
+
+Within an experiment, the order on **New experiment** is the preferred starting
+order when configurations are ready and fit the available resources. The baseline
+is used for comparisons and does not change queue priority. Waiting configurations
+keep their original position while other ready work may proceed; retries still
+observe their backoff. User fairness and resource limits continue to apply, and
+available capacity can run configurations in parallel. Completion order is not
+guaranteed. The dispatcher rechecks waiting inputs after publishing preparation
+results and before claiming further work, so a just-prepared first configuration
+can be considered immediately. Restart the local launcher to load this scheduler
+change; no database migration or image rebuild is required.
 Do not remove its state, imported datasets or Docker volume while work is active.
 
 The first start freezes the model JAR and default workbooks for uploaded-data

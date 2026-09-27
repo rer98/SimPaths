@@ -211,11 +211,11 @@ def main(argv=None):
     health={'message':'Dispatcher is starting.'}
     def dispatch():
         try:
-            worker=Worker(q,executor,adapter,'local-browser-worker')
+            worker=Worker(q,executor,adapter,'local-browser-worker',
+                          before_claim=service.lifecycle.reconcile)
             with worker.open():
                 while not stop.is_set():
                     try:
-                        service.lifecycle.reconcile()
                         worker.tick(claim_new=False)
                         retire_finished(q,executor)
                         service.lifecycle.retire(state/'artifacts')

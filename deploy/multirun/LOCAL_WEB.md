@@ -40,15 +40,62 @@ explicit in `schema.py`, with presentation metadata in `browser_model.py`.
 Population, years and the shared seed plan are configured separately. Advanced
 capabilities and output settings not exposed in this browser remain controlled by
 the profile; the native launcher's ability to assign a field does not establish
-that it is suitable for this web workflow. YAML import/export and sweep expansion
-exist in the configuration tooling, but are not yet connected to the browser form.
+that it is suitable for this web workflow. YAML import/export is connected to the
+browser form; the sweep helper remains future browser work.
 
 This preview supports 1–10 configurations. Repetitions default to a maximum of 3
 per configuration; the operator can set `--max-repetitions` when starting the
-service. Each configuration uses the same seed sequence, starting at 606 and
+service. Each configuration uses the same seed sequence, starting at 606 by default and
 increasing by one per repetition. The local pool admits one job at a time, with two CPUs and up to
 5 GiB container memory. Its allowance does not coordinate with the separate
 SingleRun server: finish other simulation sessions before this local test.
+
+### Importing and exporting experiment settings
+
+Open **Import or export YAML settings** at the top of New Experiment. **Export
+YAML** saves the current validated settings. Choose a `.yaml` or `.yml` file and
+press **Import YAML** to validate it, then confirm replacement of the current draft.
+Importing does not create datasets or submit jobs. Invalid imports and cancelled
+confirmations leave the draft unchanged. Review the populated form before submitting.
+
+The web format `simpaths.multirun.web.v1` contains `configuration` (the existing
+versioned SimPaths contract), `baseline` and `auto_retry`. It preserves names,
+configuration order/IDs, repetitions, the first seed, model and collector settings,
+the default dataset and per-configuration dataset/year/population overrides. The
+first seed is a decimal string, preserving all signed 64-bit values through the
+browser. Every repetition adds one, with overflow rejected. **Output and statistics
+settings** shows collector controls; required annual comparison outputs are fixed.
+**Use different population or years** allows a card to override common settings
+while inheriting the default dataset, subject to that dataset's locked fields.
+
+The browser also accepts a plain `simpaths.multirun.v1-draft` configuration, or the
+supported native `SimPathsMultiRun` YAML subset described in [README.md](README.md).
+Native imports create one card using the currently selected default dataset and
+experiment name. Plain/native imports default to no baseline and automatic retries.
+Omitted supported settings use the model defaults shown in the form. Unknown or
+managed execution fields, incompatible output settings, unsupported capabilities,
+unavailable model releases and work exceeding deployment limits are rejected.
+Native files requiring population/donor preparation must first use Create Input
+Dataset; importing YAML does not perform that preparation.
+
+Files must be UTF-8 and at most 64 KiB. Duplicate keys, tags, anchors/aliases, merge
+keys, excessive nesting, multiple documents and non-finite numbers are rejected by
+the existing bounded parser. Sweep recipes are not yet accepted by the browser;
+use explicit configuration cards. Input workbooks, populations and UKMOD files
+are not included in a settings export. Dataset references grant no access: a missing,
+expired or unauthorised dataset remains an unavailable selection that the user must
+replace before submission. Known locked population/year values must agree with the
+dataset. Pending authorised inputs are accepted. Import/export does not refresh
+retention or create queue work. Submission rechecks permissions and input identity.
+
+Refresh and Duplicate retain imported collector settings, seed choices and stable
+IDs. Reset restores defaults while retaining the chosen default input dataset.
+There is no database migration or model image rebuild for this feature; restart
+the local launcher after updating both repositories.
+
+Acceptance: 65 local model/configuration/submission/container tests pass, including
+8 YAML-specific tests. The laptop run `multirun-browser-20260929-000018` passed
+10 HTTP/database tests and 43 browser checks; temporary test resources were removed.
 
 ## Viewing and downloading completed results
 

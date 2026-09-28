@@ -107,7 +107,10 @@ receipt/files, requires matching model JARs, and creates a separate frozen execu
 specification and resource allocation for each Run Set. It validates each against
 its own saved population and policy horizon. The low-level single-dataset queue
 helper rejects unresolved mixed inputs. Browser cards and review expose these
-choices; browser YAML import/export and sweep generation remain separate work.
+choices. Browser YAML import/export now uses the same normaliser through
+`browser_yaml.py`; it also retains baseline and retry preferences in a versioned
+web wrapper. See [LOCAL_WEB.md](LOCAL_WEB.md#importing-and-exporting-experiment-settings).
+Browser sweep generation remains separate work.
 
 ## Scope and remaining integration
 

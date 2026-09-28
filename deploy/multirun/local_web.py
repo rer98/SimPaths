@@ -142,6 +142,12 @@ def parse_args(argv=None):
                         help='Maximum repetitions per configuration in new submissions (1–1000; default: %(default)s)')
     parser.add_argument('--upload-allowance-gib',type=int,default=2,
                         help='Retained upload allowance per user in whole GiB (default: %(default)s); does not allocate disk space')
+    parser.add_argument('--download-threshold-mib',type=int,default=512,
+                        help='Prepare resumable compressed ZIPs at this selected file size (default: %(default)s MiB)')
+    parser.add_argument('--download-cache-gib',type=int,default=10,
+                        help='Maximum temporary prepared-download storage (default: %(default)s GiB; does not allocate disk)')
+    parser.add_argument('--download-cache-hours',type=int,default=24,
+                        help='Prepared download lifetime (default: %(default)s hours; never extends source retention)')
     parser.add_argument('--notification-emails',action='store_true',help='Opt in to real completion, problem and expiry emails using platform SMTP settings')
     parser.add_argument('--retention-cleanup',action='store_true',help='Enable automatic expiry deletion; requires --notification-emails. Default: dates and notices only')
     parser.add_argument('--admin-email',help='Operator recipient for shared service problems; required with --notification-emails')
@@ -153,6 +159,8 @@ def parse_args(argv=None):
         parser.error(str(error))
     if not 1 <= args.upload_allowance_gib <= MAX_UPLOAD_ALLOWANCE_GIB:
         parser.error(f'--upload-allowance-gib must be between 1 and {MAX_UPLOAD_ALLOWANCE_GIB}')
+    if not 1 <= args.download_threshold_mib <= 1048576 or not 1 <= args.download_cache_gib <= 1024 or not 1 <= args.download_cache_hours <= 168:
+        parser.error('Download limits must be 1–1048576 MiB, 1–1024 GiB and 1–168 hours respectively')
     if args.retention_cleanup and not args.notification_emails:
         parser.error('--retention-cleanup requires --notification-emails so expiry warnings can be delivered')
     if args.command=='serve' and (not args.console_codes or not 1024<=args.port<=65535):
@@ -290,7 +298,10 @@ def main(argv=None):
     from .queue_adapter import result_catalogue, result_name, result_deletion_targets, result_inputs, result_settings
     from jasmine_web.batch.output_management import OutputManagement
     service.results=Results(service,executor,result_catalogue,name=result_name,
-                            inputs=result_inputs,settings=result_settings)
+                            inputs=result_inputs,settings=result_settings,
+                            downloads=dict(threshold=args.download_threshold_mib*1024**2,
+                                           capacity=args.download_cache_gib*1024**3,
+                                           lifetime=args.download_cache_hours*3600))
     service.outputs=OutputManagement(service,executor,result_deletion_targets)
     service.attempt_cleanup=AttemptCleanup(q,executor,outputs=result_deletion_targets,
                                            failed_preparation=adapter.preparation.retire_failed)

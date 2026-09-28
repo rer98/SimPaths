@@ -161,11 +161,59 @@ downloads even though output-only downloads still work.
 Existing retained outputs are checked against their recorded successful-attempt
 fingerprints; the original prepared dataset need not still exist. No model rebuild,
 new simulation or database migration is needed. Restart the launcher with the
-matching updated JAS-mine-web checkout. Downloads stream without constructing a
-large temporary ZIP. Missing or changed files are refused rather than regenerated.
+matching updated JAS-mine-web checkout. Small downloads stream directly; large
+downloads use the resumable compressed archives described below. Missing or changed
+source files are refused rather than regenerated.
 Raw logs are excluded; prepared input databases require the explicit permitted
 input-bundling option above. Retention dates and notices are recorded,
 but automatic deletion and email delivery remain disabled by default locally.
+
+## Resumable large downloads
+
+Results-page downloads below 512 MiB of selected files keep the direct streaming
+path. Larger selections, including output-only selections, prepare a compressed
+ZIP64 archive in the background and show progress on the page. Refreshing the
+page restores preparation status. Ready downloads show their actual compressed
+size and availability date, and support HTTP byte-range resumption in compatible
+browsers/download clients. Prepared archives remain usable after a server restart;
+source access and expiry are checked again on every transfer or resume.
+
+The launcher accepts these optional deployment flags:
+
+- `--download-threshold-mib 512`: minimum selected, uncompressed file size for
+  preparation. Inputs shared by comparison configurations count once.
+- `--download-cache-gib 10`: maximum combined temporary archive storage. This
+  caps actual compressed bytes and does not allocate/reserve that much disk.
+- `--download-cache-hours 24`: archive lifetime from completion, without changing
+  the original input/output retention dates.
+
+No launch-command change is needed to use these defaults. For a quick manual test
+with small outputs, use `--download-threshold-mib 1`; this does not change simulation
+settings or existing results. One archive builder runs at a time, with a 1 GiB
+free-space reserve. Low disk space or an exhausted cache fails download preparation
+with a visible explanation and removes the partial ZIP. Source files stay intact.
+The cache occupies `<state>/execution/download-cache`; it is private, automatically
+cleaned while the web service runs, and included in the owner's Storage summary.
+Do not delete active cache files by hand. It uses shared VM disk, independently
+of the retained-upload allowance.
+
+Large files use ordinary DEFLATE compression at level 1. Verification is combined
+with writing the compressed archive after model-specific catalogue validation.
+CSV/text may shrink substantially; compressed or poorly compressible inputs may
+not. There is no scientific change to extracted files. The existing outer folder,
+Baseline/Scenario roles, input folders and per-run `options.txt` remain unchanged.
+The same owner, approval and user-only source restrictions apply to the cached
+copy. Dataset/output deletion blocks new transfers; active transfers retain their
+file guards until they finish. Cache expiry needs no separate scientific-data
+warning because a download copy can be recreated while its sources remain.
+
+A prepared download can resume only while its cache entry, sources and user access
+remain valid. Re-sign in if necessary. The Results page can prepare another copy
+when an old one expires; the version in a saved URL never silently changes.
+The old direct `/downloads/` URLs still work but are not resumable. Use the Results
+page to request the new preparation path. Network interruptions can still happen;
+resumption provides recovery rather than guaranteeing uninterrupted connections.
+This implementation is for the VM service; it adds no Cloud Run deployment path.
 
 ## Prerequisites
 

@@ -15,6 +15,10 @@ from .public_workbooks import public_workbooks
 
 
 class BrowserModel(SubmissionModel):
+    def configuration_name(self, run):
+        data = normalise(run['parameters']).as_dict()
+        return next(item['name'] for item in data['run_sets'] if item['id'] == run['id'])
+
     def browser_form(self):
         repetition_word='repetition' if self.max_repetitions==1 else 'repetitions'
         return dict(title='SimPaths UK MultiRun', max_configurations=10, max_repetitions=self.max_repetitions,
@@ -33,7 +37,7 @@ class BrowserModel(SubmissionModel):
                  'Each configuration uses the same seed sequence, beginning 606, 607, 608. '
                  'Configurations can run in parallel when capacity is available. '
                  f'This deployment supports up to {self.max_repetitions} {repetition_word} per configuration. '
-                 'Results visualisation and browser downloads will be added separately.')
+                 'Completed configurations appear under My jobs → View results.')
 
     def browser_workbook(self, release, name):
         """Only public parameter defaults, never prepared/provider microdata."""

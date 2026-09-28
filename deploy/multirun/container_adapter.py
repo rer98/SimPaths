@@ -12,7 +12,7 @@ import shutil
 from types import SimpleNamespace
 
 from .artifacts import ArtifactError, relative_name
-from .queue_adapter import SimPathsLocalAdapter, WorkspaceSpaceError, require_workspace_space, submission_arguments
+from .queue_adapter import SimPathsLocalAdapter, WorkspaceSpaceError, require_workspace_space, workspace_required_bytes, submission_arguments
 from .prepared_dataset import FORMAT, INPUT_FORMAT, allocation, verify_snapshot
 
 
@@ -40,6 +40,9 @@ class SimPathsContainerAdapter(SimPathsLocalAdapter):
         # the complete runtime image. Reuse model validation with the JAR identity.
         local = {**lease.specification, "model_digest": "sha256:" + self.receipt["identity"]["model"]["sha256"]}
         return super()._configuration(SimpleNamespace(specification=local, configuration_id=lease.configuration_id))
+
+    def required_space(self, candidate):
+        return workspace_required_bytes(self.receipt['identity'])
 
     def container_command(self, lease, request):
         config = self._configuration(lease)

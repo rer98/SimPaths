@@ -50,6 +50,43 @@ increasing by one per repetition. The local pool admits one job at a time, with 
 5 GiB container memory. Its allowance does not coordinate with the separate
 SingleRun server: finish other simulation sessions before this local test.
 
+## Viewing and downloading completed results
+
+Open **My jobs → View results** for an experiment. Its results link can be
+bookmarked and reopened after signing in. Completed configurations remain
+available separately if another configuration fails or is still running.
+
+For a configuration using your supplied inputs, **Download CSV output (.zip)**
+downloads the explicitly supported scientific CSVs for each repetition. Provider
+datasets, including the supplied Quick Start examples, do not permit detailed
+output downloads. The service checks current ownership and permissions on every
+request; there is no access granted just by knowing the URL.
+
+With two permitted completed configurations, **Download a comparison** creates a
+ZIP containing `Baseline/run_1/csv` and `Scenario/run_1/csv`, then `run_2`, etc.
+The configured experiment baseline is selected initially when available; download
+selections do not change it. Every run includes `Person.csv` and `BenefitUnit.csv`.
+Other supported exports are Household, WealthIncomeStatistics,
+DemographicStatistics, AlignmentStatistics, LabourStatistics, HealthStatistics and
+WellbeingByGender CSVs when produced. The `manifest.json` file records configuration
+names, each folder's random seed and checksums. Files keep their original bytes.
+
+Extract the ZIP and select the parent folder containing Baseline and/or Scenario
+in the Policy Impact Visualiser's **Visualise Your Own Data** picker. Larger
+experiments can download separate comparison pairs. The current folder scanner
+accepts only those two role names; schema/statistical compatibility and direct
+integration are still to be agreed with the visualiser maintainers. Restricted
+provider results require server-side aggregation with approved output controls,
+so they cannot use this local raw-CSV route.
+
+Existing retained outputs are checked against their recorded successful-attempt
+fingerprints; the original prepared dataset need not still exist. No model rebuild,
+new simulation or database migration is needed. Restart the launcher with the
+matching updated JAS-mine-web checkout. Downloads stream without constructing a
+large temporary ZIP. Missing or changed files are refused rather than regenerated.
+Raw logs and input databases are excluded. Automatic expiry and email notifications
+are not enabled yet; no deletion deadline is advertised as active.
+
 ## Prerequisites
 
 - The JAS-mine-web checkout containing `jasmine_web.batch.browser`.
@@ -291,9 +328,10 @@ records that the queue tests were skipped.
 
 SMTP delivery, production approval administration, shared SingleRun/MultiRun
 admission, hard filesystem quotas, retained-artifact accounting and expiry,
-result downloads and Policy Impacts Visualiser integration remain separate work.
-The UI currently reports completion, not downloadable/visualised results. Provider
-microdata is never exposed by these routes. The previously reported model
+approved aggregate publication and Policy Impacts Visualiser integration remain
+separate work. The results page offers permitted detailed downloads but does not
+produce visualiser reports. Provider microdata is never exposed by these routes.
+The previously reported model
 receipt-flag reproducibility issue remains with the SimPaths maintainers.
 
 ## Editing replacement parameter workbooks
@@ -337,3 +375,41 @@ recalculated in Excel, then uploaded, to avoid stale calculated values. XLSX sav
 retain other workbook entry contents; advanced legacy XLS features may not survive
 its SheetJS export. Workbook saves remain subject to upload space limits and the
 existing isolated preparation checks. No model image rebuild is needed.
+
+
+### Storage and problem notifications
+
+**Storage** next to **My Jobs** lists your upload allowance, prepared datasets and
+simulation outputs. Preparation working files appear only as a service-managed
+space total: they include temporary copies and diagnostic records, and can be
+large while preparation runs or after a failure. Shared free disk space is shown
+separately. It lists only your own data. Detailed sizes use MiB; the shared-space
+and allowance summary uses GiB. Recorded creation, update/use and execution dates
+appear on the right. Output entries show experiment, configuration and attempt
+references so repeated names and retries can be distinguished.
+
+Use **Delete upload** for unused files, or the dataset controls for the same
+dependency review available in **My Datasets**. Referenced uploads stay protected.
+**Delete output files** opens a review identifying the exact finished attempt and
+approximate space reclaimed. Confirming permanently removes its output once any
+existing download has finished. Job history, diagnostic logs outside the output
+tree, input datasets and other attempts stay intact. Results and job history show
+**Output deleted**; removed output is no longer available for download or visualiser
+comparisons. The Results page links to its Storage entry. Active execution files
+and preparation working files cannot be deleted through this output action.
+Automatic expiry and diagnostic-log cleanup are not enabled yet.
+
+Jobs unable to pass the initial disk-space check remain queued and recheck every
+30 seconds without using up simulation attempts. Their status becomes “waiting
+for storage”; after five minutes, the page explains that the shared capacity needs
+operator attention. Jobs resume automatically when space and other resources are
+available. Running jobs that exceed their own allowance still require review.
+
+Problem emails are **disabled by default on the laptop**. The terminal confirms
+this at startup. The service records deduplicated incidents locally so notification
+routing can be tested without sending mail. Personal upload allowance and actionable
+job problems are addressed to the owner; persistent shared-disk shortages are
+addressed only to the configured administrator. Notices contain safe references,
+not simulation logs or data. See the platform batch-queue guide for explicit SMTP
+opt-in when deployment email is ready. Restart the launcher after the tests pass to
+apply the additive database migrations; no model image rebuild is required.

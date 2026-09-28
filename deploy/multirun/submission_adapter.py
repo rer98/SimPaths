@@ -145,6 +145,12 @@ class PreparationAdapter:
             raise ArtifactError('Preparation selection changed')
         return parameters
 
+    def required_space(self, candidate):
+        params = self.parameters(candidate)
+        release = params['model']['release']
+        return (3*sum(v['bytes'] for v in params['uploads'].values())
+                + sum(v['bytes'] for v in release['defaults'].values()) + (2<<30))
+
     def container_command(self, lease, request):
         params = self.parameters(lease)
         release = params['model']['release']
@@ -157,7 +163,7 @@ class PreparationAdapter:
         if request.stat().st_dev != self.artifacts.stat().st_dev:
             raise ArtifactError('Preparation workspaces and retained artifacts must share a filesystem')
         expected = params['uploads']
-        needed = 3*sum(v['bytes'] for v in expected.values()) + sum(v['bytes'] for v in release['defaults'].values()) + (2<<30)
+        needed = self.required_space(lease)
         available = shutil.disk_usage(request).free
         if available < needed:
             from jasmine_web.batch.docker_executor import InsufficientWorkspaceSpace
@@ -262,6 +268,9 @@ class DispatchAdapter:
         if row is None:
             raise ArtifactError('Prepared dataset is unavailable')
         return SimPathsContainerAdapter(row['location'],row['model_digest'])
+
+    def required_space(self, candidate):
+        return self.adapter(candidate).required_space(candidate)
 
     def container_command(self, lease, request):
         return self.adapter(lease).container_command(lease,request)

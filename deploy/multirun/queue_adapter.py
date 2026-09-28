@@ -141,17 +141,54 @@ def require_workspace_space(identity, workspace):
     Keep 1 GiB for database growth, CSVs, logs and temporary files. This is a
     minimum launch check, not a general research-job storage estimate or quota.
     """
-    inputs = identity["prepared"]
-    native_copy = sum(item["bytes"] for name, item in inputs.items()
-                      if "/" not in name and name.endswith((".xls", ".xlsx", ".db")))
-    required = (sum(item["bytes"] for item in inputs.values()) + native_copy
-                + identity["model"]["bytes"] + 1024**3)
+    required = workspace_required_bytes(identity)
     available = shutil.disk_usage(workspace).free
     if available < required:
         raise WorkspaceSpaceError(required, available)
 
 
-def validate_outputs(output, configuration, run_set_id):
+def workspace_required_bytes(identity):
+    """Same minimum estimate for admission and the final launch check."""
+    inputs = identity["prepared"]
+    native_copy = sum(item["bytes"] for name, item in inputs.items()
+                      if "/" not in name and name.endswith((".xls", ".xlsx", ".db")))
+    return (sum(item["bytes"] for item in inputs.values()) + native_copy
+            + identity["model"]["bytes"] + 1024**3)
+
+
+OUTPUT_CSV_FILES = frozenset({
+    'Person.csv', 'BenefitUnit.csv', 'Household.csv', 'WealthIncomeStatistics.csv',
+    'DemographicStatistics.csv', 'AlignmentStatistics.csv', 'LabourStatistics.csv',
+    'HealthStatistics.csv', 'WellbeingByGender.csv',
+})
+
+
+def result_name(run):
+    data = normalise(run['parameters']).as_dict()
+    return next(r['name'] for r in data['run_sets'] if r['id'] == run['id'])
+
+
+def result_deletion_targets(lease):
+    """Scientific run outputs; diagnostics outside output/ remain separately held."""
+    if lease.specification.get('operation') == 'prepare':
+        raise ArtifactError('Prepared inputs require dataset lifecycle management')
+    return ['output']
+
+
+def result_catalogue(lease, work):
+    """Recheck retained outputs without needing the original prepared inputs.
+
+    JAS-mine-web compares these fingerprints with the successful attempt's
+    PostgreSQL receipts. Only named scientific CSVs can enter a download.
+    """
+    run = next(r for r in lease.specification['run_sets'] if r['id'] == lease.configuration_id)
+    config = normalise(run['parameters'])
+    if config.as_dict()['seed_plan']['seeds'] != lease.specification['seeds']:
+        raise ArtifactError('Result seed plan differs from the submitted configuration')
+    return validate_outputs(work / 'output', config, lease.configuration_id, include_files=True)
+
+
+def validate_outputs(output, configuration, run_set_id, *, include_files=False):
     """Verify actual seeds, settings and required annual CSVs, then hash outputs.
 
     This checks completion against the submission, not equality between repeated
@@ -212,6 +249,12 @@ def validate_outputs(output, configuration, run_set_id):
             if not count or years != years_expected:
                 raise ArtifactError("Scientific output has missing years or no records")
         results[seed] = {"seed": seed, "fingerprint": digest({"options": fingerprint(path), "csv": manifest})}
+        if include_files:
+            # Do not publish input/options.txt, native database snapshots, logs,
+            # or an unexpected file merely because it appears beneath output/.
+            results[seed]['files'] = [dict(name=name,
+                path=(csv_dir / name).relative_to(Path(output).parent).as_posix(), **manifest[name])
+                for name in sorted(OUTPUT_CSV_FILES & manifest.keys())]
     return [results[seed] for seed in seeds]
 
 

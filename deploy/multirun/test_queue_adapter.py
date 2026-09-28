@@ -16,7 +16,8 @@ from deploy.multirun.artifacts import ArtifactError, digest, fingerprint, write_
 from deploy.multirun.compare_native import proof_configuration
 from deploy.multirun.prepare_training import RECEIPT_VERSION
 from deploy.multirun.queue_adapter import (OPTIONS_NOT_EXPORTED, SimPathsLocalAdapter,
-    read_prepared, require_workspace_space, submission_arguments, validate_outputs)
+    read_prepared, require_workspace_space, submission_arguments, validate_outputs,
+    result_catalogue, result_name)
 
 
 class QueueAdapterTests(unittest.TestCase):
@@ -123,6 +124,28 @@ class QueueAdapterTests(unittest.TestCase):
         path.symlink_to(target)
         with self.assertRaises(ArtifactError):
             self.validate()
+
+    def test_download_catalogue_matches_recorded_outputs_without_prepared_inputs(self):
+        self.outputs()
+        (self.work/'output/606/csv/debug.csv').write_text('Not an approved export')
+        before = self.validate()
+        (self.prepared/'receipt.json').unlink()
+        result = result_catalogue(self.lease,self.work)
+        self.assertEqual([{k:r[k] for k in ('seed','fingerprint')} for r in result],before)
+        self.assertEqual([r['seed'] for r in result],['606','607','608'])
+        for repetition in result:
+            self.assertEqual({f['name'] for f in repetition['files']},{'Person.csv','BenefitUnit.csv'})
+            for entry in repetition['files']:
+                self.assertEqual(fingerprint(self.work/entry['path']),{k:entry[k] for k in ('bytes','sha256')})
+        self.assertTrue(result_name(self.spec['run_sets'][0]))
+        (self.work/'output/606/csv/Person.csv').write_text('run,time,id,value\nrun-606,2019,1,9\nrun-606,2020,1,3\n')
+        self.assertNotEqual(result_catalogue(self.lease,self.work)[0]['fingerprint'],before[0]['fingerprint'])
+
+    def test_download_catalogue_requires_submitted_seed_sequence(self):
+        self.outputs()
+        self.spec['seeds']=['606']
+        with self.assertRaises(ArtifactError):
+            result_catalogue(self.lease,self.work)
 
     def test_space_admission_counts_native_snapshot_and_preserves_reserve(self):
         gib = 1024**3

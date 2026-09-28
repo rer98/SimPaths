@@ -135,6 +135,8 @@ def parse_args(argv=None):
                         help='Maximum repetitions per configuration in new submissions (1–1000; default: %(default)s)')
     parser.add_argument('--upload-allowance-gib',type=int,default=2,
                         help='Retained upload allowance per user in whole GiB (default: %(default)s); does not allocate disk space')
+    parser.add_argument('--notification-emails',action='store_true',help='Opt in to real problem-notification emails using platform SMTP settings')
+    parser.add_argument('--admin-email',help='Operator recipient for shared service problems; required with --notification-emails')
     parser.add_argument('--console-codes',action='store_true',help='Required local test mode; codes printed in this terminal')
     args=parser.parse_args(argv)
     try:
@@ -150,6 +152,8 @@ def parse_args(argv=None):
 
 def main(argv=None):
     args=parse_args(argv)
+    if args.notification_emails and (not args.admin_email or not os.environ.get('SMTP_HOST') or not os.environ.get('SMTP_FROM_EMAIL')):
+        raise ValueError('Notification emails require --admin-email, SMTP_HOST and SMTP_FROM_EMAIL')
     sys.path.insert(0,str(args.frontend.resolve(strict=True)))
     from jasmine_web.batch.access import Access
     from jasmine_web.batch.datasets import Datasets
@@ -160,6 +164,9 @@ def main(argv=None):
     from jasmine_web.batch.preparation import Preparations
     from jasmine_web.batch.store import Queue
     from jasmine_web.batch.submission_service import Submissions
+    from jasmine_web.batch.results import Results
+    from jasmine_web.batch.storage import Storage
+    from jasmine_web.batch.notifications import Notifications, smtp_sender
     from jasmine_web.batch.worker import Worker
     os.umask(0o077)
     state=private_directory(args.state)
@@ -211,14 +218,19 @@ def main(argv=None):
     health={'message':'Dispatcher is starting.'}
     def dispatch():
         try:
-            worker=Worker(q,executor,adapter,'local-browser-worker',
-                          before_claim=service.lifecycle.reconcile)
+            def before_claim():
+                retire_finished(q,executor)
+                service.lifecycle.retire(state/'artifacts')
+                service.outputs.retire()
+                service.lifecycle.reconcile()
+            worker=Worker(q,executor,adapter,'local-browser-worker',before_claim=before_claim)
             with worker.open():
                 while not stop.is_set():
                     try:
                         worker.tick(claim_new=False)
                         retire_finished(q,executor)
                         service.lifecycle.retire(state/'artifacts')
+                        service.outputs.retire()
                         worker.tick()
                         health['message']=''
                     except Exception as error:
@@ -234,6 +246,17 @@ def main(argv=None):
     async def lifespan(app):
         thread=threading.Thread(target=dispatch,name='multirun-dispatcher',daemon=True)
         thread.start()
+        def notify():
+            while not stop.is_set():
+                try:
+                    service.notifications.reconcile()
+                    for _ in range(5):
+                        if not service.notifications.deliver_one():
+                            break
+                except Exception as error:
+                    print('Notification checks waiting for recovery: '+type(error).__name__,flush=True)
+                stop.wait(5)
+        threading.Thread(target=notify,name='multirun-notifications',daemon=True).start()
         yield
         stop.set()
         # Containers have independent deadlines; do not kill model work when
@@ -243,10 +266,22 @@ def main(argv=None):
     import uvicorn
     origin=f'http://127.0.0.1:{args.port}'
     service=Submissions(access,datasets,BrowserModel(releases,max_repetitions=args.max_repetitions))
+    from .queue_adapter import result_catalogue, result_name, result_deletion_targets
+    from jasmine_web.batch.output_management import OutputManagement
+    service.results=Results(service,executor,result_catalogue,name=result_name)
+    service.outputs=OutputManagement(service,executor,result_deletion_targets)
+    service.storage=Storage(service,execution)
+    service.notifications=Notifications(service,admin_email=args.admin_email,
+        sender=smtp_sender(os.environ['SMTP_FROM_EMAIL']) if args.notification_emails else None)
+    print('Problem email delivery: '+('enabled' if args.notification_emails else 'disabled; incidents recorded locally'),flush=True)
     app=create_app(service,origin=origin,local_codes=True,
                    lifespan=lifespan,worker_status=lambda:health['message'],
                    site=dict(name='SimPaths UK MultiRun',logo='/static/simpaths-logo.svg',
-                             icon='/static/simpaths-favicon.svg'))
+                             icon='/static/simpaths-favicon.svg'),
+                   footer_links=(('SimPaths','https://simpaths.org'),
+                                 ('GitHub','https://github.com/simpaths/SimPaths'),
+                                 ('CeMPA','https://www.microsimulation.ac.uk/'),
+                                 ('License','https://github.com/simpaths/SimPaths/blob/main/license.txt')))
     print('Open '+origin+' — local preview, one active job at a time.',flush=True)
     uvicorn.run(app,host='127.0.0.1',port=args.port,proxy_headers=False,access_log=False)
     return 0

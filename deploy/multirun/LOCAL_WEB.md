@@ -63,7 +63,19 @@ output downloads. The service checks current ownership and permissions on every
 request; there is no access granted just by knowing the URL.
 
 With two permitted completed configurations, **Download a comparison** creates a
-ZIP containing `Baseline/run_1/csv` and `Scenario/run_1/csv`, then `run_2`, etc.
+ZIP containing a folder named after the ZIP filename without `.zip`. Within it
+are `Baseline/run_1/csv` and `Scenario/run_1/csv`, then `run_2`, etc., alongside
+`manifest.json`. Individual configuration downloads use the same outer-folder rule.
+
+Comparison filenames follow `comparison-<baseline name>-vs-<scenario name>-<reference>.zip`:
+the first configuration is always the baseline and the second is the scenario
+selected for that download. For example,
+`comparison-Configuration-1-vs-Configuration-2-cd2731ebb6af.zip` uses Configuration 1
+as Baseline and Configuration 2 as Scenario. The outer folder has the same name
+without `.zip`. Names are shortened and made safe for filenames; `manifest.json`
+preserves the full configuration names and explicitly records each `Baseline` or
+`Scenario` role. Individual downloads use `results-<configuration name>-<reference>.zip`.
+
 The configured experiment baseline is selected initially when available; download
 selections do not change it. Every run includes `Person.csv` and `BenefitUnit.csv`.
 Other supported exports are Household, WealthIncomeStatistics,
@@ -71,7 +83,7 @@ DemographicStatistics, AlignmentStatistics, LabourStatistics, HealthStatistics a
 WellbeingByGender CSVs when produced. The `manifest.json` file records configuration
 names, each folder's random seed and checksums. Files keep their original bytes.
 
-Extract the ZIP and select the parent folder containing Baseline and/or Scenario
+Extract the ZIP and select this named folder containing Baseline and/or Scenario
 in the Policy Impact Visualiser's **Visualise Your Own Data** picker. Larger
 experiments can download separate comparison pairs. The current folder scanner
 accepts only those two role names; schema/statistical compatibility and direct
@@ -435,7 +447,13 @@ expire automatically.
 Inputs needed by unfinished work and source uploads needed by retained datasets
 are protected. Earlier successful outputs remain protected while another
 configuration in that experiment is unfinished. Jobs awaiting review keep these
-holds until resolved or cancelled. Storage, My Datasets and Results show dates or
+holds until resolved, cancelled or expired. Jobs requiring user intervention have
+seven days to resolve the problem; My Jobs shows their deadline. With automatic
+cleanup enabled, an unresolved job becomes expired and releases its input holds.
+This does not immediately delete its inputs. History, other dependencies and
+successful companion results remain subject to their own retention rules.
+Shared-storage waits, historical pre-launch disk failures and their blocked
+preparation dependants remain protected for operator recovery. Storage, My Datasets and Results show dates or
 the reason deletion is postponed. When a hold ends, users have at least 96 hours
 before removal. Superseded upload versions can be removed without another warning
 once no dataset or unfinished work needs them.
@@ -444,7 +462,9 @@ The first start with migration 014 gives existing laptop files a fresh seven-day
 window. Restarting does not reset it. The normal launch command needs no new flags:
 it records dates and notices but sends no emails and performs no automatic expiry
 deletion. Existing confirmed manual deletion still works. Startup and the page
-state that automatic deletion is disabled.
+state that automatic deletion is disabled. Migration 015 adds failed-job deadlines
+and gives existing failures a fresh seven-day window. Automatic job expiry also
+stays disabled in the normal laptop command; restart to apply the migration.
 
 For a service with working SMTP, `--notification-emails --admin-email <address>`
 enables problem and expiry delivery. `--retention-cleanup` additionally enables
@@ -453,14 +473,20 @@ period gives a fresh warning window of at least 96 hours. Do not enable these fl
 for the current laptop acceptance run; it captures mail and deletes only disposable
 test files.
 
+Expiry warnings are scheduled 96 hours before deletion, with a final reminder
+24 hours before it. The second reminder neither extends retention nor shortens
+the first warning period. Unresolved jobs receive an immediate notice and the
+same reminder intervals before their recovery deadline. Viewing the page does
+not extend the deadline; retry remains subject to existing attempt/time budgets.
 Expiry warnings identify an item by the reference shown on the page and give its
 deadline in UTC. Changed deadlines supersede earlier notices for that same item;
-unsent stale notices are cancelled. Notices never attach data or diagnostic logs.
+unsent stale notices, including final reminders, are cancelled. Both reminders
+are scheduled for the revised deadline. Notices never attach data or diagnostic logs.
 The 96-hour interval starts when the warning is recorded; operators must monitor
 delivery failures. A mail outage does not indefinitely suspend deletion. Completion
 emails and automatic visualiser reports are not part of this change.
 
 Cleanup rechecks dependencies, keeps active downloads safe, and retries interrupted
-removal. It preserves job history. Diagnostic logs and failed-attempt retention
-need their separate policy implementation; this does not claim to remove every
+removal. It preserves job history. Expiry of compact diagnostics and any remaining
+failed-attempt scratch needs separate implementation; this does not claim to remove every
 file in an execution directory. Prepared-input export/re-import remains future work.

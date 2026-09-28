@@ -84,8 +84,8 @@ fingerprints; the original prepared dataset need not still exist. No model rebui
 new simulation or database migration is needed. Restart the launcher with the
 matching updated JAS-mine-web checkout. Downloads stream without constructing a
 large temporary ZIP. Missing or changed files are refused rather than regenerated.
-Raw logs and input databases are excluded. Automatic expiry and email notifications
-are not enabled yet; no deletion deadline is advertised as active.
+Raw logs and input databases are excluded. Retention dates and notices are recorded,
+but automatic deletion and email delivery remain disabled by default locally.
 
 ## Prerequisites
 
@@ -184,8 +184,9 @@ not retained for datasets or submitted preparations. Referenced sources stay
 listed, stored and counted and can be selected again, including after a prepared
 dataset is deleted. On restart, migration 009 restores previously cleared sources
 where no current copy of that filename is listed; the latest retained ready version
-is restored without changing the sources used by existing jobs. Automatic expiry
-of those retained sources is still pending.
+is restored without changing the sources used by existing jobs. Retention releases
+historical source references after their last dataset or unfinished job no longer
+needs them; see the expiry policy below.
 Reuse existing selected population/UKMOD files when creating a dataset with a
 different replacement workbook. Choosing a file whose name is already listed
 compares its contents using a server-calculated SHA-256 and byte count. Identical
@@ -265,7 +266,8 @@ invalidates an open action review; review again to see the current consequences.
 Requested deletion is shown as **Awaiting deletion** while references remain.
 The worker removes unreferenced prepared files from managed storage and recovers
 interrupted removal on restart. Provider examples are excluded from **My datasets**.
-Seven-day expiry and 96-hour warning emails are not yet implemented in this preview.
+Seven-day expiry and 96-hour warning notices are described below. Automatic deletion
+and mail delivery are separate opt-ins on the laptop.
 
 ## Persistence and restart
 
@@ -326,8 +328,8 @@ records that the queue tests were skipped.
 
 ## Still to integrate
 
-SMTP delivery, production approval administration, shared SingleRun/MultiRun
-admission, hard filesystem quotas, retained-artifact accounting and expiry,
+Production SMTP setup, approval administration, shared SingleRun/MultiRun
+admission, hard filesystem quotas, diagnostic-log retention,
 approved aggregate publication and Policy Impacts Visualiser integration remain
 separate work. The results page offers permitted detailed downloads but does not
 produce visualiser reports. Provider microdata is never exposed by these routes.
@@ -397,7 +399,8 @@ tree, input datasets and other attempts stay intact. Results and job history sho
 **Output deleted**; removed output is no longer available for download or visualiser
 comparisons. The Results page links to its Storage entry. Active execution files
 and preparation working files cannot be deleted through this output action.
-Automatic expiry and diagnostic-log cleanup are not enabled yet.
+Automatic expiry is optional as described below; diagnostic-log cleanup is separate
+future work.
 
 Jobs unable to pass the initial disk-space check remain queued and recheck every
 30 seconds without using up simulation attempts. Their status becomes “waiting
@@ -413,3 +416,45 @@ addressed only to the configured administrator. Notices contain safe references,
 not simulation logs or data. See the platform batch-queue guide for explicit SMTP
 opt-in when deployment email is ready. Restart the launcher after the tests pass to
 apply the additive database migrations; no model image rebuild is required.
+
+## Retention dates and optional automatic expiry
+
+Successful outputs normally expire seven days after validated completion. Your
+prepared datasets expire seven days after creation or the end of their latest
+actual simulation use, including failed or cancelled execution. Current uploads
+expire seven days after upload, browser edit or the end of their latest preparation
+use. Viewing or selecting an item does not renew it. Maintainer datasets do not
+expire automatically.
+
+Inputs needed by unfinished work and source uploads needed by retained datasets
+are protected. Earlier successful outputs remain protected while another
+configuration in that experiment is unfinished. Jobs awaiting review keep these
+holds until resolved or cancelled. Storage, My Datasets and Results show dates or
+the reason deletion is postponed. When a hold ends, users have at least 96 hours
+before removal. Superseded upload versions can be removed without another warning
+once no dataset or unfinished work needs them.
+
+The first start with migration 014 gives existing laptop files a fresh seven-day
+window. Restarting does not reset it. The normal launch command needs no new flags:
+it records dates and notices but sends no emails and performs no automatic expiry
+deletion. Existing confirmed manual deletion still works. Startup and the page
+state that automatic deletion is disabled.
+
+For a service with working SMTP, `--notification-emails --admin-email <address>`
+enables problem and expiry delivery. `--retention-cleanup` additionally enables
+automatic deletion and requires the email option. Enabling it after a preview
+period gives a fresh warning window of at least 96 hours. Do not enable these flags
+for the current laptop acceptance run; it captures mail and deletes only disposable
+test files.
+
+Expiry warnings identify an item by the reference shown on the page and give its
+deadline in UTC. Changed deadlines supersede earlier notices for that same item;
+unsent stale notices are cancelled. Notices never attach data or diagnostic logs.
+The 96-hour interval starts when the warning is recorded; operators must monitor
+delivery failures. A mail outage does not indefinitely suspend deletion. Completion
+emails and automatic visualiser reports are not part of this change.
+
+Cleanup rechecks dependencies, keeps active downloads safe, and retries interrupted
+removal. It preserves job history. Diagnostic logs and failed-attempt retention
+need their separate policy implementation; this does not claim to remove every
+file in an execution directory. Prepared-input export/re-import remains future work.

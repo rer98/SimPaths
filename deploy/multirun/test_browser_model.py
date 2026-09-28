@@ -200,6 +200,10 @@ class BrowserModelTests(unittest.TestCase):
                 parse_args(['serve','--console-codes','--max-repetitions',value])
             self.assertEqual(result.exception.code,2)
         self.assertEqual(parse_args(['serve','--console-codes']).upload_allowance_gib,2)
+        self.assertFalse(parse_args(['serve','--console-codes']).retention_cleanup)
+        self.assertTrue(parse_args(['serve','--console-codes','--retention-cleanup','--notification-emails']).retention_cleanup)
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            parse_args(['serve','--console-codes','--retention-cleanup'])
         for limit in (1,4,MAX_UPLOAD_ALLOWANCE_GIB):
             self.assertEqual(parse_args(['serve','--console-codes','--upload-allowance-gib',str(limit)]).upload_allowance_gib,limit)
         for value in ('0','-1','1.5','many',str(MAX_UPLOAD_ALLOWANCE_GIB+1)):

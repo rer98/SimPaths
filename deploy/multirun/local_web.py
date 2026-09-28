@@ -135,7 +135,8 @@ def parse_args(argv=None):
                         help='Maximum repetitions per configuration in new submissions (1–1000; default: %(default)s)')
     parser.add_argument('--upload-allowance-gib',type=int,default=2,
                         help='Retained upload allowance per user in whole GiB (default: %(default)s); does not allocate disk space')
-    parser.add_argument('--notification-emails',action='store_true',help='Opt in to real problem-notification emails using platform SMTP settings')
+    parser.add_argument('--notification-emails',action='store_true',help='Opt in to real problem and expiry emails using platform SMTP settings')
+    parser.add_argument('--retention-cleanup',action='store_true',help='Enable automatic expiry deletion; requires --notification-emails. Default: dates and notices only')
     parser.add_argument('--admin-email',help='Operator recipient for shared service problems; required with --notification-emails')
     parser.add_argument('--console-codes',action='store_true',help='Required local test mode; codes printed in this terminal')
     args=parser.parse_args(argv)
@@ -145,6 +146,8 @@ def parse_args(argv=None):
         parser.error(str(error))
     if not 1 <= args.upload_allowance_gib <= MAX_UPLOAD_ALLOWANCE_GIB:
         parser.error(f'--upload-allowance-gib must be between 1 and {MAX_UPLOAD_ALLOWANCE_GIB}')
+    if args.retention_cleanup and not args.notification_emails:
+        parser.error('--retention-cleanup requires --notification-emails so expiry warnings can be delivered')
     if args.command=='serve' and (not args.console_codes or not 1024<=args.port<=65535):
         parser.error('This local preview requires --console-codes and an unprivileged port')
     return args
@@ -167,6 +170,7 @@ def main(argv=None):
     from jasmine_web.batch.results import Results
     from jasmine_web.batch.storage import Storage
     from jasmine_web.batch.notifications import Notifications, smtp_sender
+    from jasmine_web.batch.retention import Retention
     from jasmine_web.batch.worker import Worker
     os.umask(0o077)
     state=private_directory(args.state)
@@ -220,6 +224,7 @@ def main(argv=None):
         try:
             def before_claim():
                 retire_finished(q,executor)
+                service.retention.retire()
                 service.lifecycle.retire(state/'artifacts')
                 service.outputs.retire()
                 service.lifecycle.reconcile()
@@ -250,8 +255,11 @@ def main(argv=None):
             while not stop.is_set():
                 try:
                     service.notifications.reconcile()
+                    service.retention.reconcile()
                     for _ in range(5):
-                        if not service.notifications.deliver_one():
+                        problems=service.notifications.deliver_one()
+                        expiry=service.retention.deliver_one()
+                        if not problems and not expiry:
                             break
                 except Exception as error:
                     print('Notification checks waiting for recovery: '+type(error).__name__,flush=True)
@@ -273,6 +281,10 @@ def main(argv=None):
     service.storage=Storage(service,execution)
     service.notifications=Notifications(service,admin_email=args.admin_email,
         sender=smtp_sender(os.environ['SMTP_FROM_EMAIL']) if args.notification_emails else None)
+    service.retention=Retention(service,origin=origin,cleanup_enabled=args.retention_cleanup,
+        sender=smtp_sender(os.environ['SMTP_FROM_EMAIL']) if args.notification_emails else None)
+    service.retention.reconcile()
+    print('Automatic expiry deletion: '+('enabled' if args.retention_cleanup else 'disabled; dates and notices recorded locally'),flush=True)
     print('Problem email delivery: '+('enabled' if args.notification_emails else 'disabled; incidents recorded locally'),flush=True)
     app=create_app(service,origin=origin,local_codes=True,
                    lifespan=lifespan,worker_status=lambda:health['message'],

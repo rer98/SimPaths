@@ -179,13 +179,56 @@ def result_catalogue(lease, work):
     """Recheck retained outputs without needing the original prepared inputs.
 
     JAS-mine-web compares these fingerprints with the successful attempt's
-    PostgreSQL receipts. Only named scientific CSVs can enter a download.
+    PostgreSQL receipts. Export named scientific CSVs and each run's options.txt.
     """
     run = next(r for r in lease.specification['run_sets'] if r['id'] == lease.configuration_id)
     config = normalise(run['parameters'])
     if config.as_dict()['seed_plan']['seeds'] != lease.specification['seeds']:
         raise ArtifactError('Result seed plan differs from the submitted configuration')
     return validate_outputs(work / 'output', config, lease.configuration_id, include_files=True)
+
+
+def result_settings(lease):
+    """Full frozen configuration supplements fields omitted by options.txt."""
+    run=next(r for r in lease.specification['run_sets'] if r['id']==lease.configuration_id)
+    config=normalise(run['parameters'])
+    return dict(configuration=config.as_dict(),native_configuration=config.native_configuration(lease.configuration_id))
+
+
+def result_inputs(lease, resolved):
+    """Receipt-bound prepared inputs; the platform separately enforces ownership.
+
+    Export never opens the H2 database. Database re-upload remains unsupported.
+    Source files, prepared database and workbooks are copied as verified bytes.
+    """
+    root=Path(resolved['location'])
+    receipt=read_prepared(root)
+    identity=receipt['identity']
+    # Selected inputs run in containers: the queue pins the image, not the JAR.
+    # The separately recorded JAR checksum is bound by the prepared receipt hash.
+    if (identity['format']!=prepared_dataset.INPUT_FORMAT
+            or receipt['sha256']!=lease.specification['prepared_fingerprint']
+            or resolved['prepared_fingerprint']!=receipt['sha256']
+            or resolved['dataset_id']!=lease.specification['dataset_id']
+            or identity['source_image']!=lease.specification['model_digest']
+            or resolved['model_digest']!=lease.specification['model_digest']):
+        raise ArtifactError('Prepared inputs differ from this configuration')
+    allowed={'input.mv.db','tax_donor_population_UK.csv','DatabaseCountryYear.xlsx','EUROMODpolicySchedule.xlsx'}
+    allowed.update(identity['sources']['defaults'])
+    for name in identity['sources']['uploads']:
+        allowed.add(('InitialPopulations/' if name.endswith('.csv') else
+                     'EUROMODoutput/' if name.endswith('.txt') else '')+name)
+    # Diagnostic/lock files are not reusable scientific inputs. Do not silently
+    # export an unexpected new file type merely because it is beneath input/.
+    excluded={'input.trace.db','input.lock.db','input.mv.db.lock'}
+    if set(identity['prepared'])-allowed-excluded:
+        raise ArtifactError('Prepared input export contains unsupported files')
+    verify(root/'input',identity['prepared'])
+    return dict(files=[dict(name=name,path='input/'+name,**entry)
+                       for name,entry in sorted(identity['prepared'].items()) if name in allowed],
+                metadata=dict(format='simpaths-prepared-input-export-v1',country=identity['country'],
+                    start_year=identity['start_year'],source_image=identity['source_image'],
+                    selection=identity['selection']))
 
 
 def validate_outputs(output, configuration, run_set_id, *, include_files=False):
@@ -250,11 +293,13 @@ def validate_outputs(output, configuration, run_set_id, *, include_files=False):
                 raise ArtifactError("Scientific output has missing years or no records")
         results[seed] = {"seed": seed, "fingerprint": digest({"options": fingerprint(path), "csv": manifest})}
         if include_files:
-            # Do not publish input/options.txt, native database snapshots, logs,
-            # or an unexpected file merely because it appears beneath output/.
+            # options.txt is already included in the recorded repetition hash.
+            # Other native snapshot copies and logs are never read for export.
             results[seed]['files'] = [dict(name=name,
                 path=(csv_dir / name).relative_to(Path(output).parent).as_posix(), **manifest[name])
                 for name in sorted(OUTPUT_CSV_FILES & manifest.keys())]
+            results[seed]['metadata'] = [dict(name='input/options.txt',
+                path=path.relative_to(Path(output).parent).as_posix(),**fingerprint(path))]
     return [results[seed] for seed in seeds]
 
 

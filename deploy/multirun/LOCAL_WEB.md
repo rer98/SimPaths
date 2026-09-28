@@ -62,6 +62,67 @@ datasets, including the supplied Quick Start examples, do not permit detailed
 output downloads. The service checks current ownership and permissions on every
 request; there is no access granted just by knowing the URL.
 
+An **Include input dataset** checkbox beside each individual/comparison download
+adds the retained inputs supplied by that owner. It is unchecked initially. A
+comparison includes each distinct dataset once, even when both configurations use
+it. The ZIP keeps the existing CSV folder layout. A single configuration, or a
+comparison using the same dataset ID for both configurations, has one `Inputs`
+folder; the manifest maps configurations to their dataset copies:
+
+```text
+comparison-<baseline>-vs-<scenario>-<reference>-with-inputs/
+├── manifest.json
+├── Inputs/
+│   ├── input.mv.db
+│   ├── tax_donor_population_UK.csv
+│   ├── DatabaseCountryYear.xlsx
+│   ├── EUROMODpolicySchedule.xlsx
+│   ├── <parameter and scenario workbooks>
+│   ├── InitialPopulations/<uploaded population CSV>
+│   └── EUROMODoutput/<uploaded UKMOD files>
+├── Baseline/
+│   └── run_1/
+│       ├── input/options.txt
+│       └── csv/...
+└── Scenario/
+    └── run_1/
+        ├── input/options.txt
+        └── csv/...
+```
+
+Further repetitions use `run_2`, etc. A comparison using different datasets has
+`Inputs_Baseline` and `Inputs_Scenario` instead of `Inputs`, with the same internal
+file structure shown above. The workbooks and database sit directly in each input
+folder, with no extra `dataset_1/input` layer. The `input_folder` in each manifest
+configuration identifies the right copy. Bundled filenames end in `-with-inputs.zip` and have a different
+reference from output-only ZIPs. The first configuration in a comparison filename
+remains the baseline.
+
+There is one native **`options.txt` per repetition**, written during model setup.
+Cleanup already preserves it when removing repeated native input snapshots.
+Downloads now include it under each run's `input` directory even when the checkbox
+is unticked. The manifest additionally records the full frozen normalised and
+native configuration, seeds, model/prepared-input fingerprints and job/attempt
+references: some supported parameters are absent from native `options.txt`.
+These settings files follow output retention and are removed with an explicit
+output deletion; they are not kept indefinitely.
+
+The optional inputs are the sealed prepared dataset used to initialise runs,
+including the selected source files and generated population/donor data. They
+are not copies of a database subsequently modified during each run. Together with
+the recorded settings they document the input/output relationship; this is not an
+automatic replay facility or a claim that the known SimPaths reproducibility
+issue has been fixed. Model JARs, logs and database diagnostic/lock files are not
+included. The export does not enable uploading a prepared H2 database back into
+the service: future reuse still requires the accepted source-file validation flow.
+
+Input bundling is available only while the input dataset is retained. Dataset
+deletion/expiry disables this option, while output-only downloads remain usable.
+Downloading does not reset the seven-day input retention clock. An active input
+download holds off physical dataset removal until it ends or the server process
+exits; cleanup can then resume. New downloads cannot start once deletion is requested. Provider-derived
+inputs remain blocked even when an owner has edited public parameter workbooks.
+
 With two permitted completed configurations, **Download a comparison** creates a
 ZIP containing a folder named after the ZIP filename without `.zip`. Within it
 are `Baseline/run_1/csv` and `Scenario/run_1/csv`, then `run_2`, etc., alongside
@@ -91,12 +152,19 @@ integration are still to be agreed with the visualiser maintainers. Restricted
 provider results require server-side aggregation with approved output controls,
 so they cannot use this local raw-CSV route.
 
+For container runs, the queue's `model_digest` identifies the Docker image. Input
+export checks it against the prepared receipt's `source_image`, not the separate
+Java JAR checksum. The prepared-dataset fingerprint binds that JAR checksum and
+the input-file inventory. Confusing the two identities rejects otherwise valid
+downloads even though output-only downloads still work.
+
 Existing retained outputs are checked against their recorded successful-attempt
 fingerprints; the original prepared dataset need not still exist. No model rebuild,
 new simulation or database migration is needed. Restart the launcher with the
 matching updated JAS-mine-web checkout. Downloads stream without constructing a
 large temporary ZIP. Missing or changed files are refused rather than regenerated.
-Raw logs and input databases are excluded. Retention dates and notices are recorded,
+Raw logs are excluded; prepared input databases require the explicit permitted
+input-bundling option above. Retention dates and notices are recorded,
 but automatic deletion and email delivery remain disabled by default locally.
 
 ## Prerequisites

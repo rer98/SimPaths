@@ -17,7 +17,7 @@ from deploy.multirun.compare_native import proof_configuration
 from deploy.multirun.prepare_training import RECEIPT_VERSION
 from deploy.multirun.queue_adapter import (OPTIONS_NOT_EXPORTED, SimPathsLocalAdapter,
     read_prepared, require_workspace_space, submission_arguments, validate_outputs,
-    result_catalogue, result_name)
+    result_catalogue, result_name, result_settings)
 
 
 class QueueAdapterTests(unittest.TestCase):
@@ -135,9 +135,13 @@ class QueueAdapterTests(unittest.TestCase):
         self.assertEqual([r['seed'] for r in result],['606','607','608'])
         for repetition in result:
             self.assertEqual({f['name'] for f in repetition['files']},{'Person.csv','BenefitUnit.csv'})
-            for entry in repetition['files']:
+            self.assertEqual([f['name'] for f in repetition['metadata']],['input/options.txt'])
+            for entry in repetition['files']+repetition['metadata']:
                 self.assertEqual(fingerprint(self.work/entry['path']),{k:entry[k] for k in ('bytes','sha256')})
         self.assertTrue(result_name(self.spec['run_sets'][0]))
+        saved=result_settings(self.lease)
+        self.assertEqual(saved['configuration']['seed_plan']['seeds'],self.spec['seeds'])
+        self.assertTrue(OPTIONS_NOT_EXPORTED <= saved['native_configuration']['model_args'].keys())
         (self.work/'output/606/csv/Person.csv').write_text('run,time,id,value\nrun-606,2019,1,9\nrun-606,2020,1,3\n')
         self.assertNotEqual(result_catalogue(self.lease,self.work)[0]['fingerprint'],before[0]['fingerprint'])
 

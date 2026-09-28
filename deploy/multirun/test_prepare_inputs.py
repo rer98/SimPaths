@@ -22,7 +22,7 @@ from deploy.multirun.dataset_service import prepare_owned
 from deploy.multirun.import_quickstart import UnconfirmedVerification
 from deploy.multirun.prepare_inputs import prepare, selected_sources, selection
 from deploy.multirun.prepared_dataset import check_input_receipt, verify_snapshot
-from deploy.multirun.queue_adapter import SimPathsLocalAdapter
+from deploy.multirun.queue_adapter import SimPathsLocalAdapter, result_inputs
 from deploy.multirun.run_input_proof import public_example_inputs
 
 IMAGE='sha256:'+'a'*64
@@ -85,6 +85,81 @@ class InputPreparationTests(unittest.TestCase):
                        dict(schedule=self.request['schedule']*2)):
             with self.subTest(change=change),self.assertRaises(ArtifactError):
                 selection({**self.request,**change})
+
+    def export_request(self, receipt):
+        configuration=proof_configuration().editable_configuration()
+        configuration['dataset_revision']='owned'
+        frozen=container_submission(configuration,self.output,IMAGE)
+        frozen['prepared_fingerprint']=receipt['sha256']
+        frozen['seeds']=frozen.pop('seed_plan')
+        resolved={key:frozen[key] for key in ('dataset_id','prepared_fingerprint','model_digest')}
+        return SimpleNamespace(specification=frozen),dict(resolved,location=str(self.output))
+
+    def test_input_export_checks_runtime_image_separately_from_model_jar(self):
+        receipt=self.prepare()
+        lease,resolved=self.export_request(receipt)
+        jar_digest='sha256:'+receipt['identity']['model']['sha256']
+        self.assertEqual(lease.specification['model_digest'],IMAGE)
+        self.assertNotEqual(IMAGE,jar_digest)
+        self.assertTrue(result_inputs(lease,resolved)['files'])
+        # A JAR identity must not be accepted as an alternative container image.
+        wrong=SimpleNamespace(specification={**lease.specification,'model_digest':jar_digest})
+        with self.assertRaises(ArtifactError):
+            result_inputs(wrong,{**resolved,'model_digest':jar_digest})
+        with self.assertRaises(ArtifactError):
+            result_inputs(lease,{**resolved,'model_digest':'sha256:'+'f'*64})
+
+    def test_input_export_contains_sealed_sources_database_schedule_and_workbooks(self):
+        receipt=self.prepare()
+        lease,resolved=self.export_request(receipt)
+        result=result_inputs(lease,resolved)
+        expected=set(receipt['identity']['prepared'])
+        self.assertEqual({f['name'] for f in result['files']},expected)
+        self.assertIn('input.mv.db',expected)
+        self.assertIn('EUROMODoutput/policy.txt',expected)
+        self.assertIn('InitialPopulations/population_initial_UK_2019.csv',expected)
+        self.assertIn('parameters.xlsx',expected)
+        self.assertEqual(result['metadata']['selection']['schedule'],self.request['schedule'])
+        for entry in result['files']:
+            self.assertEqual(fingerprint(self.output/entry['path']),{k:entry[k] for k in ('bytes','sha256')})
+        self.assertNotIn(str(self.root),json.dumps(result))
+        verify_snapshot(self.output,receipt)
+
+    def test_input_export_rejects_changed_identity_bytes_or_links(self):
+        receipt=self.prepare()
+        lease,resolved=self.export_request(receipt)
+        for key,value in [('dataset_id','different'),('model_digest','sha256:'+'f'*64),
+                          ('prepared_fingerprint','f'*64)]:
+            altered=SimpleNamespace(specification={**lease.specification,key:value})
+            with self.subTest(key=key),self.assertRaises(ArtifactError):
+                result_inputs(altered,resolved)
+        source=self.output/'input/input.mv.db'
+        source.chmod(0o600)
+        source.write_bytes(b'tampered')
+        with self.assertRaises(ArtifactError):
+            result_inputs(lease,resolved)
+        source.unlink()
+        source.symlink_to(self.jar)
+        with self.assertRaises(ArtifactError):
+            result_inputs(lease,resolved)
+
+    def test_input_export_excludes_diagnostics_and_rejects_unrecognised_files(self):
+        def worker(*args):
+            self.worker(*args)
+            (self.output/'input/input.trace.db').write_bytes(b'diagnostics')
+        receipt=self.prepare(worker)
+        lease,resolved=self.export_request(receipt)
+        self.assertNotIn('input.trace.db',{f['name'] for f in result_inputs(lease,resolved)['files']})
+        extra=self.output/'input/private.log'
+        extra.write_bytes(b'not scientific input')
+        receipt['identity']['prepared']=inventory(self.output/'input')
+        receipt['sha256']=digest(receipt['identity'])
+        receipt['revision']='inputs-'+receipt['sha256']
+        (self.output/'receipt.json').chmod(0o600)
+        (self.output/'receipt.json').write_text(json.dumps(receipt))
+        lease,resolved=self.export_request(receipt)
+        with self.assertRaises(ArtifactError):
+            result_inputs(lease,resolved)
 
     def test_blank_policy_year_is_omitted_and_missing_active_input_rejected(self):
         request=deepcopy(self.request)

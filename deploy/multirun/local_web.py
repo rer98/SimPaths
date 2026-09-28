@@ -287,9 +287,10 @@ def main(argv=None):
     import uvicorn
     origin=f'http://127.0.0.1:{args.port}'
     service=Submissions(access,datasets,BrowserModel(releases,max_repetitions=args.max_repetitions))
-    from .queue_adapter import result_catalogue, result_name, result_deletion_targets
+    from .queue_adapter import result_catalogue, result_name, result_deletion_targets, result_inputs, result_settings
     from jasmine_web.batch.output_management import OutputManagement
-    service.results=Results(service,executor,result_catalogue,name=result_name)
+    service.results=Results(service,executor,result_catalogue,name=result_name,
+                            inputs=result_inputs,settings=result_settings)
     service.outputs=OutputManagement(service,executor,result_deletion_targets)
     service.attempt_cleanup=AttemptCleanup(q,executor,outputs=result_deletion_targets,
                                            failed_preparation=adapter.preparation.retire_failed)

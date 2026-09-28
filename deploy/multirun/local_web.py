@@ -86,10 +86,17 @@ def retire_finished(queue, executor):
     """
     from jasmine_web.batch.local_executor import atomic_json, read_json
     with queue._connection() as c:
-        rows=c.execute('''SELECT a.*,j.configuration_id,e.specification,j.resources,j.dataset_id,j.model_digest,j.prepared_fingerprint,j.execution_run
+        rows=c.execute('''SELECT a.*,j.configuration_id,e.specification,j.resources,j.dataset_id,j.model_digest,j.prepared_fingerprint,j.execution_run,
+            EXISTS (SELECT 1 FROM repetitions r WHERE r.attempt_id=a.id AND r.actual_seed IS NOT NULL) AS verified
             FROM attempts a JOIN jobs j ON j.id=a.job_id JOIN experiments e ON e.id=j.experiment_id
-            WHERE a.pool_id=%s AND a.phase='finished' ORDER BY a.finished_at''',(queue.pool_id,)).fetchall()
+            WHERE a.pool_id=%s AND a.phase='finished' AND (a.outcome='success' OR
+                (COALESCE(e.specification->>'operation','simulation')<>'prepare' AND EXISTS
+                    (SELECT 1 FROM repetitions r WHERE r.attempt_id=a.id AND r.actual_seed IS NOT NULL)
+                    AND EXISTS (SELECT 1 FROM attempt_cleanup ac WHERE ac.attempt_id=a.id AND ac.scratch_removed_at IS NOT NULL)))
+            ORDER BY a.finished_at''',(queue.pool_id,)).fetchall()
     for row in rows:
+        if row.get('outcome') != 'success' and not row.get('verified'):
+            continue  # Unsuccessful attempts use the platform diagnostic lifecycle.
         lease=queue._lease(row,row)
         path=executor.workspace(lease)
         if not path.exists():
@@ -172,6 +179,7 @@ def main(argv=None):
     from jasmine_web.batch.notifications import Notifications, smtp_sender
     from jasmine_web.batch.retention import Retention
     from jasmine_web.batch.worker import Worker
+    from jasmine_web.batch.attempt_cleanup import AttemptCleanup
     os.umask(0o077)
     state=private_directory(args.state)
     q=Queue(local_postgres(state),'simpaths-local')
@@ -223,6 +231,7 @@ def main(argv=None):
     def dispatch():
         try:
             def before_claim():
+                service.attempt_cleanup.retire()
                 retire_finished(q,executor)
                 service.retention.retire()
                 service.lifecycle.retire(state/'artifacts')
@@ -233,6 +242,7 @@ def main(argv=None):
                 while not stop.is_set():
                     try:
                         worker.tick(claim_new=False)
+                        service.attempt_cleanup.retire()
                         retire_finished(q,executor)
                         service.lifecycle.retire(state/'artifacts')
                         service.outputs.retire()
@@ -278,6 +288,8 @@ def main(argv=None):
     from jasmine_web.batch.output_management import OutputManagement
     service.results=Results(service,executor,result_catalogue,name=result_name)
     service.outputs=OutputManagement(service,executor,result_deletion_targets)
+    service.attempt_cleanup=AttemptCleanup(q,executor,outputs=result_deletion_targets,
+                                           failed_preparation=adapter.preparation.retire_failed)
     service.storage=Storage(service,execution)
     service.notifications=Notifications(service,admin_email=args.admin_email,
         sender=smtp_sender(os.environ['SMTP_FROM_EMAIL']) if args.notification_emails else None)

@@ -317,6 +317,26 @@ class SubmissionAdapterTests(unittest.TestCase):
         self.assertTrue((self.work/'input/input.mv.db').is_file())
         self.assertFalse((self.root/'evidence').exists())
 
+    def test_failed_preparation_removes_only_unregistered_attempt_copy(self):
+        from unittest.mock import MagicMock
+        self.adapter.datasets.queue=MagicMock()
+        connection=self.adapter.datasets.queue._connection.return_value.__enter__.return_value
+        connection.execute.return_value.fetchall.return_value=[]
+        target=self.adapter.artifacts/self.lease.execution_key
+        (target/'input').mkdir(parents=True)
+        (target/'input/private.db').write_bytes(b'private preparation')
+        sibling=self.adapter.artifacts/'another-dataset'
+        sibling.mkdir();(sibling/'keep').write_bytes(b'ready')
+        self.assertGreater(self.adapter.retire_failed(self.lease,measure=True),0)
+        connection.execute.return_value.fetchall.return_value=[{'location':str(target)}]
+        self.adapter.retire_failed(self.lease)
+        self.assertTrue((target/'input/private.db').exists())
+        connection.execute.return_value.fetchall.return_value=[]
+        self.adapter.retire_failed(self.lease);self.adapter.retire_failed(self.lease)
+        self.assertFalse(target.exists())
+        self.assertEqual((sibling/'keep').read_bytes(),b'ready')
+        self.assertTrue(all(Path(v['path']).exists() for v in self.uploads.values()))
+
 
 def normal_fixed(config):
     from deploy.multirun.configuration import normalise

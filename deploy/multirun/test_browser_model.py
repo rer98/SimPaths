@@ -281,7 +281,7 @@ class BrowserModelTests(unittest.TestCase):
         queue=Mock()
         queue._connection.return_value.__enter__=Mock(return_value=Mock())
         queue._connection.return_value.__exit__=Mock(return_value=False)
-        queue._connection.return_value.__enter__.return_value.execute.return_value.fetchall.return_value=[{}]
+        queue._connection.return_value.__enter__.return_value.execute.return_value.fetchall.return_value=[{'outcome':'success'}]
         executor=Mock()
         executor.workspace.return_value=root
         executor.cleanup.side_effect=RuntimeError('Unconfirmed stop')

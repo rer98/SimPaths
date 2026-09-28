@@ -417,8 +417,8 @@ tree, input datasets and other attempts stay intact. Results and job history sho
 **Output deleted**; removed output is no longer available for download or visualiser
 comparisons. The Results page links to its Storage entry. Active execution files
 and preparation working files cannot be deleted through this output action.
-Automatic expiry is optional as described below; diagnostic-log cleanup is separate
-future work.
+Automatic expiry of usable outputs is optional as described below. Failed-attempt
+working files and diagnostic logs have the separate cleanup policy below.
 
 Jobs unable to pass the initial disk-space check remain queued and recheck every
 30 seconds without using up simulation attempts. Their status becomes “waiting
@@ -487,6 +487,34 @@ delivery failures. A mail outage does not indefinitely suspend deletion. Complet
 emails and automatic visualiser reports are not part of this change.
 
 Cleanup rechecks dependencies, keeps active downloads safe, and retries interrupted
-removal. It preserves job history. Expiry of compact diagnostics and any remaining
-failed-attempt scratch needs separate implementation; this does not claim to remove every
-file in an execution directory. Prepared-input export/re-import remains future work.
+removal. It preserves job history. Prepared-input export/re-import remains future work.
+
+## Failed and cancelled working files
+
+After migration 016, the normal launch command automatically retires unusable
+working files from failed and cancelled attempts, including earlier failures. It
+first confirms that the attempt has finished, that its container has been removed,
+and that no result reader is using the files. Cleanup runs before further queue
+admission so reclaimed disk space is available to the next job. No new launch flag
+or image rebuild is needed; stop/restart the server to apply the change.
+
+Copied input files, temporary databases, unused partial output and unregistered
+failed-preparation copies are removed. Source uploads, registered prepared datasets,
+successful configurations and individually validated repetition outputs are kept
+under their own lifecycle. A retry still uses a new private workspace with the
+original frozen inputs and seeds. Incomplete validated output remains incomplete;
+it is not silently used in comparisons or offered as a successful configuration.
+
+Private diagnostic records are retained for 30 days after attempt termination.
+Log capture is bounded to 2 MiB per attempt and 128 MiB per execution pool; if that
+allowance is full, logs may be omitted while compact failure/version references
+are retained. Storage shows the cleanup status and diagnostic deadline. Logs are
+never automatically emailed or made available through an administrator page.
+An explicitly approved investigation can arrange a bounded hold before cleanup;
+see the platform batch-queue guide for the internal operator hook and limits.
+
+This internal cleanup is independent of `--retention-cleanup`: unusable scratch
+does not need a 96-hour warning. Automatic expiry of usable results, datasets and
+uploads, unresolved-job expiry, and real email delivery remain off with the normal
+laptop command. Compact identity/removal receipts and database history remain, so
+an almost-empty execution directory can persist after its large files are removed.

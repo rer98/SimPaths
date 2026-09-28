@@ -252,6 +252,29 @@ class PreparationAdapter:
         return self.preparations.publication(lease, prepared_fingerprint=receipts[0]['fingerprint'],
                                              location=str(self.artifacts/lease.execution_key))
 
+    def retire_failed(self, lease, *, measure=False):
+        """An interrupted publication may leave an unregistered prepared copy.
+
+        Called by the platform only for a finished, confirmed-stopped failure.
+        Registered datasets have their own lifecycle and are never removed here.
+        """
+        from jasmine_web.batch.output_management import remove_targets
+        from jasmine_web.batch.storage import measured_bytes
+        from jasmine_web.batch.policy import Conflict
+        import re
+        if (lease.specification.get('operation') != 'prepare'
+                or not re.fullmatch(r'batch-[a-f0-9-]{36}',lease.execution_key)):
+            raise Conflict('Invalid preparation cleanup reference')
+        target = self.artifacts/lease.execution_key
+        with self.datasets.queue._connection() as c:
+            locations = c.execute('SELECT location FROM prepared_locations').fetchall()
+        if any(target==Path(r['location']) or target.is_relative_to(Path(r['location']))
+               or Path(r['location']).is_relative_to(target) for r in locations):
+            return 0
+        if measure:
+            return measured_bytes(target)
+        remove_targets(self.artifacts,[lease.execution_key])
+
 
 class DispatchAdapter:
     """Route both operation kinds through one queue/executor resource pool."""

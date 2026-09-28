@@ -179,10 +179,12 @@ leave at least 1 GiB free on their filesystem. Check free space where the state
 directory lives; `/home` and `/` may be different filesystems. Lowering the
 allowance does not delete existing uploads, but can prevent further uploads.
 
-In **Create input dataset**, **Clear unused files** deletes only unticked sources
-not retained for datasets or submitted preparations. Referenced sources stay
-listed, stored and counted and can be selected again, including after a prepared
-dataset is deleted. On restart, migration 009 restores previously cleared sources
+In **Create Input Dataset**, unticking excludes a file from the next preparation;
+it does not delete it. Follow **open Uploads in Storage** to permanently remove an
+unused upload using **Delete upload** and its confirmation. Storage is the only
+place offering permanent deletion. Referenced sources stay listed, stored and
+counted and can be selected again, including after a prepared dataset is deleted.
+On restart, migration 009 restores previously cleared sources
 where no current copy of that filename is listed; the latest retained ready version
 is restored without changing the sources used by existing jobs. Retention releases
 historical source references after their last dataset or unfinished job no longer
@@ -237,9 +239,10 @@ binds only to loopback. Do not expose it using a tunnel or reverse proxy.
    Select the named dataset in **New experiment** while it is still preparing;
    submitted configurations wait for validated inputs before becoming runnable.
    Prepared uploads can be reused in later experiments without preparing again.
-6. Open **My datasets** to see only your created datasets. Cancel a pending
-   preparation through its impact review, or delete a ready dataset after explicit
-   confirmation. Choose replacement inputs for never-started dependent configurations
+6. Open **My Datasets** to see your created datasets and their sizes in MiB. Cancel
+   a pending preparation through its impact review. To delete a ready dataset,
+   follow **View in Storage** to its entry, then **Delete** and confirm the review.
+   Choose replacement inputs for never-started dependent configurations
    or cancel those configurations. Running/retrying configurations retain their inputs;
    requested deletion waits until they finish or are cancelled. Source uploads,
    existing results and job history are kept separately.
@@ -266,6 +269,9 @@ invalidates an open action review; review again to see the current consequences.
 Requested deletion is shown as **Awaiting deletion** while references remain.
 The worker removes unreferenced prepared files from managed storage and recovers
 interrupted removal on restart. Provider examples are excluded from **My datasets**.
+The links at the top of Storage jump to Uploads, Prepared Input Datasets and Output
+Files. Input selection and My Datasets link to Storage rather than duplicate its
+permanent-deletion controls. Unticking alone keeps the uploaded copy available.
 Seven-day expiry and 96-hour warning notices are described below. Automatic deletion
 and mail delivery are separate opt-ins on the laptop.
 

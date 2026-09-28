@@ -142,7 +142,7 @@ def parse_args(argv=None):
                         help='Maximum repetitions per configuration in new submissions (1–1000; default: %(default)s)')
     parser.add_argument('--upload-allowance-gib',type=int,default=2,
                         help='Retained upload allowance per user in whole GiB (default: %(default)s); does not allocate disk space')
-    parser.add_argument('--notification-emails',action='store_true',help='Opt in to real problem and expiry emails using platform SMTP settings')
+    parser.add_argument('--notification-emails',action='store_true',help='Opt in to real completion, problem and expiry emails using platform SMTP settings')
     parser.add_argument('--retention-cleanup',action='store_true',help='Enable automatic expiry deletion; requires --notification-emails. Default: dates and notices only')
     parser.add_argument('--admin-email',help='Operator recipient for shared service problems; required with --notification-emails')
     parser.add_argument('--console-codes',action='store_true',help='Required local test mode; codes printed in this terminal')
@@ -178,6 +178,7 @@ def main(argv=None):
     from jasmine_web.batch.storage import Storage
     from jasmine_web.batch.notifications import Notifications, smtp_sender
     from jasmine_web.batch.retention import Retention
+    from jasmine_web.batch.completion_notifications import CompletionNotifications
     from jasmine_web.batch.worker import Worker
     from jasmine_web.batch.attempt_cleanup import AttemptCleanup
     os.umask(0o077)
@@ -266,10 +267,12 @@ def main(argv=None):
                 try:
                     service.notifications.reconcile()
                     service.retention.reconcile()
+                    service.completions.reconcile()
                     for _ in range(5):
                         problems=service.notifications.deliver_one()
                         expiry=service.retention.deliver_one()
-                        if not problems and not expiry:
+                        completion=service.completions.deliver_one()
+                        if not problems and not expiry and not completion:
                             break
                 except Exception as error:
                     print('Notification checks waiting for recovery: '+type(error).__name__,flush=True)
@@ -295,9 +298,12 @@ def main(argv=None):
         sender=smtp_sender(os.environ['SMTP_FROM_EMAIL']) if args.notification_emails else None)
     service.retention=Retention(service,origin=origin,cleanup_enabled=args.retention_cleanup,
         sender=smtp_sender(os.environ['SMTP_FROM_EMAIL']) if args.notification_emails else None)
+    service.completions=CompletionNotifications(service,origin=origin,
+        sender=smtp_sender(os.environ['SMTP_FROM_EMAIL']) if args.notification_emails else None)
     service.retention.reconcile()
+    service.completions.reconcile()
     print('Automatic expiry deletion: '+('enabled' if args.retention_cleanup else 'disabled; dates and notices recorded locally'),flush=True)
-    print('Problem email delivery: '+('enabled' if args.notification_emails else 'disabled; incidents recorded locally'),flush=True)
+    print('Completion, problem and expiry email delivery: '+('enabled' if args.notification_emails else 'disabled; notices recorded locally'),flush=True)
     app=create_app(service,origin=origin,local_codes=True,
                    lifespan=lifespan,worker_status=lambda:health['message'],
                    site=dict(name='SimPaths UK MultiRun',logo='/static/simpaths-logo.svg',

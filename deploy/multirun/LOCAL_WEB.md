@@ -483,8 +483,9 @@ deadline in UTC. Changed deadlines supersede earlier notices for that same item;
 unsent stale notices, including final reminders, are cancelled. Both reminders
 are scheduled for the revised deadline. Notices never attach data or diagnostic logs.
 The 96-hour interval starts when the warning is recorded; operators must monitor
-delivery failures. A mail outage does not indefinitely suspend deletion. Completion
-emails and automatic visualiser reports are not part of this change.
+delivery failures. A mail outage does not indefinitely suspend deletion.
+Experiment-completion emails are described below; automatic visualiser reports
+remain future work.
 
 Cleanup rechecks dependencies, keeps active downloads safe, and retries interrupted
 removal. It preserves job history. Prepared-input export/re-import remains future work.
@@ -518,3 +519,62 @@ does not need a 96-hour warning. Automatic expiry of usable results, datasets an
 uploads, unresolved-job expiry, and real email delivery remain off with the normal
 laptop command. Compact identity/removal receipts and database history remain, so
 an almost-empty execution directory can persist after its large files are removed.
+
+## Experiment-completion emails
+
+The normal laptop command now records completion notices, with **real delivery
+still disabled**. No new flag or model image rebuild is needed. Restarting the
+server applies migration 017 and starts the notification checks alongside the
+existing problem/expiry notifier. No emails are sent by the acceptance tests.
+
+Once all configurations have finished or stopped for review, a notice summarises
+successful, failed and cancelled configurations and links to the experiment's
+Results page. Queued retries, pending inputs, active work and temporary shared
+storage problems do not trigger completion mail. A failed companion does not
+discard successful results. The message includes current known output deletion
+dates or holds, and does not claim that a visualiser report is ready.
+
+Links require normal sign-in and current access; they contain no login token.
+Messages contain references and counts, without experiment names, input values,
+microdata, raw logs or attachments. Provider-data download restrictions still
+apply. The recipient is the registered, verified and currently approved owner.
+Local console codes simulate verification; real inbox verification remains a
+production requirement.
+
+Restarting the server preserves pending notices and delivery records. A manual
+retry suppresses stale unsent outcomes and may produce an updated outcome notice.
+Delivery failures retry separately from simulations, with the same Message-ID;
+an SMTP acknowledgement lost during a crash can still produce a duplicate email.
+Existing unfinished work is followed on upgrade; already finished historical
+experiments do not generate a backlog.
+
+Real delivery uses the existing explicit `--notification-emails --admin-email
+<address>` option and configured platform SMTP, shared with problem and expiry
+messages. Leave that option off for laptop testing. A future deployed service
+must use its public HTTPS origin for Results links, rather than this localhost
+launcher's address. See JAS-mine-web `docs/batch-queue.md` for the delivery contract.
+
+### Enabling delivery when the service is ready
+
+1. Configure `SMTP_HOST` and `SMTP_FROM_EMAIL` in the service environment, plus
+   `SMTP_LOGIN_EMAIL` and `SMTP_PASSWORD` if the server requires authentication.
+   `SMTP_PORT` defaults to `587`; `SMTP_USE_TLS` defaults to `true` and uses
+   STARTTLS. Store credentials in the deployment's private secret storage.
+2. Supply the administrator recipient with `--admin-email <address>` and add
+   `--notification-emails` to the existing launch command. This enables completion,
+   problem and expiry emails together. Automatic deletion remains a separate
+   `--retention-cleanup` option.
+3. Test first in a separate service containing only controlled test addresses,
+   including following a Results link through sign-in. Enabling delivery on an
+   existing service can send pending notices that are still relevant; inspect its
+   pending notifications before enabling delivery for all users.
+4. For the VM deployment, connect verification-code delivery to email and supply
+   the public HTTPS address to the browser and notification services. This is
+   remaining deployment integration: the local launcher still requires console
+   codes and creates loopback links, even with `--notification-emails` enabled.
+5. Monitor mail delivery failures and pending notices after launch. Mail delivery
+   retries independently of model execution and retains its records on restart.
+
+No model image rebuild is needed for these mail settings. The platform guide's
+**Enabling real email delivery** section documents the settings and production
+integration boundary. Real email delivery remains disabled for laptop development.

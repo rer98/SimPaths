@@ -113,7 +113,11 @@ web wrapper. See [LOCAL_WEB.md](LOCAL_WEB.md#importing-and-exporting-experiment-
 The browser sweep helper in `browser_sweep.py` uses the same expansion checks,
 then appends fixed cards with bounded generation history. It explicitly lists
 existing matches before creation and retains per-card input/output settings. See
-[the helper guide](LOCAL_WEB.md#generating-configurations-from-a-parameter-sweep).
+[the helper guide](LOCAL_WEB.md#generating-configurations-from-a-parameter-sweep). The
+`browser_copy.py` adapter restores new submitted form snapshots or reconstructs
+older per-run settings, including approved input replacements. See
+[copying experiments](LOCAL_WEB.md#copying-a-submitted-experiment).
+
 
 ## Scope and remaining integration
 

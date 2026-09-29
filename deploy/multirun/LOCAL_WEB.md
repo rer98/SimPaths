@@ -145,6 +145,45 @@ refresh and YAML. Temporary test resources were removed. The desktop and narrow
 screenshots were also inspected. This was a focused backend suite, not a full
 queue/Docker rerun.
 
+### Copying a submitted experiment
+
+In **My Jobs**, choose **Copy to New Experiment** beneath an experiment heading.
+Confirm replacement of the current draft; declining leaves the draft unchanged.
+The page opens New Experiment with the source name followed by `(copy)`. Edit the
+settings and use the normal review/submission steps. Copying itself creates no
+jobs, uploads, input copies or retention extensions, and leaves the original
+experiment and its results unchanged. Preparation jobs do not offer this action.
+
+The copy preserves configuration names/order, model and collector settings,
+baseline, repetitions, exact first seed and sweep origin. New submissions retain
+validated form settings in the queue specification, so dataset inheritance and
+common overrides can be restored exactly. Older submissions are reconstructed
+from their per-configuration effective settings; the first configuration supplies
+the form defaults. Any approved input replacements made after submission are
+included. Older retry preferences use the current job controls, with retries off
+if any configuration has opted out; new submissions preserve the submitted choice.
+
+An experiment can be copied while queued/running or after completion, failure,
+cancellation or deletion of its output files. The service checks ownership and
+current input permissions. Missing/deleted/expired or inaccessible inputs remain
+marked as unavailable and must be replaced before submitting. Owned pending
+inputs are accepted. If the repetition allowance was lowered, the saved number
+is shown with a request to reduce it; it is not silently changed. An unavailable
+model release or unsupported saved settings produce an error without replacing
+the draft. Input compatibility and execution permissions are checked again at
+review and submission.
+
+The new draft, including unavailable input references, survives refresh and can
+be exported as YAML. Results, previous attempts and cancellation/failure state
+are not copied into new jobs. No model image rebuild or database migration is
+needed; restart the launcher after updating both repositories.
+
+Validation: 83 focused local model/configuration/submission/container tests pass,
+including nine copy-specific cases. All 16 HTTP/database tests passed in
+`multirun-browser-20260929-045717`, and all 46 browser checks passed in the
+browser-only rerun `multirun-browser-20260929-050150` after a test assertion fix.
+Temporary test resources were cleaned up; no real simulations or emails were used.
+
 ## Viewing and downloading completed results
 
 Open **My jobs → View results** for an experiment. Its results link can be

@@ -14,10 +14,11 @@ from .submission_adapter import SubmissionModel
 from .public_workbooks import public_workbooks
 from .browser_yaml import BrowserYaml
 from .browser_sweep import BrowserSweep
+from .browser_copy import BrowserCopy
 from .schema import COLLECTOR_FIELDS, REQUIRED_OUTPUT, ConfigurationError
 
 
-class BrowserModel(BrowserYaml, BrowserSweep, SubmissionModel):
+class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
     def configuration_name(self, run):
         data = normalise(run['parameters']).as_dict()
         return next(item['name'] for item in data['run_sets'] if item['id'] == run['id'])

@@ -127,6 +127,36 @@ def _dimension(value, field, path, limits):
     return result
 
 
+def _generation(value, path, limits):
+    """Bounded creation history; workers always execute the card's current values."""
+    _mapping(value, path, {'version','combination','base','parameters','values'},
+             {'version','combination','base','parameters','values'})
+    if value['version'] != 'simpaths.sweep.v1' or value['combination'] != 'all':
+        raise ConfigurationError(path, 'unsupported sweep origin')
+    raw = _mapping(value['base'],path+'.base',
+        {'id','name','dataset_revision','common','model_args','collector_args'},
+        {'id','name','dataset_revision','common','model_args','collector_args'})
+    base = dict(id=_identifier(raw['id'],path+'.base.id'), name=_name(raw['name'],path+'.base.name'),
+        dataset_revision=_identifier(raw['dataset_revision'],path+'.base.dataset_revision'),
+        common=_common(raw['common'],path+'.base.common'),
+        **_settings({k:raw[k] for k in ('model_args','collector_args')},path+'.base'))
+    fields = {'model_args.'+k:v for k,v in MODEL_FIELDS.items()}
+    parameters = _mapping(value['parameters'],path+'.parameters',fields)
+    if not parameters:
+        raise ConfigurationError(path, 'sweep origin must have parameters')
+    parameters = {k:_dimension(v,fields[k],path+'.parameters.'+k,limits) for k,v in sorted(parameters.items())}
+    count = 1
+    for values in parameters.values():
+        count *= len(values)
+        if count > limits.max_run_sets:
+            raise ConfigurationError(path, 'sweep origin exceeds the configuration limit')
+    _mapping(value['values'],path+'.values',parameters,parameters)
+    values = {k:fields[k].validate(v,path+'.values.'+k) for k,v in value['values'].items()}
+    if any(v not in parameters[k] for k,v in values.items()):
+        raise ConfigurationError(path, 'origin values must belong to the saved sweep')
+    return dict(version=value['version'],combination='all',base=base,parameters=parameters,values=values)
+
+
 def _json(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
 
@@ -254,7 +284,7 @@ def normalise(document, *, limits=Limits()):
         raise ConfigurationError("run_sets", "expected a bounded list")
     for i, item in enumerate(manual):
         path = f"run_sets[{i}]"
-        _mapping(item, path, {"id", "name", "model_args", "collector_args", "dataset_revision", "common"}, {"id", "name"})
+        _mapping(item, path, {"id", "name", "model_args", "collector_args", "dataset_revision", "common", "generation"}, {"id", "name"})
         settings = _settings({key: item[key] for key in ("model_args", "collector_args") if key in item}, path)
         overrides = {}
         if 'dataset_revision' in item:
@@ -262,6 +292,8 @@ def normalise(document, *, limits=Limits()):
         if 'common' in item:
             overrides['common'] = _common(item['common'], path + '.common')
         add_run(item["id"], item["name"], settings, path, overrides)
+        if 'generation' in item:
+            run_sets[-1]['generation'] = _generation(item['generation'],path+'.generation',limits)
 
     recipe = None
     if "sweep" in document:

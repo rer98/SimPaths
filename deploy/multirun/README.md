@@ -110,7 +110,10 @@ helper rejects unresolved mixed inputs. Browser cards and review expose these
 choices. Browser YAML import/export now uses the same normaliser through
 `browser_yaml.py`; it also retains baseline and retry preferences in a versioned
 web wrapper. See [LOCAL_WEB.md](LOCAL_WEB.md#importing-and-exporting-experiment-settings).
-Browser sweep generation remains separate work.
+The browser sweep helper in `browser_sweep.py` uses the same expansion checks,
+then appends fixed cards with bounded generation history. It explicitly lists
+existing matches before creation and retains per-card input/output settings. See
+[the helper guide](LOCAL_WEB.md#generating-configurations-from-a-parameter-sweep).
 
 ## Scope and remaining integration
 
@@ -521,8 +524,8 @@ sets the new-submission repetition limit; `BrowserModel` uses the same setting
 for its form and description. Accepted jobs keep their frozen repetitions if the
 operator later lowers the limit. Dataset compatibility and the parser's technical
 ceiling are still checked during execution. Other bounded profile limits remain.
-Sweep normalisation remains available independently;
-the local browser page uses fixed configuration cards. See
+Sweep normalisation remains available independently; the local browser helper
+uses it to generate fixed configuration cards before review/submission. See
 [Local browser preview](LOCAL_WEB.md) for approval, startup and acceptance commands.
 SMTP configuration and production team-approval administration remain later work.
 Retained files still need storage accounting, expiry and hard quotas before public

@@ -13,10 +13,11 @@ from .schema import MODEL_FIELDS, OUTPUT_CONTRACT, SCHEMA_VERSION, SEED_PROFILE
 from .submission_adapter import SubmissionModel
 from .public_workbooks import public_workbooks
 from .browser_yaml import BrowserYaml
+from .browser_sweep import BrowserSweep
 from .schema import COLLECTOR_FIELDS, REQUIRED_OUTPUT, ConfigurationError
 
 
-class BrowserModel(BrowserYaml, SubmissionModel):
+class BrowserModel(BrowserYaml, BrowserSweep, SubmissionModel):
     def configuration_name(self, run):
         data = normalise(run['parameters']).as_dict()
         return next(item['name'] for item in data['run_sets'] if item['id'] == run['id'])
@@ -24,7 +25,7 @@ class BrowserModel(BrowserYaml, SubmissionModel):
     def browser_form(self):
         repetition_word='repetition' if self.max_repetitions==1 else 'repetitions'
         return dict(title='SimPaths UK MultiRun', max_configurations=10, max_repetitions=self.max_repetitions,
-            yaml=True, first_seed='606',
+            yaml=True, sweeps=True, first_seed='606',
             releases=[dict(id=k, name='SimPaths UK — uploaded inputs',
                 workbooks=list(public_workbooks(v['defaults']))) for k,v in self.releases.items()],
             common=[dict(id='population',label='Simulated population',kind='int',default=20000,min=1,max=50000),
@@ -93,7 +94,7 @@ class BrowserModel(BrowserYaml, SubmissionModel):
                 or type(form['auto_retry']) is not bool):
             raise ArtifactError(f'Supply the experiment fields, 1–10 configurations and 1–{self.max_repetitions} repetitions')
         for run in form['run_sets']:
-            if not isinstance(run,dict) or set(run) - {'id','name','model_args','collector_args','dataset_revision','common'} or not {'id','name','model_args'} <= set(run):
+            if not isinstance(run,dict) or set(run) - {'id','name','model_args','collector_args','dataset_revision','common','generation'} or not {'id','name','model_args'} <= set(run):
                 raise ArtifactError('Each configuration needs a name and model settings')
         release = form.get('model_release', next(iter(self.releases)))
         if type(release) is not str or release not in self.releases:

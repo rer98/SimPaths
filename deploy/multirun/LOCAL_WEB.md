@@ -41,7 +41,7 @@ Population, years and the shared seed plan are configured separately. Advanced
 capabilities and output settings not exposed in this browser remain controlled by
 the profile; the native launcher's ability to assign a field does not establish
 that it is suitable for this web workflow. YAML import/export is connected to the
-browser form; the sweep helper remains future browser work.
+browser form; a sweep helper generates additional fixed configuration cards.
 
 This preview supports 1–10 configurations. Repetitions default to a maximum of 3
 per configuration; the operator can set `--max-repetitions` when starting the
@@ -80,8 +80,9 @@ Dataset; importing YAML does not perform that preparation.
 
 Files must be UTF-8 and at most 64 KiB. Duplicate keys, tags, anchors/aliases, merge
 keys, excessive nesting, multiple documents and non-finite numbers are rejected by
-the existing bounded parser. Sweep recipes are not yet accepted by the browser;
-use explicit configuration cards. Input workbooks, populations and UKMOD files
+the existing bounded parser. YAML exports contain fixed configuration cards and
+any saved sweep origin. Direct sweep recipes are not accepted by YAML import;
+use the browser helper to generate cards first. Input workbooks, populations and UKMOD files
 are not included in a settings export. Dataset references grant no access: a missing,
 expired or unauthorised dataset remains an unavailable selection that the user must
 replace before submission. Known locked population/year values must agree with the
@@ -96,6 +97,53 @@ the local launcher after updating both repositories.
 Acceptance: 65 local model/configuration/submission/container tests pass, including
 8 YAML-specific tests. The laptop run `multirun-browser-20260929-000018` passed
 10 HTTP/database tests and 43 browser checks; temporary test resources were removed.
+
+### Generating configurations from a parameter sweep
+
+Below the cards in **New Experiment**, open **Generate configurations from a
+parameter sweep**. Choose a starting card and add one or more supported model
+parameters. Enter comma-separated values, or choose **Start, end and step** for a
+numeric range. Boolean values are `true` and `false`. Ranges include both ends;
+the end must be reached exactly by whole steps. Descending ranges need a negative
+step. Repeated values, unsupported fields and invalid combinations are rejected.
+
+**Preview sweep** lists every combination and the number of configurations and
+simulations the experiment would contain. Existing cards are kept. A combination
+with the same effective dataset, population/years, model and collector settings
+as an existing card is explicitly shown as **Use existing card** and is not added
+again. For example, starting with saving rate 0.04 and trying 0.04, 0.05 and 0.06
+adds two cards; with three repetitions each the experiment contains nine
+simulations. Multiple parameters use all combinations, not positional pairing.
+
+**Add generated configurations** appends the new cards after this preview. The
+starting card's dataset choice (including inheritance), common overrides and
+output settings are copied. Existing cards and the baseline stay unchanged.
+All cards use the experiment's common repetition count and seed sequence.
+The deployment's ten-configuration limit includes existing cards; oversized
+products are rejected before expansion. Seeds, execution controls, input datasets,
+population/years and collector settings are not sweep dimensions. They can still
+be set through the existing form controls where supported.
+
+Generated cards remain editable. Refresh preserves both the cards and the helper
+values; Reset clears the helper and restores the usual single default card.
+Changing settings after preview requires another preview. **Parameter sweep
+origin** records the starting settings and generated values; it is creation
+history, so later edits may make the current values different. YAML export/import,
+Duplicate and submission preserve this bounded `simpaths.sweep.v1` metadata.
+Workers and retries execute the frozen current card values, never the recipe.
+
+The preview endpoint checks session, CSRF, dataset access and locked input fields.
+Pending authorised datasets are accepted. Previewing and generating draft cards
+create no jobs, uploads or retention extensions. Normal review and submission
+perform their existing checks. No database migration or model image rebuild is
+needed; restart the launcher to load both repository changes.
+
+Validation: 74 local configuration/model/submission/container tests pass, including
+nine sweep-specific cases. The laptop run `multirun-browser-20260929-004139` passed
+all 12 HTTP/database tests and all 44 browser checks, including sweep generation,
+refresh and YAML. Temporary test resources were removed. The desktop and narrow
+screenshots were also inspected. This was a focused backend suite, not a full
+queue/Docker rerun.
 
 ## Viewing and downloading completed results
 

@@ -294,7 +294,10 @@ def main(argv=None):
     from jasmine_web.batch.browser import create_app
     import uvicorn
     origin=f'http://127.0.0.1:{args.port}'
-    service=Submissions(access,datasets,BrowserModel(releases,max_repetitions=args.max_repetitions))
+    # Explicit, reviewed local recovery from laptop suspension/reconciliation
+    # delay. Hosted services keep this disabled unless their operator opts in.
+    service=Submissions(access,datasets,BrowserModel(releases,max_repetitions=args.max_repetitions),
+                        allow_deadline_credit=True)
     from .queue_adapter import result_catalogue, result_name, result_deletion_targets, result_inputs, result_settings
     from jasmine_web.batch.output_management import OutputManagement
     service.results=Results(service,executor,result_catalogue,name=result_name,

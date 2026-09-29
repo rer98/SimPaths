@@ -184,6 +184,50 @@ including nine copy-specific cases. All 16 HTTP/database tests passed in
 browser-only rerun `multirun-browser-20260929-050150` after a test assertion fix.
 Temporary test resources were cleaned up; no real simulations or emails were used.
 
+### Retrying a failed configuration in its original experiment
+
+In **My Jobs**, a simulation configuration marked **needs review** has a
+**Review retry** button. The review shows the configuration, input reference,
+saved seed sequence, previous outcome, attempts used and remaining time allowance.
+**Confirm retry** queues that configuration again from the beginning, keeping the
+same settings and seeds. Completed configurations, the baseline, previous attempt
+history and retained results remain in the original experiment. Nothing is
+submitted by opening the review, going Back or refreshing the page. **Cancel**
+still means cancel, never retry. Preparation jobs use their existing controls.
+
+Retries still use normal queue admission and fresh private working directories.
+They share the original three-attempt maximum, per-attempt deadline and total
+time allowance. The review explains when access, deleted inputs, unfinished-work
+allowances, cancellation/expiry, attempts or time budgets prevent a retry.
+Permissions, inputs and budgets are checked again on confirmation. A retry does
+not correct model settings or increase memory/storage allowances; an unchanged
+model/resource failure may recur.
+
+**Local laptop recovery:** the loopback launcher explicitly enables an optional
+**Exclude time recorded after the previous deadline** checkbox for a finished
+time-limit failure. It starts unchecked. The review identifies the precise delay
+and the resulting budget; confirmation records a bounded adjustment in PostgreSQL.
+This accounts for late reconciliation after sleep or service interruption without
+claiming to measure CPU time. Time before the original deadline still counts,
+all attempts still count, and neither the next attempt limit nor total configured
+allowance is increased. Raw elapsed times and failure records are preserved.
+An adjustment cannot be granted twice for the same recorded interval. Ordinary
+automatic retries do not grant adjustments or restart time-limit failures.
+
+The generic service disables this local option by default. Production operators
+must make an explicit decision before enabling it; it does not imply that a VM
+will sleep or that all delayed reconciliation should be credited. Keep the laptop
+awake during simulations. If the pre-deadline budget or attempts are genuinely
+exhausted, copying to a new experiment remains available where inputs permit.
+
+Restart the launcher to apply migration 018 and load the controls, then refresh
+the browser. No image rebuild or automatic restart of failed jobs occurs. The
+migration preserves existing time charges and grants no retrospective adjustments.
+Acceptance passed in `multirun-browser-20260929-101651`: all 277 backend tests
+and all 47 browser checks passed. Temporary test resources were cleaned up.
+The browser proof confirmed a retry after the explicit local delay adjustment,
+preserving the completed baseline and original experiment's Results page.
+
 ## Viewing and downloading completed results
 
 Open **My jobs → View results** for an experiment. Its results link can be

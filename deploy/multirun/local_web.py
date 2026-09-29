@@ -152,6 +152,13 @@ def parse_args(argv=None):
     parser.add_argument('--retention-cleanup',action='store_true',help='Enable automatic expiry deletion; requires --notification-emails. Default: dates and notices only')
     parser.add_argument('--admin-email',help='Operator recipient for shared service problems; required with --notification-emails')
     parser.add_argument('--console-codes',action='store_true',help='Required local test mode; codes printed in this terminal')
+    parser.add_argument('--visualiser-build',type=Path,help='Pinned local Visualiser build directory')
+    parser.add_argument('--visualiser-preview',action='store_true',
+                        help='Enable development aggregate charts for own inputs and verified public Quick Start data')
+    parser.add_argument('--visualiser-memory-mib',type=int,default=1024,
+                        help='Shared processing reservation; Node heap uses 256 MiB less (512–4096 MiB)')
+    parser.add_argument('--visualiser-timeout-seconds',type=int,default=600,
+                        help='Maximum time to process one selected visualisation (60–3600 seconds)')
     args=parser.parse_args(argv)
     try:
         deployment_repetition_limit(args.max_repetitions)
@@ -163,6 +170,10 @@ def parse_args(argv=None):
         parser.error('Download limits must be 1–1048576 MiB, 1–1024 GiB and 1–168 hours respectively')
     if args.retention_cleanup and not args.notification_emails:
         parser.error('--retention-cleanup requires --notification-emails so expiry warnings can be delivered')
+    if bool(args.visualiser_build)!=args.visualiser_preview:
+        parser.error('Development visualiser requires both --visualiser-build and --visualiser-preview')
+    if not 512<=args.visualiser_memory_mib<=4096 or not 60<=args.visualiser_timeout_seconds<=3600:
+        parser.error('Visualiser limits must be 512–4096 MiB and 60–3600 seconds')
     if args.command=='serve' and (not args.console_codes or not 1024<=args.port<=65535):
         parser.error('This local preview requires --console-codes and an unprivileged port')
     return args
@@ -305,6 +316,14 @@ def main(argv=None):
                             downloads=dict(threshold=args.download_threshold_mib*1024**2,
                                            capacity=args.download_cache_gib*1024**3,
                                            lifetime=args.download_cache_hours*3600))
+    if args.visualiser_preview:
+        from .visualiser_backend import VisualiserBackend
+        from jasmine_web.batch.visualiser import Visualiser
+        backend=VisualiserBackend(args.visualiser_build,execution,public_datasets=keys,
+                                  memory_mib=args.visualiser_memory_mib)
+        service.visualiser=Visualiser(service.results,backend,
+            resources=Resources(1000,args.visualiser_memory_mib,512),runtime=args.visualiser_timeout_seconds)
+        print('VM Visualiser: development aggregate preview; paired impacts await the updated release',flush=True)
     service.outputs=OutputManagement(service,executor,result_deletion_targets)
     service.attempt_cleanup=AttemptCleanup(q,executor,outputs=result_deletion_targets,
                                            failed_preparation=adapter.preparation.retire_failed)

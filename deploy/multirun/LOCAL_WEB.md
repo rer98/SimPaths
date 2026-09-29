@@ -872,3 +872,17 @@ launcher's address. See JAS-mine-web `docs/batch-queue.md` for the delivery cont
 No model image rebuild is needed for these mail settings. The platform guide's
 **Enabling real email delivery** section documents the settings and production
 integration boundary. Real email delivery remains disabled for laptop development.
+
+## VM Visualiser development preview
+
+The opt-in [VM Visualiser connection](VISUALISER.md) reuses the existing charts
+with aggregate results processed on the server. Add `--visualiser-build PATH
+--visualiser-preview` to the ordinary launch command after creating a pinned build.
+Completed own-input and explicitly verified public Quick Start configurations can
+be selected in Results; raw provider downloads remain unavailable. Other provider
+data is excluded while its release controls and the updated calculation interface
+are pending. The current preview shows levels and disables the old VM delta view.
+
+The guide documents offline building, limits, private cache recovery, the retained
+local-folder option and synthetic acceptance commands. It requires no image
+rebuild, changed model settings or real email delivery.

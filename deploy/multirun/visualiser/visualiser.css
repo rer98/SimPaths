@@ -1,0 +1,18 @@
+/* (C) Copyright 2026, by Ross Richardson
+ * VM data controls complement the maintained Visualiser application's styles.
+ * @author ross richardson
+ */
+.vm-return { color:#faf7ef; font-size:14px; font-weight:600; text-decoration:none;
+  border:1px solid #ffffff66; border-radius:6px; padding:10px 14px; }
+.vm-source-button { display:block; width:100%; box-sizing:border-box; margin:0 0 10px;
+  padding:10px; border:1px solid #0f93a1; border-radius:6px; background:#0f93a1;
+  color:#faf7ef; font-family:inherit; font-size:16px; font-weight:600; cursor:pointer; }
+.vm-source-button:disabled { opacity:.6; cursor:default; }
+.vm-source-help { margin:0 0 12px; color:#475569; font-size:12px; line-height:1.5; }
+.vm-source-message { color:#c2410c; font-size:12px; line-height:1.5; }
+.vm-source-message a { color:#14687c; }
+.vm-source { margin-top:14px; padding:12px; background:#0f93a110;
+  border:1px solid #0f93a133; border-radius:6px; font-size:12px; overflow-wrap:anywhere; }
+.vm-source p { margin:8px 0 0; }
+.vm-notice { color:#c2410c; background:#fee8e2; border-left:4px solid #ff6e51;
+  border-radius:6px; padding:12px; font-size:13px; line-height:1.6; }

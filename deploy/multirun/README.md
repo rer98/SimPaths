@@ -534,3 +534,10 @@ uses it to generate fixed configuration cards before review/submission. See
 SMTP configuration and production team-approval administration remain later work.
 Retained files still need storage accounting, expiry and hard quotas before public
 deployment. Private planning files are not dependencies of these services.
+
+The opt-in [VM Visualiser development connection](VISUALISER.md) processes verified
+native outputs privately, publishes authenticated aggregate rows and serves a
+pinned build of the existing charts. Its initial scope is levels for owner-supplied
+inputs and verified public Quick Start datasets. Updated paired impacts, reviewed
+restricted-data release rules and production resource isolation remain separate
+integration checkpoints. The local-folder option stays entirely in the browser.

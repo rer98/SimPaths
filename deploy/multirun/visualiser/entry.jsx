@@ -11,15 +11,15 @@ import {parseLocalFolder} from './localFolderParser';
 function Page(){
   const key=location.pathname.split('/').pop();
   const [result,setResult]=useState(null),[local,setLocal]=useState(null);
-  const [message,setMessage]=useState('Loading VM results…');
+  const [message,setMessage]=useState('Loading online results…');
   const [processing,setProcessing]=useState(false);
   const generation=useRef(0);
   async function vm(){
-    const serial=++generation.current;setLocal(null);setResult(null);setProcessing(false);setMessage('Loading VM results…');
+    const serial=++generation.current;setLocal(null);setResult(null);setProcessing(false);setMessage('Loading online results…');
     try{
       const response=await fetch('/api/visualiser/'+key+'/data',{credentials:'same-origin',cache:'no-store'});
       const data=await response.json();
-      if(!response.ok)throw Error(data.error||'VM results are unavailable.');
+      if(!response.ok)throw Error(data.error||'Online results are unavailable.');
       if(serial!==generation.current)return;
       setResult(data);setMessage('');
     }catch(error){
@@ -41,14 +41,14 @@ function Page(){
   const rows=useMemo(()=>data.map(row=>Object.fromEntries(Object.entries(row).map(([k,v])=>
     [k,v===null?NaN:v]))),[data]);
   const controls=<>
-    <p className="vm-source-help">View your selected VM results, or select a local parent folder with runs in Baseline and Scenario subfolders.</p>
-    <button className="vm-source-button" onClick={vm}>View VM Results</button>
+    <p className="vm-source-help">View your selected online results, or select a local parent folder with runs in Baseline and Scenario subfolders.</p>
+    <button className="vm-source-button" onClick={vm}>View Online Results</button>
     <button className="vm-source-button" onClick={localFiles} disabled={processing}>
       Visualise Locally Saved Data</button>
     <p className="vm-source-help">Local files are processed in this browser and are never uploaded.</p>
-    {message&&<p className="vm-source-message" role="status">{message} <a href="/">Sign in or return to Results</a></p>}
+    {message&&<p className="vm-source-message" role="status">{message} <a href="/">Return to SimPaths Online</a></p>}
     {data.length>0&&<section className="vm-source" aria-label="Displayed data source">
-      <strong>Data source: {local?'locally saved data':'VM results'}</strong>
+      <strong>Data source: {local?'locally saved data':'Online results'}</strong>
       {result&&result.configurations.map(c=><p key={c.role}>{c.role}{c.name?' - '+c.name:''}</p>)}
     </section>}
   </>;

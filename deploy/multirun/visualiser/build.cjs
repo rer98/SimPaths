@@ -138,7 +138,7 @@ const compile=(entry,filename,target)=>new Promise((resolve,reject)=>{
       .replaceAll('src="/pmh_logo.png"','src="/visualiser-assets/pmh_logo.png"')
       .replaceAll('href="/citation.html"','href="/visualiser-assets/citation.html"')
       .replaceAll('href="/interpreting-results.html"','href="/visualiser-assets/Interpreting-results.html"')
-      .replace('← Back to Dashboard','← Return to MultiRun');
+      .replace('← Back to Dashboard','← Return to SimPaths Online');
     if(/<script\b|\son\w+\s*=|<link[^>]+href="https?:|<img[^>]+src="https?:/i.test(text))
       throw Error('Review changed guidance resources before hosting');
     fs.writeFileSync(path.join(args.output,name+'.html'),text);

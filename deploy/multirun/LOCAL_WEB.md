@@ -8,8 +8,9 @@ This is a separate local application at **http://127.0.0.1:5002**. It uses the
 tested PostgreSQL queue and container adapters. It does not start `app.py`, use
 Redis, or replace the interactive SingleRun page. No image rebuild is needed.
 The page uses the same SimPaths logo and favicon as SingleRun, with the logo
-beside **SimPaths UK MultiRun**, including before sign-in. The assets are served
-locally by JAS-mine-web.
+beside **SimPaths Online**, with **UK MultiRun** beneath the title, including
+before sign-in. The browser tab is titled **SimPaths Online — UK MultiRun**. The
+assets are served locally by JAS-mine-web.
 
 You can sign in, select prepared training inputs or upload and prepare your own,
 create fixed configuration cards, duplicate them, select a baseline, review the

@@ -340,7 +340,7 @@ def main(argv=None):
     print('Completion, problem and expiry email delivery: '+('enabled' if args.notification_emails else 'disabled; notices recorded locally'),flush=True)
     app=create_app(service,origin=origin,local_codes=True,
                    lifespan=lifespan,worker_status=lambda:health['message'],
-                   site=dict(name='SimPaths UK MultiRun',logo='/static/simpaths-logo.svg',
+                   site=dict(name='SimPaths Online',subtitle='UK MultiRun',logo='/static/simpaths-logo.svg',
                              icon='/static/simpaths-favicon.svg'),
                    footer_links=(('SimPaths','https://simpaths.org'),
                                  ('GitHub','https://github.com/simpaths/SimPaths'),

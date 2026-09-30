@@ -55,7 +55,7 @@ class BrowserYaml:
     def browser_export_yaml(self, dataset, form):
         request = self.browser_configuration(dataset, form)
         document = dict(format=WEB_FORMAT, **request)
-        text = ('# SimPaths MultiRun experiment settings. Input files are not included.\n'
+        text = ('# SimPaths Online — UK MultiRun experiment settings. Input files are not included.\n'
                 '# Dataset references require access on the service where this file is imported.\n'
                 + yaml.safe_dump(document, sort_keys=False, allow_unicode=True))
         if len(text.encode('utf-8')) > Limits().max_bytes:

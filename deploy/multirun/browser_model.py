@@ -25,7 +25,7 @@ class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
 
     def browser_form(self):
         repetition_word='repetition' if self.max_repetitions==1 else 'repetitions'
-        return dict(title='SimPaths UK MultiRun', max_configurations=10, max_repetitions=self.max_repetitions,
+        return dict(title='SimPaths Online', subtitle='UK MultiRun', max_configurations=10, max_repetitions=self.max_repetitions,
             yaml=True, sweeps=True, first_seed='606',
             releases=[dict(id=k, name='SimPaths UK — uploaded inputs',
                 workbooks=list(public_workbooks(v['defaults']))) for k,v in self.releases.items()],

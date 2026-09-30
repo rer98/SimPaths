@@ -33,7 +33,7 @@ test('original application presents its topics, explanations, credits and local 
   for(const label of ['SimPaths Policy Impacts Visualiser','Connect Data','Explore Variables',
     'Demographics','Activity status','Income','Health','Highest Level of Education',
     'Getting Started','Limitations &amp; Interpretation','Credit &amp; Citation','Send Feedback',
-    '/visualiser-assets/pmh_logo.png','/visualiser-assets/UKRILogo.png','Return to MultiRun']){
+    '/visualiser-assets/pmh_logo.png','/visualiser-assets/UKRILogo.png','Return to SimPaths Online']){
     assert.ok(html.includes(label),label);
   }
   assert.ok(html.includes('Baseline - &lt;script&gt;fictional&lt;/script&gt;'));

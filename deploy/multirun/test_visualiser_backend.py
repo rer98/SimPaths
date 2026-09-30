@@ -155,7 +155,7 @@ class VisualiserBackendTests(unittest.TestCase):
             for blocked in ('<script','fonts.googleapis.com','fonts.gstatic.com','onerror='):
                 self.assertNotIn(blocked,text)
             self.assertIn('/visualiser-assets/pmh_logo.png',text)
-            self.assertIn('Return to MultiRun',text)
+            self.assertIn('Return to SimPaths Online',text)
         self.assertNotIn('SimPaths_All_Aggregated_Outputs.csv',self.backend.assets)
         self.assertNotIn('build.json',self.backend.assets)
 

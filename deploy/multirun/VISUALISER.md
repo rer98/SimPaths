@@ -11,6 +11,13 @@ The VM reads its verified native Person and BenefitUnit
 CSVs and publishes aggregate rows through an authenticated API. The browser does
 not fetch VM CSVs, databases, raw records, private per-run summaries or logs.
 
+The service is branded **SimPaths Online**, with **UK MultiRun** beneath its
+webpage title. Visualiser and guidance-page navigation uses **Return to SimPaths
+Online**. **SimPathsWeb** remains the development project name, and **JAS-mine-web**
+is the underlying web software; those technical names are not the service title.
+The Visualiser labels service-generated output **Online results**, alongside
+**Visualise Locally Saved Data** for output selected from the user's computer.
+
 This first connection uses the available Visualiser revision
 `9a904b52c8a7d2306d3a9e5d175cf2614de0c0ee`. Its existing calculations provide
 Baseline and Scenario **levels**. The VM page disables its old delta view;
@@ -26,6 +33,9 @@ Visualiser/SimPaths teams.
 The builder reads a trusted Visualiser checkout, preserves upstream notices and
 records its commit, source hashes, dependency versions, build toolchain and asset
 hashes. It copies neither the default aggregate dataset nor raw example data.
+Use a clean checkout of the pinned revision, separate from any branch containing
+unfinished upstream contributions. The local branding build uses
+`/tmp/codex-rer/visualiser-source-9a904b5-20260930` for this purpose.
 The original checkout is not changed. `adapt_app.cjs` applies guarded data-source
 edits to a generated copy of `src/App.js`, replacing its bundled-default loader
 and Connect Data controls with the authenticated VM/local adapter. It retains
@@ -69,8 +79,8 @@ Add both flags to the existing launcher:
   --visualiser-preview
 ```
 
-For the maintained-application temporary build, use
-`--visualiser-build /tmp/codex-rer/visualiser-build-20260930-a` instead. Keep that
+For the maintained-application temporary build with the current SimPaths Online
+branding, use `--visualiser-build /tmp/codex-rer/visualiser-build-20260930-d` instead. Keep that
 directory while the service uses it; build a persistent copy for longer use.
 No model image rebuild or repeat simulation is required. Restart applies platform
 migration 019 and starts the private processor alongside the existing worker.
@@ -138,7 +148,7 @@ readers, and a deletion request prevents a newly finished aggregate being publis
 
 **Visualise Locally Saved Data** uses the existing folder scanner and calculation
 workers in the browser. Raw local files stay local and are not uploaded. Returning
-to **View VM Results** clears that source and reloads only authenticated aggregates.
+to **View Online Results** clears that source and reloads only authenticated aggregates.
 Combining local and VM sources in one comparison is deliberately deferred because
 statistical compatibility needs a separate design.
 
@@ -159,7 +169,7 @@ Unknown categories fail publication rather than leaking arbitrary raw strings.
 ```bash
 cd ~/git/JAS-mine/JAS-mine-web
 ~/simpaths-browser-tests/venv/bin/python tests/browser/batch_visualiser.py \
-  --build /tmp/codex-rer/visualiser-build-20260930-a
+  --build /tmp/codex-rer/visualiser-build-20260930-d
 ```
 
 The default runs the complete backend suite, then a real-browser proof with
@@ -184,7 +194,7 @@ The model-side numerical/schema tests run separately:
 
 ```bash
 cd ~/git/SimPathsWeb/SimPaths
-SIMPATHS_VISUALISER_TEST_BUILD=/tmp/codex-rer/visualiser-build-20260930-a \
+SIMPATHS_VISUALISER_TEST_BUILD=/tmp/codex-rer/visualiser-build-20260930-d \
   ~/simpaths-browser-tests/venv/bin/python \
   -m unittest deploy.multirun.test_visualiser_backend -v
 ```
@@ -238,7 +248,7 @@ Build `a` replaces the initial simplified page with the actual upstream `App.js`
 application. Only data sourcing and its explanatory text are adapted; the original
 layout, topic/domain navigation, descriptions, guidance and credit/feedback panels
 are retained. There is no Outcome dropdown added by the hosting service. The
-Connect Data panel offers **View VM Results** and **Visualise Locally Saved Data**,
+Connect Data panel offers **View Online Results** and **Visualise Locally Saved Data**,
 and identifies the chosen configuration names. Loading/error states render no
 charts until aggregate or local data is available.
 
@@ -266,6 +276,29 @@ SIMPATHS_VISUALISER_SOURCE="$HOME/git/SimPathsWeb/SimPaths-Policy-Impacts-Visual
 SIMPATHS_VISUALISER_DEPENDENCIES="$HOME/.npm/_npx/668c188756b835f3/node_modules" \
   /usr/bin/node deploy/multirun/visualiser/test_app.cjs
 ```
+
+## Production web-server boundary
+
+**Required deployment check, recorded 30 September 2026:** the production web
+server/reverse proxy must not expose private storage through static directory
+mappings. Keep uploads, prepared inputs, execution workspaces/raw output,
+download/Visualiser caches, logs, diagnostics and backups outside public static
+roots. Disable directory listing. Publish only approved application assets and
+route protected reads through the application's authorization checks; proxy
+caching must not create a public copy of protected responses or archives.
+
+Before opening the service, test the external production URL with fictional data.
+Verify direct/guessed file paths and traversal attempts do not expose private
+files, provider-derived raw downloads remain denied including partial/resumed
+requests, and VM Visualiser network responses contain aggregates only. Record the
+production configuration and test evidence. The passing laptop application tests
+do not establish the safety of a future production web-server configuration.
+
+Authorized downloads of a user's own-data results remain intentional. Selecting
+locally saved files in the Visualiser is also permitted. Neither feature grants
+raw access to provider-derived output or makes private VM storage a public asset.
+This check is also recorded in the planning repository's TODO.txt and
+PLAN_OF_ACTION.md so it is included when organising deployment.
 
 ## Next integration checkpoint
 

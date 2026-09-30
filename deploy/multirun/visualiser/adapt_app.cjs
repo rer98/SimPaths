@@ -32,11 +32,11 @@ function adaptApp(source) {
     '  /** Expands/collapses one domain', '');
   replace('          SimPaths Policy Impacts Visualiser\n        </p>',
     '          SimPaths Policy Impacts Visualiser\n        </p>\n'+
-    '        <a className="vm-return" href="/">Return to MultiRun</a>');
+    '        <a className="vm-return" href="/">Return to SimPaths Online</a>');
   replace('The default view displays a pre-aggregated dataset. To visualise your own simulation, select your parent folder in the Connect Data panel (data must be organised into "Baseline" and "Scenario" subfolders).',
-    'The default view displays your selected VM results. Use the Connect Data panel to switch to locally saved simulation output, organised into "Baseline" and "Scenario" subfolders.');
+    'The default view displays your selected online results. Use the Connect Data panel to switch to locally saved simulation output, organised into "Baseline" and "Scenario" subfolders.');
   replace('This tool is entirely JavaScript-based — all aggregation happens locally in your browser, and no data you upload is ever stored or sent anywhere.',
-    'VM results are processed on the server; this page receives aggregate data only. Files selected with Visualise Locally Saved Data are processed in your browser and are never uploaded.');
+    'Online results are processed on the server; this page receives aggregate data only. Files selected with Visualise Locally Saved Data are processed in your browser and are never uploaded.');
   between('              <p style = {{margin: "0 0 8px",',
     '            </div>\n\n            {/* Explore Variables Card */}',
     '              {dataSource.controls}\n');

@@ -1,0 +1,56 @@
+# (C) Copyright 2026, by Ross Richardson
+# Native VM settings: conservative staging allocation, not a measured VM size.
+# @author ross richardson
+[service]
+origin = "https://multirun.example.org"
+port = 5002
+pool_id = "simpaths-online"
+dedicated_storage = true
+
+[paths]
+frontend = "/opt/simpaths-online/JAS-mine-web"
+private_root = "/srv/simpaths-online/private"
+state = "/srv/simpaths-online/private/multirun"
+dsn_file = "/etc/simpaths-online/postgres.dsn"
+# Copy verified public training snapshots here; do not use temporary directories.
+prepared = []
+
+[model]
+# Replace with the reviewed, already installed model image's immutable ID.
+image = "sha256:REPLACE_WITH_64_HEXADECIMAL_DIGITS"
+
+[pool]
+# Allows one 50k model job and one default Visualiser processor together.
+# Explicitly leave host, database, web-service and SingleRun capacity outside this pool.
+cpu_millis = 3000
+memory_mib = 6144
+storage_mib = 13312
+per_user_active = 1
+
+[limits]
+max_configurations = 100
+max_repetitions = 12
+max_unfinished_jobs = 110
+pool_unfinished_jobs = 220
+runtime_setup_minutes = 15
+runtime_per_repetition_minutes = 60
+runtime_budget_multiplier = 3
+upload_allowance_gib = 4
+
+[downloads]
+threshold_mib = 512
+cache_gib = 10
+cache_hours = 24
+
+[notifications]
+# Email sign-in is always required on the VM. These switches control job notices/expiry.
+enabled = false
+retention_cleanup = false
+admin_email = ""
+
+[visualiser]
+# Optional pinned development build, for own inputs/public training only.
+build = ""
+preview = false
+memory_mib = 1024
+timeout_seconds = 600

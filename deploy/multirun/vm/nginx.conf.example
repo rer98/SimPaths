@@ -1,0 +1,57 @@
+# (C) Copyright 2026, by Ross Richardson
+# HTTPS proxy only: no private filesystem mapping or protected-response cache.
+# @author ross richardson
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    return 444;
+}
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    ssl_reject_handshake on;
+}
+server {
+    listen 80;
+    listen [::]:80;
+    server_name multirun.example.org;
+    # This is the sole filesystem mapping, containing only ACME challenges.
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/lib/letsencrypt;
+    }
+    location / { return 308 https://multirun.example.org$request_uri; }
+}
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name multirun.example.org;
+    ssl_certificate /etc/letsencrypt/live/multirun.example.org/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/multirun.example.org/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    autoindex off;
+    # Application streaming independently enforces each actual upload's allowance.
+    client_max_body_size 4g;
+    client_body_timeout 60s;
+    location ~ (^|/)\. { return 404; }
+    location ~ ^/(private|uploads|artifacts|execution|release|backups|diagnostics|download-cache|visualiser-cache)(/|$) {
+        return 404;
+    }
+    location / {
+        proxy_pass http://127.0.0.1:5002;
+        proxy_http_version 1.1;
+        proxy_set_header Host multirun.example.org;
+        proxy_set_header X-Forwarded-Proto https;
+        # Replace client-supplied forwarded addresses at this single trusted proxy.
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header Connection "";
+        proxy_connect_timeout 10s;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+        proxy_request_buffering off;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_max_temp_file_size 0;
+    }
+}

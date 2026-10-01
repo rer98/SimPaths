@@ -1,0 +1,39 @@
+# (C) Copyright 2026, by Ross Richardson
+# Dedicated persistent PostgreSQL, loopback-bound and independently restarted.
+# @author ross richardson
+services:
+  postgres:
+    # e.g. postgres@sha256:... after operator verification; never a floating tag.
+    image: ${POSTGRES_IMAGE:?Set a reviewed PostgreSQL 17 image digest}
+    pull_policy: never
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5433:5432"
+    environment:
+      POSTGRES_DB: jasmine_multirun
+      POSTGRES_USER: simpaths_online
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres-init.sql:/docker-entrypoint-initdb.d/01-service-role.sql:ro
+    mem_limit: 1g
+    cpus: 1
+    pids_limit: 256
+    shm_size: 128m
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "simpaths_online", "-d", "jasmine_multirun"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+volumes:
+  postgres-data:
+secrets:
+  postgres_password:
+    file: ${POSTGRES_PASSWORD_FILE:?Set the root-owned private password file path}

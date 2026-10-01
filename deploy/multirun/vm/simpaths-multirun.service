@@ -1,0 +1,48 @@
+# (C) Copyright 2026, by Ross Richardson
+# Supervised native application; Docker attempts and PostgreSQL are durable separately.
+# @author ross richardson
+[Unit]
+Description=SimPaths Online UK MultiRun
+Requires=docker.service
+After=network-online.target docker.service
+Wants=network-online.target
+RequiresMountsFor=/srv/simpaths-online/private
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=simpaths-online
+Group=simpaths-online
+SupplementaryGroups=docker
+WorkingDirectory=/opt/simpaths-online/SimPaths
+EnvironmentFile=/etc/simpaths-online/smtp.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStartPre=/opt/simpaths-online/venv/bin/python -m deploy.multirun.vm_web preflight --config /etc/simpaths-online/multirun.toml
+ExecStart=/opt/simpaths-online/venv/bin/python -m deploy.multirun.vm_web serve --config /etc/simpaths-online/multirun.toml
+Restart=always
+RestartSec=10
+# Let active downloads finish; model containers have their own persisted deadlines.
+TimeoutStopSec=infinity
+KillSignal=SIGTERM
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/srv/simpaths-online/private/multirun
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+MemoryMax=3G
+TasksMax=512
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

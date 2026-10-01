@@ -7,13 +7,16 @@ Maintainer guide to the draft MultiRun configuration normaliser and its tests.
 
 # MultiRun configuration validation
 
-This directory implements the first configuration and local proof tools for web MultiRun.
+This directory contains configuration tools and model-owned adapters for web MultiRun.
 It accepts plain form data or bounded YAML, expands parameter sweeps, produces a
 detached review snapshot and generates configurations for the existing native
 MultiRun runner. The local proof tools prepare bundled examples and compare native
-execution in fresh working directories. **They do not implement a web service,
-upload endpoint, authorisation, queue or production execution sandbox.** Java
-production code and existing SingleRun configurations are unchanged.
+execution in fresh working directories. Those standalone proof commands do not
+start a web service or production execution sandbox. The separate browser launcher
+uses JAS-mine-web's durable PostgreSQL queue, permissions and results services:
+see [LOCAL_WEB.md](LOCAL_WEB.md) for the laptop and [VM.md](VM.md) for the supervised
+native VM setup, external privacy checks and capacity measurements. Java production
+code and existing SingleRun configurations are unchanged.
 
 ## Review the example
 

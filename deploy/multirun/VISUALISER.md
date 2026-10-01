@@ -279,6 +279,10 @@ SIMPATHS_VISUALISER_DEPENDENCIES="$HOME/.npm/_npx/668c188756b835f3/node_modules"
 
 ## Production web-server boundary
 
+The native deployment templates and external canary/permission probe are described
+in [VM.md](VM.md). Passing local browser tests does not replace checking the actual
+deployed HTTPS proxy and storage mappings.
+
 **Required deployment check, recorded 30 September 2026:** the production web
 server/reverse proxy must not expose private storage through static directory
 mappings. Keep uploads, prepared inputs, execution workspaces/raw output,

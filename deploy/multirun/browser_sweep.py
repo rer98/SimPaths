@@ -6,7 +6,6 @@ The existing normaliser expands exact numeric ranges and all combinations.
 @author ross richardson
 """
 from copy import deepcopy
-from dataclasses import replace
 import json
 import re
 
@@ -58,14 +57,14 @@ class BrowserSweep:
             field=MODEL_FIELDS[row['field']]
             if row.get('mode')=='values' and set(row)=={'field','mode','values'} and type(row['values']) is str and len(row['values'])<=2048:
                 parts=re.split(r'[,\n]',row['values'])
-                if not 1<=len(parts)<=10 or any(not p.strip() for p in parts):
-                    raise ConfigurationError(path,'enter 1–10 values separated by commas or new lines, without empty entries')
+                if not 1<=len(parts)<=self.max_configurations or any(not p.strip() for p in parts):
+                    raise ConfigurationError(path,f'enter 1–{self.max_configurations} values separated by commas or new lines, without empty entries')
                 parameters[key]=[_number(v,field,path) for v in parts]
             elif row.get('mode')=='range' and set(row)=={'field','mode','start','end','step'} and field.kind in ('int','double'):
                 parameters[key]={k:_number(row[k],field,path+'.'+k) for k in ('start','end','step')}
             else:
                 raise ConfigurationError(path,'use a value list, or start/end/step for a numeric parameter')
-        limits=replace(self.submission_limits,max_run_sets=10)
+        limits=self.submission_limits
         expanded=normalise({**document,'run_sets':[],
             'sweep':dict(id_prefix='sweep',combination='all',
                 base={k:base[k] for k in ('model_args','collector_args')},parameters=parameters)},limits=limits).as_dict()
@@ -92,8 +91,8 @@ class BrowserSweep:
             additions.append(candidate)
             rows.append(dict(values=generated['values'],configuration=candidate['id'],name=candidate['name'],existing=False))
         total=len(runs)+len(additions)
-        if total>10:
-            raise ConfigurationError('sweep',f'this would create {total} configurations including existing cards; the deployment limit is 10')
+        if total>self.max_configurations:
+            raise ConfigurationError('sweep',f'this would create {total} configurations including existing ones; the deployment limit is {self.max_configurations}')
         # Validate final fixed cards, never submit a recipe for a worker to expand.
         self.browser_configuration(dataset,{**form,'run_sets':[*runs,*additions]})
         return dict(run_sets=additions,rows=rows,parameters=origin['parameters'],

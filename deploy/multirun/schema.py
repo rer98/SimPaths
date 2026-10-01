@@ -14,6 +14,7 @@ SCHEMA_VERSION = "simpaths.multirun.v1-draft"
 PROFILE_VERSION = "simpaths-uk-basic-v1-draft"
 SEED_PROFILE = "simpaths-standard-v1"
 DEFAULT_MAX_REPETITIONS = 3
+DEFAULT_MAX_CONFIGURATIONS = 100
 OUTPUT_CONTRACT = "simpaths.visualiser.v1-draft"
 LONG_MIN, LONG_MAX = -(2**63), 2**63 - 1
 INT_MIN, INT_MAX = -(2**31), 2**31 - 1
@@ -31,8 +32,8 @@ class ConfigurationError(ValueError):
 class Limits:
     """Trusted parser/expansion ceilings, not deployment capacity recommendations."""
 
-    max_bytes: int = 65536
-    max_nodes: int = 16000
+    max_bytes: int = 1048576
+    max_nodes: int = 160000
     max_depth: int = 16
     max_scalar_chars: int = 4096
     max_run_sets: int = 100
@@ -50,6 +51,14 @@ def deployment_repetition_limit(value):
     ceiling = Limits().max_repetitions
     if type(value) is not int or not 1 <= value <= ceiling:
         raise ValueError(f"Maximum repetitions must be an integer from 1 to {ceiling}")
+    return value
+
+
+def deployment_configuration_limit(value):
+    """Bound new experiments independently of repetitions and execution slots."""
+    ceiling = Limits().max_run_sets
+    if type(value) is not int or not 1 <= value <= ceiling:
+        raise ValueError(f"Maximum configurations must be an integer from 1 to {ceiling}")
     return value
 
 

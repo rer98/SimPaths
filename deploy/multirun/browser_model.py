@@ -15,7 +15,7 @@ from .public_workbooks import public_workbooks
 from .browser_yaml import BrowserYaml
 from .browser_sweep import BrowserSweep
 from .browser_copy import BrowserCopy
-from .schema import COLLECTOR_FIELDS, REQUIRED_OUTPUT, ConfigurationError
+from .schema import COLLECTOR_FIELDS, REQUIRED_OUTPUT, ConfigurationError, Limits
 
 
 class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
@@ -25,7 +25,9 @@ class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
 
     def browser_form(self):
         repetition_word='repetition' if self.max_repetitions==1 else 'repetitions'
-        return dict(title='SimPaths Online', subtitle='UK MultiRun', max_configurations=10, max_repetitions=self.max_repetitions,
+        return dict(title='SimPaths Online', subtitle='UK MultiRun',
+            max_configurations=self.max_configurations, configuration_ceiling=Limits().max_run_sets,
+            max_repetitions=self.max_repetitions, max_yaml_bytes=Limits().max_bytes,
             yaml=True, sweeps=True, first_seed='606',
             releases=[dict(id=k, name='SimPaths UK — uploaded inputs',
                 workbooks=list(public_workbooks(v['defaults']))) for k,v in self.releases.items()],
@@ -44,6 +46,7 @@ class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
                  'Each configuration uses the same seed sequence, beginning at the selected first random seed and increasing by one. '
                  'Configurations can run in parallel when capacity is available. '
                  f'This deployment supports up to {self.max_repetitions} {repetition_word} per configuration. '
+                 f'Experiments can contain up to {self.max_configurations} configurations and {Limits().max_simulations:,} simulations in total. '
                  'Completed configurations appear under My jobs → View results.')
 
     def browser_workbook(self, release, name):
@@ -90,10 +93,10 @@ class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
         required = {'name','common','repetitions','run_sets','baseline','auto_retry'}
         if (not isinstance(form,dict) or not required <= set(form) or set(form) - required - {'first_seed','model_release'}
                 or not isinstance(form['common'],dict) or set(form['common']) != {'population','start_year','end_year'}
-                or not isinstance(form['run_sets'],list) or not 1 <= len(form['run_sets']) <= 10
+                or not isinstance(form['run_sets'],list) or not 1 <= len(form['run_sets']) <= self.max_configurations
                 or type(form['repetitions']) is not int or not 1 <= form['repetitions'] <= self.max_repetitions
                 or type(form['auto_retry']) is not bool):
-            raise ArtifactError(f'Supply the experiment fields, 1–10 configurations and 1–{self.max_repetitions} repetitions')
+            raise ArtifactError(f'Supply the experiment fields, 1–{self.max_configurations} configurations and 1–{self.max_repetitions} repetitions')
         for run in form['run_sets']:
             if not isinstance(run,dict) or set(run) - {'id','name','model_args','collector_args','dataset_revision','common','generation'} or not {'id','name','model_args'} <= set(run):
                 raise ArtifactError('Each configuration needs a name and model settings')

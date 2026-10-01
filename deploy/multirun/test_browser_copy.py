@@ -123,6 +123,26 @@ class BrowserCopyTests(unittest.TestCase):
         self.assertIn('current limit of 1',copied['notes'][0])
         with self.assertRaises(ValueError):self.model.browser_configuration(copied['dataset'],copied['form'])
 
+    def test_large_copy_keeps_every_configuration_when_the_operator_lowers_the_limit(self):
+        from dataclasses import replace
+        self.form['run_sets']=[dict(id=f'policy-{i}',name=f'Policy {i}',
+            model_args=dict(savingRate=(i+1)/100)) for i in range(100)]
+        self.form['baseline']='policy-0'
+        spec=self.specification();before=deepcopy(spec)
+        copied=self.copy(spec)
+        self.assertEqual([r['id'] for r in copied['form']['run_sets']],
+                         [r['id'] for r in self.form['run_sets']])
+        self.assertEqual(copied['form']['baseline'],'policy-0')
+        self.assertEqual(copied['notes'],[])
+        self.model.max_configurations=10
+        self.model.submission_limits=replace(self.model.submission_limits,max_run_sets=10)
+        copied=self.copy(spec)
+        self.assertEqual(len(copied['form']['run_sets']),100)
+        self.assertIn('current limit of 10',copied['notes'][0])
+        self.assertEqual(spec,before)
+        with self.assertRaisesRegex(ValueError,'1–10 configurations'):
+            self.model.browser_configuration(copied['dataset'],copied['form'])
+
     def test_copy_preserves_edited_sweep_origin_through_yaml(self):
         self.form['run_sets']=self.form['run_sets'][:1];self.form['baseline']='baseline'
         self.form['run_sets'][0].pop('common')

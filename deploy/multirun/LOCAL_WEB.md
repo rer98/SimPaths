@@ -42,13 +42,17 @@ Population, years and the shared seed plan are configured separately. Advanced
 capabilities and output settings not exposed in this browser remain controlled by
 the profile; the native launcher's ability to assign a field does not establish
 that it is suitable for this web workflow. YAML import/export is connected to the
-browser form; a sweep helper generates additional fixed configuration cards.
+browser form; a sweep helper generates fixed configurations in compact summary cards.
 
-This preview supports 1–10 configurations. Repetitions default to a maximum of 3
+This preview defaults to a maximum of 100 configurations per experiment. The
+operator can choose a lower limit with `--max-configurations`. Repetitions default to a maximum of 3
 per configuration; the operator can set `--max-repetitions` when starting the
 service. Each configuration uses the same seed sequence, starting at 606 by default and
 increasing by one per repetition. The local pool admits one job at a time, with two CPUs and up to
-5 GiB container memory. Its allowance does not coordinate with the separate
+5 GiB container memory. Each simulation attempt is allowed 15 minutes for setup
+plus 60 minutes per planned repetition, with a cumulative execution budget of
+three times that allowance across at most three attempts. The operator can
+configure these values as described below. Its allowance does not coordinate with the separate
 SingleRun server: finish other simulation sessions before this local test.
 
 ### Importing and exporting experiment settings
@@ -79,7 +83,7 @@ unavailable model releases and work exceeding deployment limits are rejected.
 Native files requiring population/donor preparation must first use Create Input
 Dataset; importing YAML does not perform that preparation.
 
-Files must be UTF-8 and at most 64 KiB. Duplicate keys, tags, anchors/aliases, merge
+Files must be UTF-8 and at most 1 MiB. Duplicate keys, tags, anchors/aliases, merge
 keys, excessive nesting, multiple documents and non-finite numbers are rejected by
 the existing bounded parser. YAML exports contain fixed configuration cards and
 any saved sweep origin. Direct sweep recipes are not accepted by YAML import;
@@ -111,22 +115,38 @@ step. Repeated values, unsupported fields and invalid combinations are rejected.
 **Preview sweep** lists every combination and the number of configurations and
 simulations the experiment would contain. Existing cards are kept. A combination
 with the same effective dataset, population/years, model and collector settings
-as an existing card is explicitly shown as **Use existing card** and is not added
+as an existing card is explicitly shown as **Use existing configuration** and is not added
 again. For example, starting with saving rate 0.04 and trying 0.04, 0.05 and 0.06
 adds two cards; with three repetitions each the experiment contains nine
 simulations. Multiple parameters use all combinations, not positional pairing.
 
-**Add generated configurations** appends the new cards after this preview. The
+**Add generated configurations** appends the new configurations after this preview,
+presented together in a **Parameter Sweep** summary card. The
 starting card's dataset choice (including inheritance), common overrides and
 output settings are copied. Existing cards and the baseline stay unchanged.
 All cards use the experiment's common repetition count and seed sequence.
-The deployment's ten-configuration limit includes existing cards; oversized
+The deployment's configurable limit (100 by default) includes existing cards; oversized
 products are rejected before expansion. Seeds, execution controls, input datasets,
 population/years and collector settings are not sweep dimensions. They can still
 be set through the existing form controls where supported.
 
-Generated cards remain editable. Refresh preserves both the cards and the helper
-values; Reset clears the helper and restores the usual single default card.
+The summary shows the starting configuration and inputs, swept values,
+configuration count, repetitions and total simulations. **Show configurations**
+expands a table of combinations and their current values. **Edit** opens one
+configuration's full settings; **Back to combinations** returns to the table.
+Edited combinations are marked **Edited**, including changes outside the swept
+parameters. The original sweep dimensions remain creation history. Existing
+matching cards stay in their original positions, and grouping never changes
+configuration IDs, submission order or the baseline.
+
+For example, three parameters with three values produce 27 combinations. If none
+matches the starting card, the experiment contains that card plus 27 generated
+configurations, all displayed through one sweep summary. Matching combinations
+reuse existing configurations rather than adding duplicates. Independent sweeps
+have separate summaries.
+
+Refresh preserves the configurations, expanded tables, open editor and helper
+values; Reset clears the summaries/helper and restores the usual single default card.
 Changing settings after preview requires another preview. **Parameter sweep
 origin** records the starting settings and generated values; it is creation
 history, so later edits may make the current values different. YAML export/import,
@@ -463,10 +483,120 @@ keep their previously entered count and must satisfy the current limit on review
 Changing the setting requires a service restart and page reload. Lowering it
 restricts new submissions; accepted jobs keep their frozen seed plans through
 preparation, execution and recovery. Repetitions within a configuration remain
-sequential. Increasing their limit does not raise the number of concurrent jobs,
-the per-attempt deadline (currently one hour), the total retry budget or the
-memory/storage allowances. Choose production limits alongside those budgets after
-measuring representative workloads. This option requires no image rebuild.
+sequential. The attempt allowance and cumulative execution budget scale with
+the number of repetitions requested, using the runtime settings below. Increasing
+the permitted count does not raise concurrency or memory/storage allowances.
+Choose production settings after measuring representative workloads. This option
+requires no image rebuild.
+
+### Configure configuration runtime allowances
+
+The launcher derives one overall limit for each simulation configuration attempt:
+
+```text
+attempt allowance = setup allowance + repetitions × allowance per repetition
+cumulative execution budget = attempt allowance × budget multiplier
+```
+
+It covers workspace setup and all sequential repetitions together. There are no
+separate repetition timers. The cumulative budget belongs to each configuration,
+independently of how many other configurations the experiment contains. Queue
+waiting, input-preparation waiting and time awaiting user review do not consume
+it. A retry runs the configuration again from the beginning with the same seeds,
+and receives the smaller of its original attempt allowance and its remaining
+cumulative budget. The maximum remains three attempts, including the first.
+
+Operator options, supplied on each launch:
+
+| Option | Default | Accepted values |
+| --- | --- | --- |
+| `--runtime-setup-minutes` | 15 | Integer minutes, 0–1,440 |
+| `--runtime-per-repetition-minutes` | 60 | Integer minutes, 1–1,440 |
+| `--runtime-budget-multiplier` | 3 | Integer multiplier, 1–3 |
+
+For example, add these flags to the normal `serve` command:
+
+```bash
+  --runtime-setup-minutes 15 \
+  --runtime-per-repetition-minutes 60 \
+  --runtime-budget-multiplier 3
+```
+
+With these defaults:
+
+| Repetitions in each configuration | Maximum per attempt | Cumulative budget per configuration |
+| --- | --- | --- |
+| 1 | 1 hour 15 minutes | 3 hours 45 minutes |
+| 3 | 3 hours 15 minutes | 9 hours 45 minutes |
+| 12 | 12 hours 15 minutes | 36 hours 45 minutes |
+
+These are initial operator settings, to calibrate using representative population
+sizes, simulation horizons and setup costs. Review shows the formula and both
+calculated limits before submission; retry review shows the frozen limits and
+remaining budget. YAML stores scientific settings and repetition counts, so a
+new import or **Copy to New Experiment** receives the current operator allowances
+when reviewed.
+
+Reviewed allowances are signed and stored with the accepted experiment. A
+restart or changed runtime settings affect future reviews; accepted jobs and
+still-valid signed reviews retain their original allowances. Older jobs retain
+their previously frozen fixed policy. Input preparation retains its existing
+one-hour attempt limit and three-hour cumulative budget. The local reviewed
+deadline-delay adjustment remains bounded by the original saved policy.
+
+The generic queue has technical bounds of 90 days per attempt and 270 days
+cumulatively. These permit, for example, 1,000 repetitions at the default rate
+(41 days 16 hours 15 minutes per attempt); the operator's repetition cap controls
+whether such a request is allowed. Startup checks the formula at the configured
+maximum repetition count before touching local state or starting PostgreSQL.
+An incompatible setting is rejected, and the allowance is never silently
+truncated. No database migration or model image rebuild is needed; restart the
+launcher to load the code and settings.
+
+Validation: `multirun-browser-20261001-104331` passed all 307 backend tests and
+all 48 browser checks, with temporary-resource cleanup confirmed. This includes
+reviewed formulas, independent configuration budgets, preparation/legacy limits,
+restart preservation, queue/review waiting and bounded retries. Eight generic
+policy tests, 88 local SimPaths tests and the DOM review checks also passed.
+
+### Configure configuration and queue admission limits
+
+`--max-configurations` accepts 1–100 and defaults to 100. It controls manual entry,
+sweep expansion and new YAML submissions. The same limit appears in the form and
+server validation; the parser and generic queue retain a technical ceiling of
+100 configurations and 10,000 total simulations per experiment.
+
+Queue admission has separate settings: `--max-unfinished-jobs` defaults to 110
+per user and `--pool-unfinished-jobs` defaults to 220 across the local service.
+Configurations and input preparations both count. The defaults allow one full
+100-configuration experiment plus some preparation/other work per user. The
+required relationship is:
+
+```
+max-configurations <= max-unfinished-jobs <= pool-unfinished-jobs <= 10000
+```
+
+Supply these settings on each launch. Startup explicitly updates only these two
+queue admission allowances in an existing local pool. CPU, memory, disk budgets,
+one-job execution concurrency and time/retry limits stay fixed. Already accepted
+experiments retain their frozen policies and configuration order; lowering
+admission does not cancel them. A full queue rejects a new submission atomically.
+
+Previously saved drafts and copied experiments with up to 100 configurations remain
+editable if the operator lowers the current cap. The user must remove enough
+configurations before submitting again; configurations are never silently dropped.
+YAML imports/exports must satisfy the current cap. These changes require a launcher
+restart and page reload, with no database migration or model image rebuild.
+
+Acceptance on 1 October 2026 verified 100-configuration HTTP submission, YAML and
+copying, atomic queue admission and preservation of accepted execution policies.
+The 297 backend cases passed across full run `multirun-browser-20261001-092156`
+and focused Visualiser rerun `multirun-browser-20261001-093851`, after updating an
+old test fixture for the larger specification bound. Browser-only run
+`multirun-browser-20261001-100254` passed all 47 checks, including a compact
+27-combination sweep, individual editing, refresh, YAML, narrow layout and absence
+of uncaught JavaScript errors. Both final reports confirm success and temporary
+resource cleanup; the final run explicitly skipped backend tests.
 
 ### Configure the upload allowance
 

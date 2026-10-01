@@ -84,7 +84,7 @@ class BrowserSweepTests(unittest.TestCase):
             [self.values('')],[self.values('.1,')],[self.values('.1')]*2,
             [self.values('606','randomSeed')],[self.values('false','persistPersons')],
             [self.range(step='0')],[self.range(step='-.1')],[self.range(step='.03')],
-            [self.range('1','10000000','1')],[self.values('.1,.2,.3,.4'),self.values('true,false','useWeights'),self.values('true,false','fixTimeTrend')],
+            [self.range('1','10000000','1')],
             [dict(self.values(),extra='ignored')],[self.range('true','false','true','useWeights')]]
         for dimensions in invalid:
             with self.subTest(dimensions=dimensions),self.assertRaises(ValueError):self.preview(*dimensions)
@@ -93,12 +93,33 @@ class BrowserSweepTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.model.browser_sweep(self.dataset,self.form,{'base':'baseline','dimensions':[],'owner':'other'})
 
     def test_limit_counts_existing_cards_before_creating_any_new_cards(self):
+        from .browser_model import BrowserModel
+        self.model=BrowserModel(self.model.releases,max_configurations=10)
         with self.assertRaisesRegex(ValueError,'12 configurations'):
             self.preview(self.range('1','10','1'))
         with patch('deploy.multirun.configuration.itertools.product',side_effect=AssertionError('Too large to expand')):
             with self.assertRaisesRegex(ValueError,'limit'):self.preview(self.range('0','1000000','.01'))
         self.form['repetitions']=4
         with self.assertRaises(ValueError):self.preview(self.values())
+
+    def test_three_parameters_with_three_values_generate_twenty_seven_configurations(self):
+        result=self.preview(self.values('.01,.02,.03'),self.values('.95,.96,.97','sIndexDelta'),self.values('1,2,3','sIndexAlpha'))
+        self.assertEqual((result['combinations'],result['added'],result['configurations'],result['simulations']),(27,27,29,87))
+        self.assertEqual(len({tuple(sorted(row['values'].items())) for row in result['rows']}),27)
+        self.assertEqual(self.form['baseline'],'baseline')
+        request=self.model.browser_configuration(self.dataset,{**self.form,'run_sets':[*self.form['run_sets'],*result['run_sets']]})
+        self.assertEqual([r['id'] for r in request['configuration']['run_sets']],
+                         [r['id'] for r in self.form['run_sets']]+[r['id'] for r in result['run_sets']])
+
+    def test_full_hundred_combination_sweep_exports_and_imports_its_generation_metadata(self):
+        self.form['run_sets']=self.form['run_sets'][:1]
+        result=self.preview(self.range('.01','1','.01'))
+        self.assertEqual((result['combinations'],result['matches'],result['added']),(100,1,99))
+        self.form['run_sets'].extend(result['run_sets'])
+        exported=self.model.browser_export_yaml(self.dataset,self.form)
+        imported=self.model.browser_import_yaml(exported['text'],dataset=self.dataset,name='Import')
+        self.assertEqual(len(imported['form']['run_sets']),100)
+        self.assertEqual(imported['form']['run_sets'][-1]['generation'],result['run_sets'][-1]['generation'])
 
     def test_generated_ids_avoid_collisions_and_names_remain_bounded(self):
         self.form['run_sets'][1]['id']='sweep-1'

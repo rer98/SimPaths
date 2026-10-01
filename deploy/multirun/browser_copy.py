@@ -9,7 +9,7 @@ from copy import deepcopy
 
 from .browser_yaml import WEB_FORMAT
 from .configuration import normalise
-from .schema import ConfigurationError
+from .schema import ConfigurationError, Limits
 
 
 class BrowserCopy:
@@ -22,8 +22,10 @@ class BrowserCopy:
     def browser_copy(self, specification, *, replacements, auto_retry):
         notes=[]
         runs=specification['run_sets']
-        if not 1<=len(runs)<=10:
-            raise ConfigurationError('copy','this deployment supports copying 1–10 configurations')
+        if not 1<=len(runs)<=Limits().max_run_sets:
+            raise ConfigurationError('copy','the saved configuration count exceeds the supported format')
+        if len(runs)>self.max_configurations:
+            notes.append(f'This experiment has {len(runs)} configurations; remove some to meet the current limit of {self.max_configurations} before submitting.')
         effective={}
         for run in runs:
             data=normalise(run['parameters']).as_dict()

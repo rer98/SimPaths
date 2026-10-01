@@ -21,7 +21,8 @@ from .artifacts import ArtifactError, fingerprint
 from .browser_model import BrowserModel
 from .prepared_dataset import FORMAT, verify_snapshot
 from .queue_adapter import read_prepared
-from .schema import DEFAULT_MAX_REPETITIONS, deployment_repetition_limit
+from .schema import (DEFAULT_MAX_CONFIGURATIONS, DEFAULT_MAX_REPETITIONS,
+                     deployment_configuration_limit, deployment_repetition_limit)
 from .submission_adapter import DispatchAdapter, PreparationAdapter
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -140,6 +141,18 @@ def parse_args(argv=None):
     parser.add_argument('--port',type=int,default=5002)
     parser.add_argument('--max-repetitions',type=int,default=DEFAULT_MAX_REPETITIONS,
                         help='Maximum repetitions per configuration in new submissions (1–1000; default: %(default)s)')
+    parser.add_argument('--max-configurations',type=int,default=DEFAULT_MAX_CONFIGURATIONS,
+                        help='Maximum configurations per new experiment (1–100; default: %(default)s)')
+    parser.add_argument('--max-unfinished-jobs',type=int,default=110,
+                        help='Per-user allowance for unfinished configurations and preparations (default: %(default)s)')
+    parser.add_argument('--pool-unfinished-jobs',type=int,default=220,
+                        help='Shared allowance for unfinished configurations and preparations (default: %(default)s)')
+    parser.add_argument('--runtime-setup-minutes',type=int,default=15,
+                        help='Setup allowance per simulation attempt (0–1440 minutes; default: %(default)s)')
+    parser.add_argument('--runtime-per-repetition-minutes',type=int,default=60,
+                        help='Runtime added per planned repetition, without individual repetition timers (1–1440 minutes; default: %(default)s)')
+    parser.add_argument('--runtime-budget-multiplier',type=int,default=3,
+                        help='Cumulative execution budget as a multiple of one attempt allowance (1–3; default: %(default)s)')
     parser.add_argument('--upload-allowance-gib',type=int,default=2,
                         help='Retained upload allowance per user in whole GiB (default: %(default)s); does not allocate disk space')
     parser.add_argument('--download-threshold-mib',type=int,default=512,
@@ -162,8 +175,14 @@ def parse_args(argv=None):
     args=parser.parse_args(argv)
     try:
         deployment_repetition_limit(args.max_repetitions)
+        deployment_configuration_limit(args.max_configurations)
     except ValueError as error:
         parser.error(str(error))
+    if not args.max_configurations<=args.max_unfinished_jobs<=args.pool_unfinished_jobs<=10000:
+        parser.error('Queue allowances must satisfy max-configurations <= max-unfinished-jobs <= pool-unfinished-jobs <= 10000')
+    if (not 0<=args.runtime_setup_minutes<=1440 or not 1<=args.runtime_per_repetition_minutes<=1440
+            or not 1<=args.runtime_budget_multiplier<=3):
+        parser.error('Runtime settings must be 0–1440 setup minutes, 1–1440 minutes per repetition and a budget multiplier of 1–3')
     if not 1 <= args.upload_allowance_gib <= MAX_UPLOAD_ALLOWANCE_GIB:
         parser.error(f'--upload-allowance-gib must be between 1 and {MAX_UPLOAD_ALLOWANCE_GIB}')
     if not 1 <= args.download_threshold_mib <= 1048576 or not 1 <= args.download_cache_gib <= 1024 or not 1 <= args.download_cache_hours <= 168:
@@ -177,6 +196,15 @@ def parse_args(argv=None):
     if args.command=='serve' and (not args.console_codes or not 1024<=args.port<=65535):
         parser.error('This local preview requires --console-codes and an unprivileged port')
     return args
+
+
+def configuration_runtime(args):
+    """Validate all permitted repetition counts before touching local state."""
+    from jasmine_web.batch.policy import Policy, RuntimeAllowance
+    runtime=RuntimeAllowance(args.runtime_setup_minutes*60,args.runtime_per_repetition_minutes*60,
+                             args.runtime_budget_multiplier)
+    runtime.describe(args.max_repetitions,Policy())
+    return runtime
 
 
 def main(argv=None):
@@ -198,13 +226,19 @@ def main(argv=None):
     from jasmine_web.batch.notifications import Notifications, smtp_sender
     from jasmine_web.batch.retention import Retention
     from jasmine_web.batch.completion_notifications import CompletionNotifications
+    try:
+        runtime=configuration_runtime(args)
+    except ValueError as error:
+        raise SystemExit('The configured maximum repetition count exceeds the runtime limits: '+str(error)) from None
     from jasmine_web.batch.worker import Worker
     from jasmine_web.batch.attempt_cleanup import AttemptCleanup
     os.umask(0o077)
     state=private_directory(args.state)
     q=Queue(local_postgres(state),'simpaths-local')
     q.migrate()
-    q.create_pool(Resources(2000,5120,12288),policy=Policy(per_user_active=1,per_user_unfinished=10,pool_unfinished=20))
+    q.create_pool(Resources(2000,5120,12288),policy=Policy(per_user_active=1,
+        per_user_unfinished=args.max_unfinished_jobs,pool_unfinished=args.pool_unfinished_jobs),
+        update_admission_limits=True)
     async def console_mail(email,code):
         print(f'LOCAL TEST CODE for {email}: {code}',flush=True)
     access=Access(q,secret_file(state/'session-secret'),console_mail)
@@ -216,6 +250,9 @@ def main(argv=None):
     keys=[]
     if args.command=='serve':
         print(f'Retained upload allowance: {args.upload_allowance_gib} GiB per user',flush=True)
+        print(f'Configuration runtime: {args.runtime_setup_minutes} minutes setup + '
+              f'{args.runtime_per_repetition_minutes} minutes per repetition; cumulative budget '
+              f'{args.runtime_budget_multiplier} × one attempt allowance; at most 3 attempts',flush=True)
         for p in paths:
             print('Verifying prepared training inputs: '+p,flush=True)
             keys.append(register_training(datasets,preparations,Path(p)))
@@ -307,8 +344,9 @@ def main(argv=None):
     origin=f'http://127.0.0.1:{args.port}'
     # Explicit, reviewed local recovery from laptop suspension/reconciliation
     # delay. Hosted services keep this disabled unless their operator opts in.
-    service=Submissions(access,datasets,BrowserModel(releases,max_repetitions=args.max_repetitions),
-                        allow_deadline_credit=True)
+    service=Submissions(access,datasets,BrowserModel(releases,max_repetitions=args.max_repetitions,
+                        max_configurations=args.max_configurations),
+                        allow_deadline_credit=True,runtime_allowance=runtime)
     from .queue_adapter import result_catalogue, result_name, result_deletion_targets, result_inputs, result_settings
     from jasmine_web.batch.output_management import OutputManagement
     service.results=Results(service,executor,result_catalogue,name=result_name,

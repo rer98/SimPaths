@@ -153,13 +153,41 @@ class BrowserModelTests(unittest.TestCase):
         self.assertNotIn('private-notes.txt',description['inputs']['files'])
 
     def test_unknown_fields_and_unsupported_repetitions_rejected(self):
-        for change in ({'owner':'other'},{'image':'evil'},{'repetitions':4},{'auto_retry':'yes'}):
+        for change in ({'owner':'other'},{'image':'evil'},{'repetitions':4},{'auto_retry':'yes'},
+                       {'runtime_allowance':{}},{'attempt_seconds':999999},{'total_seconds':999999}):
             with self.assertRaises(ArtifactError):
                 self.model.browser_configuration('dataset',{**self.form,**change})
         malicious=deepcopy(self.form)
         malicious['run_sets'][0]['model_args']['class']='java.lang.Runtime'
         with self.assertRaises(ConfigurationError):
             self.model.browser_configuration('dataset',malicious)
+
+    def test_launcher_runtime_settings_scale_and_reject_invalid_budgets_before_startup(self):
+        old=list(sys.path)
+        self.addCleanup(lambda:setattr(sys,'path',old))
+        sys.path.insert(0,str(frontend_path()))
+        from deploy.multirun.local_web import configuration_runtime, parse_args
+        from jasmine_web.batch.policy import Policy
+        args=parse_args(['serve','--console-codes'])
+        self.assertEqual((args.runtime_setup_minutes,args.runtime_per_repetition_minutes,
+                          args.runtime_budget_multiplier),(15,60,3))
+        allowance=configuration_runtime(args)
+        self.assertEqual(allowance.describe(3,Policy())['attempt_seconds'],11700)
+        self.assertEqual(allowance.describe(12,Policy())['total_seconds'],132300)
+        largest=parse_args(['serve','--console-codes','--max-repetitions','1000'])
+        self.assertEqual(configuration_runtime(largest).describe(1000,Policy())['attempt_seconds'],3600900)
+        custom=parse_args(['serve','--console-codes','--runtime-setup-minutes','0',
+            '--runtime-per-repetition-minutes','10','--runtime-budget-multiplier','2'])
+        self.assertEqual(configuration_runtime(custom).describe(3,Policy())['total_seconds'],3600)
+        for option,values in (('--runtime-setup-minutes',('-1','1441','1.5')),
+                              ('--runtime-per-repetition-minutes',('0','1441','1.5')),
+                              ('--runtime-budget-multiplier',('0','4','1.5'))):
+            for value in values:
+                with self.subTest(option=option,value=value),redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):
+                    parse_args(['serve','--console-codes',option,value])
+        too_large=parse_args(['serve','--console-codes','--max-repetitions','1000',
+                             '--runtime-per-repetition-minutes','1440'])
+        with self.assertRaises(ValueError):configuration_runtime(too_large)
 
     def test_deployment_repetition_limit_controls_description_form_and_direct_submission(self):
         old=list(sys.path)
@@ -193,6 +221,19 @@ class BrowserModelTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 BrowserModel(self.model.releases,max_repetitions=value)
         self.assertEqual(parse_args(['serve','--console-codes']).max_repetitions,3)
+        self.assertEqual(parse_args(['serve','--console-codes']).max_configurations,100)
+        self.assertEqual(parse_args(['serve','--console-codes']).max_unfinished_jobs,110)
+        self.assertEqual(parse_args(['serve','--console-codes']).pool_unfinished_jobs,220)
+        for value in (0,-1,101,True,3.5,'27',None):
+            with self.subTest(configurations=value),self.assertRaises(ValueError):
+                BrowserModel(self.model.releases,max_configurations=value)
+        for value in ('0','101','many'):
+            with redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):
+                parse_args(['serve','--console-codes','--max-configurations',value])
+        for arguments in (['--max-unfinished-jobs','99'],['--pool-unfinished-jobs','109'],
+                          ['--max-unfinished-jobs','10001','--pool-unfinished-jobs','10001']):
+            with redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):
+                parse_args(['serve','--console-codes',*arguments])
         for limit in (1,6,1000):
             self.assertEqual(parse_args(['serve','--console-codes','--max-repetitions',str(limit)]).max_repetitions,limit)
         for value in ('0','-1','1001','1.5','many'):
@@ -235,6 +276,30 @@ class BrowserModelTests(unittest.TestCase):
             adapter.container_command(lease,work)
         self.assertEqual((work/'run.yml').read_text(),normalise(bound['parameters']).native_yaml(bound['id']))
         self.assertEqual(normalise(bound['parameters']).native_configuration(bound['id'])['maxNumberOfRuns'],6)
+
+    def test_hundred_configurations_round_trip_and_freeze_with_bounded_queue_payload(self):
+        from jasmine_web.batch.policy import canonical, submission
+        model=BrowserModel(self.model.releases)
+        form=deepcopy(self.form)
+        form['run_sets']=[dict(id=f'configuration-{i}',name=f'Policy {i}',model_args=dict(savingRate=i/10000)) for i in range(1,101)]
+        form['baseline']='configuration-1'
+        request=model.browser_configuration(self.resolved['dataset_id'],form)
+        self.assertEqual(model.browser_form()['max_configurations'],100)
+        exported=model.browser_export_yaml(self.resolved['dataset_id'],form)
+        self.assertGreater(len(exported['text'].encode()),65536)
+        imported=model.browser_import_yaml(exported['text'],dataset=self.resolved['dataset_id'],name='Import')
+        self.assertEqual(imported['form']['run_sets'],request['configuration']['run_sets'])
+        plan=model.experiment(self.resolved,request)
+        frozen=submission(plan['label'],plan['model_digest'],plan['dataset_id'],plan['seed_plan'],plan['run_sets'],plan['baseline'])
+        frozen['browser_settings']=model.browser_snapshot(request)
+        self.assertEqual(len(frozen['run_sets']),100)
+        self.assertGreater(len(canonical(frozen).encode()),262144)
+        smaller=BrowserModel(self.model.releases,max_configurations=10)
+        with self.assertRaises(ArtifactError):smaller.browser_configuration(self.resolved['dataset_id'],form)
+        with self.assertRaises(ConfigurationError):smaller.experiment(self.resolved,request)
+        # New admission settings never change already accepted execution units.
+        run,_=smaller.bind_run(self.resolved,plan['run_sets'][-1],plan['seed_plan'])
+        self.assertEqual(run['id'],'configuration-100')
 
     def test_form_covers_supported_model_fields_in_java_declaration_order(self):
         fields=self.model.browser_form()['fields']

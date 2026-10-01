@@ -18,15 +18,19 @@ from .container_adapter import ContainerExecution, SimPathsContainerAdapter, con
 from .prepare_inputs import selection, selected_sources
 from .prepared_dataset import INPUT_FORMAT, allocation, check_input_receipt, verify_snapshot
 from .queue_adapter import read_prepared
-from .schema import DEFAULT_MAX_REPETITIONS, Limits, deployment_repetition_limit
+from .schema import (DEFAULT_MAX_CONFIGURATIONS, DEFAULT_MAX_REPETITIONS, Limits,
+                     deployment_configuration_limit, deployment_repetition_limit)
 
 
 class SubmissionModel:
     """Server-configured immutable releases; currently the bounded proof profile."""
-    def __init__(self, releases, *, max_repetitions=DEFAULT_MAX_REPETITIONS):
+    def __init__(self, releases, *, max_repetitions=DEFAULT_MAX_REPETITIONS,
+                 max_configurations=DEFAULT_MAX_CONFIGURATIONS):
         self.releases = releases
         self.max_repetitions = deployment_repetition_limit(max_repetitions)
-        self.submission_limits = Limits(max_repetitions=self.max_repetitions)
+        self.max_configurations = deployment_configuration_limit(max_configurations)
+        self.submission_limits = Limits(max_repetitions=self.max_repetitions,
+                                       max_run_sets=self.max_configurations)
 
     def preparation(self, release, uploads, request):
         from jasmine_web.batch.policy import Resources

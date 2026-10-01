@@ -144,8 +144,8 @@ and collector settings. The scientific configuration is still a draft:
   queue proof below uses the generic JAS-mine-web worker; retry controls belong
   to platform state, not scientific YAML.
 
-`Limits` are trusted mechanical parser/expansion ceilings: 64 KiB input, depth 16,
-16,000 nodes, 4,096 characters per scalar, 100 Run Sets, 1,000 repetitions and
+`Limits` are trusted mechanical parser/expansion ceilings: 1 MiB input, depth 16,
+160,000 nodes, 4,096 characters per scalar, 100 Run Sets, 1,000 repetitions and
 10,000 total simulations. They can be tightened by the caller and are **not** a
 promise that a deployment admits or can execute that workload. Separate trusted
 resource limits must be checked before queue admission.
@@ -473,6 +473,18 @@ pinned image, model JAR and default workbooks. Review freezes their hashes, the
 preparation helper and selected uploads. Changed files are rejected at dispatch.
 No model scientific code or image rebuild is required for this adapter.
 
+The hosting service can configure JAS-mine-web's trusted
+`RuntimeAllowance(setup_seconds, repetition_seconds, budget_multiplier=3)` when
+constructing `Submissions`. The attempt limit is setup plus planned repetitions
+times the per-repetition allowance, with a cumulative budget per configuration
+and at most three attempts. These are hosting allocations; the scientific form
+and YAML cannot supply or override them. The signed review freezes the formula,
+seed count and derived policy; workers and retries use the accepted policy after
+restart. Input preparation keeps the pool's fixed limits. Queue and user-review
+waiting do not consume execution time, and there are no individual repetition
+timers. See [LOCAL_WEB.md](LOCAL_WEB.md#configure-configuration-runtime-allowances)
+for the launcher defaults, validated operator options and calibration guidance.
+
 `PreparationAdapter` runs preparation through the generic queue's existing Docker
 executor. `DispatchAdapter` routes preparation and simulations through one worker
 and resource pool. Preparation therefore shares admission, deadlines, cancellation
@@ -523,13 +535,18 @@ revocation, publication rollback and shared preparation/simulation admission.
 The proof uses captured/synthetic identities; it sends no email.
 
 The first submission adapter accepts fixed configurations, an optional baseline
-and automatic retry preference. `SubmissionModel(releases, max_repetitions=3)`
-sets the new-submission repetition limit; `BrowserModel` uses the same setting
-for its form and description. Accepted jobs keep their frozen repetitions if the
-operator later lowers the limit. Dataset compatibility and the parser's technical
+and automatic retry preference.
+`SubmissionModel(releases, max_repetitions=3, max_configurations=100)` sets the
+new-submission repetition and configuration limits; `BrowserModel` uses the same
+settings for its form and description. Accepted jobs keep their frozen configurations
+and repetitions if the operator later lowers either limit. Dataset compatibility and the parser's technical
 ceiling are still checked during execution. Other bounded profile limits remain.
 Sweep normalisation remains available independently; the local browser helper
-uses it to generate fixed configuration cards before review/submission. See
+uses it to generate fixed configurations before review/submission. Generated
+configurations appear together in a compact sweep summary, with a table for
+inspection and individual editors. Stable IDs, order, baseline and generation
+metadata survive refresh, copying and YAML. The local launcher separately controls
+unfinished-work admission, preserving its one-job execution concurrency. See
 [Local browser preview](LOCAL_WEB.md) for approval, startup and acceptance commands.
 SMTP configuration and production team-approval administration remain later work.
 Retained files still need storage accounting, expiry and hard quotas before public

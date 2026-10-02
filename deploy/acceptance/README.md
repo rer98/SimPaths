@@ -1,9 +1,11 @@
 <!-- (C) Copyright 2026, by Ross Richardson
-Real-model PostgreSQL SingleRun acceptance and historical state comparisons.
+Real-model PostgreSQL VM acceptance and historical SingleRun state comparisons.
 @author ross richardson
 -->
 
-# SingleRun browser acceptance
+# SimPaths VM acceptance
+
+## SingleRun browser acceptance
 
 `run_two_session_acceptance.py` runs the same two-browser Quick Start 20,000
 workflow with disposable PostgreSQL. It checks
@@ -47,6 +49,108 @@ before public deployment. The new common resource ledger requires explicit
 `VM_SHARED_POOL_ID`/`VM_SHARED_BATCH_SCHEMA` settings and the same database;
 without it, partition the services' budgets explicitly. This two-user proof
 uses a standalone interactive registry; common admission has separate SQL tests.
+
+## Real SingleRun and MultiRun mixed load
+
+`run_mixed_load_acceptance.py` runs one real interactive Quick Start 20,000-person
+simulation alongside one real 50,000-person MultiRun configuration, both for
+2019–2026 with seed 606. SingleRun uses the normal frontend/browser routes;
+MultiRun uses the normal PostgreSQL Queue, Worker, Docker executor and SimPaths
+container adapter. The MultiRun submission in this proof uses the trusted service
+API, rather than repeating the separately tested MultiRun form workflow.
+
+Run after other simulations finish and their local launchers have stopped.
+For SingleRun, save any output you need and use **Leave** before stopping the
+launcher: ready model containers intentionally survive a frontend shutdown.
+
+```bash
+cd "$HOME/git/SimPathsWeb/SimPaths" &&
+"$HOME/simpaths-browser-tests/venv/bin/python" deploy/acceptance/run_mixed_load_acceptance.py \
+  --frontend "$HOME/git/JAS-mine/JAS-mine-web" \
+  --prepared /tmp/codex-rer/multirun-prepared-50000-20260925 \
+  --output "$HOME/simpaths-benchmarks/mixed-load-$(date +%Y%m%d-%H%M%S)"
+```
+
+The prepared path must contain a verified **public training** 50k Quick Start
+receipt and its original immutable source image must already be installed.
+The 20k catalogue image and `postgres:17-alpine` must also be installed. Use the
+same VM/Playwright dependencies as the SingleRun acceptance and the model
+requirements in `deploy/multirun/requirements.txt`. No images are pulled or built;
+no email, real user inputs or persistent development database is used. The
+existing source workbooks are not read to construct the simulations.
+
+Starting checks require 11 GiB available RAM, 8 GiB free root storage, 6 GiB free
+on the temporary-workspace filesystem, and 256 MiB on the evidence filesystem.
+Other active JAS-mine sessions/batch containers cause the proof to stop before
+launching anything. Close other applications if RAM is insufficient. The runner
+keeps the reviewed allocations: SingleRun 2 CPUs / 4 GiB / 2 GiB Java heap;
+MultiRun 2 CPUs / 5 GiB / 3 GiB heap. PostgreSQL has its own 768 MiB / 1 CPU
+limit, outside the model pool. The temporary MultiRun copies are placed in the
+system temporary directory; choose `--work-root /private/path` to use another
+filesystem. Both root and workspace free space are checked during execution;
+the proof stops and cleans up if either falls below 2 GiB.
+
+The common pool has 4 CPUs, 9 GiB RAM and 20 GiB **logical** model storage, with
+no additional interactive holdback in this admission test. The logical storage
+allocations are not extra preallocated disk files or a host filesystem quota.
+The physical free-space checks account for copies and headroom; production
+disk estimates, enforced quotas and service/OS headroom still need a VM-specific
+acceptance check. This proof deliberately gives the standalone interactive caps
+more room, so its rejected extra launch has to come from the common pool.
+
+The proof checks:
+
+- One common PostgreSQL database and pool hold the exact interactive and batch
+  CPU, memory and storage reservations, with real Docker limits and separate
+  networks. An additional interactive launch is rejected and a different
+  owner's additional batch job stays queued with zero attempts.
+- At least 60 active-run chart responses before batch launch and 180 during
+  real batch execution, plus normal status/log polling and populated charts.
+  Docker samples must show CPU progress for both models in the same interval.
+- A separate worker process stops and restarts while its model keeps running.
+  Recovery must adopt the same attempt, execution key and container, and retain
+  capacity throughout the expired-lease interval. The normal 60-second lease
+  makes this phase take about a minute.
+- The frontend stops and restarts with the same secrets and database; browser
+  ownership, the interactive container and chosen parameters survive. The
+  background configuration's inputs, settings and allocation remain unchanged.
+- The interactive simulation completes all eight annual rows. Another browser
+  owner cannot download them. Ordinary Reset preserves the saved output hash;
+  Leave removes only the interactive container and allocation while MultiRun
+  continues.
+- MultiRun completes in one attempt, retains its frozen seed/settings/input
+  identity, has all eight annual summary rows and complete Person/BenefitUnit
+  years, and its actual retained output hashes match PostgreSQL completion
+  records. The prepared source is verified again afterwards.
+
+The private report contains checks, image/revision/input identities, exact
+allocation snapshots, per-phase request means/medians/95th and 99th percentiles,
+responses over 500 ms, resource samples, small summary CSVs, bounded model logs
+and screenshots. Poll failures, uncaught browser exceptions, Java chart errors,
+sampling errors and uncertain cleanup fail the report. Cleanup checks ownership
+and confirmed stop before deleting only this proof's resources. If model removal
+is uncertain, the private workspace, PostgreSQL state and DSN file are retained
+for recovery; inspect `recovery_files_retained` and the cleanup errors before
+running another proof. Successful cleanup removes the temporary model copies.
+
+This is a functional mixed-load check, with latency observations. The before and
+during measurements come from different simulation years in one run, so they do
+not establish a matched slowdown percentage or production capacity. It does not
+accept production firewall/TLS/quota controls, preparation/aggregation/download
+load, or resolve the separately recorded receipt-flag scientific RNG issue.
+
+Local harness checks, without Docker or PostgreSQL:
+
+```bash
+python -m unittest discover -s deploy/acceptance -p test_mixed_load_acceptance.py -v
+```
+
+**Validation checkpoint (2 October):** 16 new harness cases and 28 reused
+completion/timing helper cases pass locally. The first real attempt,
+`mixed-load-20261002-210241/report.json`, stopped before provisioning because
+7.21 GiB RAM was available, below the 11 GiB starting requirement. No models
+or disposable database were started. This report is not mixed-load evidence;
+free RAM and rerun into a new evidence directory.
 
 For the generic database races, common admission, controlled cutover and HTTP proof,
 see `JAS-mine-web/docs/vm-postgresql.md`. The current proof uses actual HTTP routes

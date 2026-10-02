@@ -20,7 +20,7 @@ DEFAULTS = {
               'dsn_file': None, 'prepared': []},
     'model': {'image': None},
     'pool': {'cpu_millis': 3000, 'memory_mib': 6144, 'storage_mib': 13312,
-             'per_user_active': 1},
+             'per_user_active': 1, 'hold_cpu_millis': 0, 'hold_memory_mib': 0, 'hold_storage_mib': 0},
     'limits': {'max_configurations': 100, 'max_repetitions': 12,
                'max_unfinished_jobs': 110, 'pool_unfinished_jobs': 220,
                'runtime_setup_minutes': 15, 'runtime_per_repetition_minutes': 60,
@@ -113,6 +113,8 @@ def load_config(path):
     pool = sections['pool']
     for key, minimum in (('cpu_millis', 2000), ('memory_mib', 5120), ('storage_mib', 12288)):
         number(pool[key], 'pool.'+key, minimum, 2**31-1)
+    for key, minimum in (('cpu_millis', 2000), ('memory_mib', 5120), ('storage_mib', 12288)):
+        number(pool['hold_'+key], 'pool.hold_'+key, 0, pool[key]-minimum)
     number(pool['per_user_active'], 'pool.per_user_active', 1, 100)
     if pool['per_user_active'] > limits['max_unfinished_jobs']:
         raise ValueError('Active allowance exceeds unfinished-job allowance')
@@ -146,5 +148,6 @@ def load_config(path):
         visualiser_build=visualiser['build'] or None, visualiser_preview=visualiser['preview'],
         visualiser_memory_mib=visualiser['memory_mib'], visualiser_timeout_seconds=visualiser['timeout_seconds'],
         capacity={k: pool[k] for k in ('cpu_millis', 'memory_mib', 'storage_mib')},
+        holdback={k: pool['hold_'+k] for k in ('cpu_millis', 'memory_mib', 'storage_mib')},
         per_user_active=pool['per_user_active'], command='serve', email=None)
     return options

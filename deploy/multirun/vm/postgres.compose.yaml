@@ -25,7 +25,7 @@ services:
     security_opt:
       - no-new-privileges:true
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "simpaths_online", "-d", "jasmine_multirun"]
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "simpaths_online", "-d", "jasmine_multirun"]
       interval: 10s
       timeout: 5s
       retries: 12

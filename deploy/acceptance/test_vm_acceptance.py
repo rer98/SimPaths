@@ -54,18 +54,18 @@ class VmAcceptanceTests(unittest.TestCase):
             [f'{project}-web:latest'], {identity.JASMINE_SESSION_ID_LABEL: 's', identity.JASMINE_MODEL_ID_LABEL: 'm'}))
 
     def test_isolated_config_preserves_production_network_and_limits(self):
-        template = {'services': {'redis': {'ports':['127.0.0.1:6379:6379'], 'volumes':['redis-data:/data']},
+        template = {'services': {'postgres': {'ports':['127.0.0.1:5434:5432'], 'volumes':['postgres-data:/var/lib/postgresql/data']},
             'web': {'build':{'context':'..','args':{'REQUIREMENTS_FILE':'requirements-vm.txt'}},
                 'network_mode':'host','environment':{'DEPLOY_MODE':'vm'},'env_file':'.env',
-                'command':['uvicorn','app:app'],'volumes':[]}}, 'volumes':{'redis-data':None}}
+                'command':['uvicorn','app:app'],'volumes':[]}}, 'volumes':{'postgres-data':None}, 'secrets':{'postgres_password':{'file':'/private/password'}, 'vm_postgres_dsn':{'file':'/private/dsn'}}}
         before = copy.deepcopy(template)
         actual = isolated_config(template, Path('/tmp/codex-rer/test'), 15101, 16379)
         self.assertEqual(template, before)
-        self.assertEqual(actual['services']['redis']['ports'], ['127.0.0.1:16379:6379'])
+        self.assertEqual(actual['services']['postgres']['ports'], ['127.0.0.1:16379:5432'])
         web = actual['services']['web']
         self.assertEqual(web['network_mode'], 'host')
         self.assertEqual(web['environment']['DEPLOY_MODE'], 'vm')
-        self.assertEqual(web['environment']['REDIS_URL'], 'redis://127.0.0.1:16379/0')
+        self.assertEqual(actual['secrets']['vm_postgres_dsn']['file'], '/tmp/codex-rer/test/.postgres.dsn')
         self.assertIn('127.0.0.1', web['command'])
         self.assertEqual(web['command'][-2:], ['--workers','1'])
         self.assertTrue(all('/tmp/codex-rer/test/' in v for v in web['volumes'][1:]))

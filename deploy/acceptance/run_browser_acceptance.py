@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """(C) Copyright 2026, by Ross Richardson
 
-Exercise the real VM frontend with an isolated catalogue, Redis and browser.
+Exercise the real VM frontend with an isolated catalogue, PostgreSQL and browser.
 
 Requires Docker access, the prepared image and deploy/acceptance/requirements.txt installed
 alongside the frontend's requirements-vm.txt. No production sources are edited.
@@ -108,7 +108,7 @@ def verify_deployment_settings(population, attrs, logs, storage):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--external-url", help="Existing isolated test frontend; no frontend/Redis is started")
+    parser.add_argument("--external-url", help="Existing isolated test frontend; no frontend/PostgreSQL is started")
     parser.add_argument("--model-id", help="Unique test model ID required with --external-url")
     parser.add_argument("--frontend", type=Path, default=workflow.frontend_path())
     parser.add_argument("--deployment-profile", action="store_true", help="Use and verify the recommended heap/container/CPU/storage configuration")
@@ -139,7 +139,7 @@ def main():
     report = {"status": "running", "checks": [], "page_errors": [], "console_errors": [], "failed_requests": [], "output": str(out)}
     report["step_only"] = args.step_only
     client = docker.from_env()
-    redis_container = process = None
+    postgres_container = process = None
     model_id = args.model_id or "simpaths-acceptance-" + secrets.token_hex(6)
     report["model_id"] = model_id
     frontend_log = (out/"frontend.log").open("w")
@@ -159,6 +159,8 @@ def main():
             # Copy tracked files only, with current working-tree contents. Never copy
             # .env, credentials, user databases or another instance's configuration.
             tracked = subprocess.check_output(["git", "-C", str(frontend), "ls-files", "-z"]).decode().split("\0")
+            tracked += [str(p.relative_to(frontend)) for p in (frontend/'jasmine_web').glob('vm_*.py')]
+            tracked += [str(p.relative_to(frontend)) for p in (frontend/'jasmine_web').glob('vm_*.sql')]
             # Do not silently exercise stale code when a new security module has
             # not yet been staged. The existing tracked-file copy stays explicit.
             required = ['jasmine_web/public_fetch.py', 'jasmine_web/request_limits.py',
@@ -174,7 +176,7 @@ def main():
                 source = frontend/name
                 if not name or source.is_symlink() or not source.is_file():
                     continue
-                if not (source.suffix == ".py" or name.startswith("static/")):
+                if not (source.suffix in (".py", ".sql") or name.startswith("static/")):
                     continue
                 target = work/name
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -189,17 +191,13 @@ def main():
             report["frontend_revision"] = subprocess.check_output(["git", "-C", str(frontend), "rev-parse", "HEAD"], text=True).strip()
             report["frontend_worktree_status"] = subprocess.check_output(["git", "-C", str(frontend), "status", "--short"], text=True)
             (out/"python-packages.txt").write_text(subprocess.check_output([sys.executable, "-m", "pip", "freeze"], text=True))
-            redis_port, web_port = free_port(), free_port()
-            redis_container = client.containers.run("redis:alpine", detach=True,
-                ports={"6379/tcp": ("127.0.0.1", redis_port)},
-                command=["redis-server", "--save", "", "--appendonly", "no"],
-                labels={"simpaths.acceptance": model_id})
+            postgres_port, web_port = free_port(), free_port()
+            postgres_container, dsn_file = load_tool('acceptance/postgres_fixture.py').start_postgres(client, model_id, postgres_port, work)
             env = {k: v for k, v in os.environ.items() if not k.startswith(("REDIS_", "JASMINE_", "VM_"))}
-            env.update(DEPLOY_MODE="vm", VM_SECURITY_MODE="development", COOKIE_SECURE="false", REDIS_HOST="127.0.0.1", REDIS_PORT=str(redis_port),
-                REDIS_DB="0", ADMIN_PASSWORD=secrets.token_urlsafe(32), SESSION_SECRET=secrets.token_urlsafe(32),
+            env.update(DEPLOY_MODE="vm", VM_STATE_BACKEND="postgres", VM_POSTGRES_DSN_FILE=str(dsn_file),
+                VM_POSTGRES_SCHEMA='jasmine_vm', VM_SECURITY_MODE="development", COOKIE_SECURE="false",
+                ADMIN_PASSWORD=secrets.token_urlsafe(32), SESSION_SECRET=secrets.token_urlsafe(32),
                 HARD_RESET_SECRET=secrets.token_urlsafe(32), PYTHONUNBUFFERED="1", PYTHON_DOTENV_DISABLED="1")
-            # The isolated Redis receives its own persistent deployment identity.
-            # Exercise ordinary ownership-scoped cleanup as well as provisioning.
             (work/"acceptance_server.py").write_text("# (C) Copyright 2026, by Ross Richardson\n# Isolated browser-test server with deployment-scoped cleanup.\n# @author ross richardson\nimport app\nimport uvicorn\nuvicorn.run(app.app, host='127.0.0.1', port=PORT)\n".replace("port=PORT", f"port={web_port}"))
             process = subprocess.Popen([sys.executable, "acceptance_server.py"], cwd=work, env=env,
                 stdout=frontend_log, stderr=subprocess.STDOUT)
@@ -533,8 +531,8 @@ def main():
                 (out/f"model-{container.short_id}.log").write_bytes(container.logs())
                 container.remove(force=True)
             remove_test_networks(client, model_id)
-            if redis_container is not None:
-                redis_container.remove(force=True)
+            if postgres_container is not None:
+                postgres_container.remove(force=True)
         except Exception as error:
             report["cleanup_error"] = str(error)
             report["status"] = "failed"

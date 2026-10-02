@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """(C) Copyright 2026, by Ross Richardson
-Two Quick Start 20k browser sessions on an isolated local frontend and Redis.
+Two Quick Start 20k browser sessions on an isolated frontend and selected state store.
 Checks concurrent Builds/runs, owner isolation, independent Reset/Leave and outputs.
 No image builds, pulls, pruning or production configuration changes.
 @author ross richardson
@@ -10,10 +10,12 @@ import asyncio
 import datetime as dt
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import secrets
 import shutil
+import statistics
 import signal
 import subprocess
 import sys
@@ -52,24 +54,30 @@ def resource_check(resources):
             'Need 6 GiB free on root before the two-session test. Free space before retrying.')
 
 
-def isolated_environment(redis_port):
+def isolated_environment(*, state_backend='postgres', postgres_dsn_file=None):
     env = {k: v for k, v in os.environ.items()
            if not k.startswith(('REDIS_', 'JASMINE_', 'VM_', 'UVICORN_', 'ADMIN_', 'SESSION_', 'HARD_RESET_'))}
     env.update(DEPLOY_MODE='vm', VM_SECURITY_MODE='development', VM_MAX_SESSIONS='2',
+               VM_STATE_BACKEND=state_backend,
                VM_MAX_SESSIONS_PER_CLIENT='2', VM_SESSION_MEMORY_BUDGET_MIB='8192',
-               REDIS_URL=f'redis://127.0.0.1:{redis_port}/0', REDIS_HOST='127.0.0.1',
-               REDIS_PORT=str(redis_port), REDIS_DB='0', COOKIE_SECURE='false',
+               COOKIE_SECURE='false',
                ADMIN_PASSWORD=secrets.token_urlsafe(32), SESSION_SECRET=secrets.token_urlsafe(32),
                HARD_RESET_SECRET=secrets.token_urlsafe(32), PYTHON_DOTENV_DISABLED='1', PYTHONUNBUFFERED='1')
+    require(state_backend == 'postgres' and postgres_dsn_file is not None, 'Disposable PostgreSQL DSN file required')
+    env.update(VM_POSTGRES_DSN_FILE=str(postgres_dsn_file), VM_POSTGRES_SCHEMA='jasmine_vm', VM_POSTGRES_POOL_SIZE='4')
     return env
 
 
 def copy_frontend(frontend, work):
     tracked = subprocess.check_output(['git', '-C', str(frontend), 'ls-files', '-z'], text=True).split('\0')
+    # The migration candidate may still be under test before its first commit.
+    tracked += [str(p.relative_to(frontend)) for p in (frontend/'jasmine_web').glob('vm_*.py')]
+    tracked += [str(p.relative_to(frontend)) for p in (frontend/'jasmine_web').glob('vm_*.sql')]
+    tracked += [str(p.relative_to(frontend)) for p in (frontend/'jasmine_web/batch').glob('*.sql')]
     for name in tracked:
         source = frontend/name
         if (not name or source.is_symlink() or not source.is_file()
-                or not (source.suffix == '.py' or name.startswith('static/'))):
+                or not (source.suffix in ('.py', '.sql') or name.startswith('static/'))):
             continue
         target = work/name
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -107,25 +115,59 @@ class Sampler:
         self.phase = 'setup'
         self.low_disk = False
         self.errors = 0
+        self.departed_containers = 0
+
+    def snapshot(self):
+        from docker.errors import NotFound
+        from requests.exceptions import JSONDecodeError as ResponseJSONError
+        host = host_resources()
+        self.low_disk |= host['root_free_bytes'] < 2*GIB
+        row = {'host': host, 'containers': [], 'departed_containers': []}
+        # IDs suffice here; avoid a second inventory-inspection race in the SDK.
+        for container in self.client.containers.list(filters={'label': f'jasmine.model_id={self.model}'}, sparse=True):
+            try:
+                stats = container.stats(stream=False, one_shot=True)
+            except NotFound:
+                # Leave can remove a container after the inventory was read.
+                # Record that change; it is not a failed resource measurement.
+                self.departed_containers += 1
+                row['departed_containers'].append(container.id)
+                continue
+            except (json.JSONDecodeError, ResponseJSONError):
+                # Docker may close a pending stats response when Leave stops
+                # the container. Ignore it only after confirming that state;
+                # invalid statistics from a still-running container must fail.
+                try:
+                    container.reload()
+                except NotFound:
+                    pass
+                else:
+                    if container.status not in ('exited', 'dead', 'removing'):
+                        raise
+                self.departed_containers += 1
+                row['departed_containers'].append(container.id)
+                continue
+            row['containers'].append({'id': container.id,
+                'memory_usage_bytes': stats.get('memory_stats', {}).get('usage'),
+                'cpu_total_ns': stats.get('cpu_stats', {}).get('cpu_usage', {}).get('total_usage'),
+                'block_io': stats.get('blkio_stats', {}).get('io_service_bytes_recursive', [])})
+        return row
 
     def sample(self):
         with self.path.open('w') as stream:
             while not self.stop.is_set():
+                row = {'elapsed_seconds': round(time.monotonic()-self.started, 2),
+                       'phase': self.phase}
                 try:
-                    host = host_resources()
-                    self.low_disk |= host['root_free_bytes'] < 2*GIB
-                    row = {'elapsed_seconds': round(time.monotonic()-self.started, 2),
-                           'phase': self.phase, 'host': host, 'containers': []}
-                    for container in self.client.containers.list(filters={'label': f'jasmine.model_id={self.model}'}):
-                        stats = container.stats(stream=False)
-                        row['containers'].append({'id': container.id,
-                            'memory_usage_bytes': stats.get('memory_stats', {}).get('usage'),
-                            'cpu_total_ns': stats.get('cpu_stats', {}).get('cpu_usage', {}).get('total_usage'),
-                            'block_io': stats.get('blkio_stats', {}).get('io_service_bytes_recursive', [])})
-                    stream.write(json.dumps(row)+'\n')
-                    stream.flush()
-                except Exception:
+                    row.update(self.snapshot())
+                except Exception as error:
                     self.errors += 1
+                    row['error'] = {'type': type(error).__name__}
+                    response = getattr(error, 'response', None)
+                    if response is not None:
+                        row['error']['http_status'] = response.status_code
+                stream.write(json.dumps(row)+'\n')
+                stream.flush()
                 self.stop.wait(5)
 
     def start(self):
@@ -140,6 +182,7 @@ class Sampler:
 
 def summarize_samples(path):
     rows = [json.loads(line) for line in path.read_text().splitlines() if line]
+    rows = [row for row in rows if 'error' not in row]
     require(rows, 'No resource samples were recorded')
     summary = {'samples': len(rows), 'minimum_root_free_bytes': min(r['host']['root_free_bytes'] for r in rows),
                'minimum_available_memory_bytes': min(r['host']['available_memory_bytes'] for r in rows),
@@ -153,12 +196,30 @@ def summarize_samples(path):
     return summary
 
 
+def summarize_response_times(samples):
+    """Browser request timing in milliseconds, without response bodies or URLs."""
+    return {name: dict(requests=len(values), mean_ms=round(statistics.mean(values),3),
+                       p95_ms=round(sorted(values)[math.ceil(.95*len(values))-1],3),
+                       max_ms=round(max(values),3)) for name, values in samples.items() if values}
+
+
 async def exercise(base, client, model, out, report, passed, sampler):
     from playwright.async_api import async_playwright, expect
     import httpx
     assert_private_network = load_tool('acceptance/run_browser_acceptance.py').assert_private_network
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(headless=True)
+        timings = dict(status=[], charts=[], logs=[])
+        def finished(request):
+            path = urlsplit(request.url).path
+            name = path.split('/')[1] if path.startswith('/') else ''
+            if name in timings:
+                # Playwright Request.timing responseEnd is relative to startTime,
+                # available after requestfinished, and includes body transfer.
+                # https://playwright.dev/python/docs/api/class-request#request-timing
+                elapsed = request.timing['responseEnd']
+                if elapsed >= 0 and math.isfinite(elapsed):
+                    timings[name].append(elapsed)
         try:
             contexts = [await browser.new_context(viewport={'width': 1200, 'height': 800},
                         extra_http_headers={'Origin': base}) for _ in range(2)]
@@ -166,6 +227,7 @@ async def exercise(base, client, model, out, report, passed, sampler):
             sessions = []
             for page in pages:
                 page.on('pageerror', lambda error: report['page_errors'].append(str(error)))
+                page.on('requestfinished', finished)
                 await page.goto(base)
                 await page.locator('.model-card').click()
                 await page.wait_for_url(lambda url: urlsplit(str(url)).path.startswith('/sim/') or
@@ -329,6 +391,7 @@ async def exercise(base, client, model, out, report, passed, sampler):
             passed('no Java chart-processing errors in surviving session')
         finally:
             await browser.close()
+            report['browser_poll_response_times'] = summarize_response_times(timings)
 
 
 def main():
@@ -337,20 +400,22 @@ def main():
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--catalogue', type=Path, help='Catalogue containing the Quick Start 20,000 allocation')
     parser.add_argument('--image', help='Override the catalogue image for testing a candidate')
+    parser.add_argument('--state-backend', choices=['postgres'], default='postgres',
+                        help='Disposable state store for the same real-model browser workflow')
     args = parser.parse_args()
     args.frontend = args.frontend.expanduser().resolve()
     import docker
     import httpx
-    import redis
     free_port = load_tool('acceptance/run_browser_acceptance.py').free_port
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=False, mode=0o700)
     (out/'COPYRIGHT.md').write_text('<!-- (C) Copyright 2026, by Ross Richardson\nTwo-session acceptance evidence and copied frontend snapshot.\n@author ross richardson\n-->\n')
     report = {'status': 'running', 'checks': [], 'page_errors': [], 'scope': 'Laptop functional concurrency; development networking, not host isolation proof',
-              'single_session_baseline': 'Not measured; no slowdown ratio claimed'}
+              'single_session_baseline': 'Not measured; no slowdown ratio claimed', 'state_backend': args.state_backend}
     model = 'simpaths-acceptance-two-'+secrets.token_hex(6)
     report['model_id'] = model
-    client = process = redis_container = sampler = redis_client = None
+    client = process = postgres_container = sampler = None
+    dsn_file = None
     owner = None
     log = (out/'frontend.log').open('w')
     def save():
@@ -373,9 +438,9 @@ def main():
         if args.image:
             entry['deployment']['image'] = args.image
         image = client.images.get(entry['deployment']['image'])
-        redis_image = client.images.get('redis:7-alpine')
+        state_image = client.images.get('postgres:17-alpine')
         report['image_id'] = image.id
-        report['redis_image_id'] = redis_image.id
+        report['state_image_id'] = state_image.id
         report['frontend_revision'] = subprocess.check_output(['git', '-C', str(args.frontend), 'rev-parse', 'HEAD'], text=True).strip()
         report['frontend_worktree_status'] = subprocess.check_output(['git', '-C', str(args.frontend), 'status', '--short'], text=True)
         work = out/'frontend'
@@ -385,23 +450,37 @@ def main():
         require(entry['deployment']['memory'] == '4Gi' and entry['deployment']['java_heap_gib'] == 2,
                 'Catalogue allocation changed; review two-session test assumptions')
         (work/'models.json').write_text(json.dumps({'models': [entry]}))
-        redis_port, web_port = free_port(), free_port()
-        redis_container = client.containers.run(redis_image.id, detach=True,
-            ports={'6379/tcp': ('127.0.0.1', redis_port)}, labels={'simpaths.acceptance': model},
-            mem_limit='128m', command=['redis-server', '--save', '', '--appendonly', 'no'])
-        redis_client = redis.Redis(host='127.0.0.1', port=redis_port, decode_responses=True, socket_timeout=3)
-        until = time.monotonic()+30
-        while True:
-            try:
-                if redis_client.ping(): break
-            except redis.RedisError: pass
-            require(time.monotonic() < until, 'Test Redis did not become ready')
+        state_port, web_port = free_port(), free_port()
+        password = secrets.token_hex(32)
+        postgres_container = client.containers.run(state_image.id, detach=True,
+            ports={'5432/tcp': ('127.0.0.1',state_port)}, labels={'simpaths.acceptance':model},
+            environment=dict(POSTGRES_PASSWORD=password,POSTGRES_DB='jasmine_proof'),
+            mem_limit='768m',nano_cpus=1_000_000_000,pids_limit=128,
+            tmpfs={'/var/lib/postgresql/data':'rw,size=512m'},
+            command=['postgres','-c','shared_buffers=32MB','-c','max_wal_size=64MB','-c','min_wal_size=32MB','-c','checkpoint_timeout=1min'])
+        until=time.monotonic()+30
+        while postgres_container.exec_run(['pg_isready','-h','127.0.0.1','-U','postgres','-d','jasmine_proof']).exit_code:
+            require(time.monotonic()<until,'Test PostgreSQL did not become ready')
             time.sleep(.25)
-        owner = str(uuid.uuid4())
-        require(redis_client.set('jasmine:deployment-id', owner, nx=True), 'Fresh test Redis already has a deployment identity')
+        dsn_file=work/'.postgres-proof.dsn'
+        fd=os.open(dsn_file,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+        with os.fdopen(fd,'w') as stream:
+            stream.write(f'postgresql://postgres:{password}@127.0.0.1:{state_port}/jasmine_proof')
+        sys.path.insert(0,str(args.frontend))
+        try:
+            from jasmine_web.vm_state import PostgresVMState
+            state=PostgresVMState(dsn_file.read_text())
+            try:
+                state.migrate()
+                owner=state.deployment_id()
+            finally:
+                state.close()
+        finally:
+            sys.path.pop(0)
+        env=isolated_environment(state_backend='postgres',postgres_dsn_file=dsn_file)
         report['deployment_id'] = owner
         process = subprocess.Popen([sys.executable, '-m', 'uvicorn', 'app:app', '--host', '127.0.0.1', '--port', str(web_port)],
-            cwd=work, env=isolated_environment(redis_port), stdout=log, stderr=subprocess.STDOUT)
+            cwd=work, env=env, stdout=log, stderr=subprocess.STDOUT)
         base = f'http://127.0.0.1:{web_port}'
         until = time.monotonic()+60
         with httpx.Client(trust_env=False, timeout=3) as http:
@@ -412,7 +491,6 @@ def main():
                 except httpx.HTTPError: pass
                 require(time.monotonic() < until, 'Test frontend did not become ready')
                 time.sleep(.5)
-        owner = redis_client.get('jasmine:deployment-id')
         require(owner, 'Test deployment identity missing')
         report['deployment_id'] = owner
         sampler = Sampler(client, model, out/'resources.jsonl')
@@ -429,6 +507,7 @@ def main():
             try: sampler.close()
             except Exception as error: errors.append(type(error).__name__)
             report['resource_sampling_errors'] = sampler.errors
+            report['containers_stopped_or_removed_during_sampling'] = sampler.departed_containers
             try: report['resource_summary'] = summarize_samples(out/'resources.jsonl')
             except Exception as error: errors.append('Resource summary: '+type(error).__name__)
             if sampler.errors:
@@ -441,22 +520,23 @@ def main():
                 process.wait(timeout=10)
         if client:
             try:
-                if not owner and redis_client: owner = redis_client.get('jasmine:deployment-id')
                 cleanup_models(client, model, owner)
             except Exception as error: errors.append('model cleanup: '+type(error).__name__)
-        if redis_container:
+        if postgres_container:
             try:
-                redis_container.reload()
-                require(redis_container.labels.get('simpaths.acceptance') == model, 'Redis cleanup ownership mismatch')
-                redis_container.remove(force=True)
-            except Exception as error: errors.append('Redis cleanup: '+type(error).__name__)
+                postgres_container.reload()
+                require(postgres_container.labels.get('simpaths.acceptance')==model,'PostgreSQL cleanup ownership mismatch')
+                postgres_container.remove(force=True,v=True)
+            except Exception as error: errors.append('PostgreSQL cleanup: '+type(error).__name__)
+        if dsn_file is not None:
+            try: dsn_file.unlink(missing_ok=True)
+            except Exception as error: errors.append('Credential cleanup: '+type(error).__name__)
         if errors:
             report['cleanup_errors'] = errors
             report['status'] = 'failed'
         report['host_after'] = host_resources()
         log.close()
         if client: client.close()
-        if redis_client: redis_client.close()
         for sig, handler in previous.items(): signal.signal(sig, handler)
         save()
         print(f"{report['status'].upper()}: {out/'report.json'}", flush=True)

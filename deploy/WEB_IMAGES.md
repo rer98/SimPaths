@@ -30,7 +30,7 @@ README verification and catalogue publication operations live in JAS-mine-web's
 `JASMINE_WEB_REPO`; by default they use `~/git/JAS-mine/JAS-mine-web`. A missing or
 older checkout gives an error explaining how to select/update it. `--help` works
 without the frontend checkout or its dependencies. These tools need only Python's
-standard library and Docker, not a running frontend or Redis.
+standard library and Docker, not a running frontend or PostgreSQL.
 
 Preparation and packaging under `web-quickstart/`, `web-training/` and
 `web-user-data/` remain standalone: they do not require JAS-mine-web. Shared

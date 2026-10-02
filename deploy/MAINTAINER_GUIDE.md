@@ -179,7 +179,7 @@ for storage checks and explicit context packaging. These builds update the local
 images to a server. Record immutable image IDs alongside acceptance evidence.
 
 Start a dedicated local frontend using JAS-mine-web's documented VM-development
-configuration, with its SimPaths catalogue and a reachable Redis URL. Restart it
+configuration, with its SimPaths catalogue and a private PostgreSQL DSN. Restart it
 after changing catalogue settings. These two tests use that running frontend
 (default `http://127.0.0.1:5001`, configurable with `--url`) and create/delete only
 their own sessions. Run them sequentially, leaving existing manual sessions first

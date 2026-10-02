@@ -71,6 +71,14 @@ class VMConfigTests(unittest.TestCase):
             self.config(self.text.replace('max_repetitions = 12', 'max_repetitions = 1000')
                 .replace('runtime_per_repetition_minutes = 60', 'runtime_per_repetition_minutes = 1440'))
 
+    def test_interactive_headroom_keeps_a_batch_workload_possible(self):
+        configured = self.config(self.text.replace('cpu_millis = 3000', 'cpu_millis = 6000\nhold_cpu_millis = 2000')
+            .replace('memory_mib = 6144', 'memory_mib = 16384\nhold_memory_mib = 8192')
+            .replace('storage_mib = 13312', 'storage_mib = 32768\nhold_storage_mib = 10240'))
+        self.assertEqual(configured.holdback, dict(cpu_millis=2000, memory_mib=8192, storage_mib=10240))
+        with self.assertRaises(ValueError):
+            self.config(self.text.replace('cpu_millis = 3000', 'cpu_millis = 3000\nhold_cpu_millis = 2000'))
+
     def test_credential_permissions_links_and_bounded_contents(self):
         file = self.root/'credential'
         file.write_text('secret value\n'); file.chmod(0o600)

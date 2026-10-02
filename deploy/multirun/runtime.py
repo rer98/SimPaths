@@ -34,7 +34,7 @@ from jasmine_web.batch.worker import Worker
 
 
 def create_registry(args,q,state,send_mail,*,capacity=Resources(2000,5120,12288),per_user_active=1):
-    q.create_pool(capacity,policy=Policy(per_user_active=per_user_active,
+    q.create_pool(capacity,holdback=getattr(args,'holdback',None),policy=Policy(per_user_active=per_user_active,
         per_user_unfinished=args.max_unfinished_jobs,pool_unfinished=args.pool_unfinished_jobs),
         update_admission_limits=True)
     access=Access(q,secret_file(state/'session-secret'),send_mail)

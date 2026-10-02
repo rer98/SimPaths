@@ -2,7 +2,7 @@
 
 Loopback MultiRun preview with persistent PostgreSQL, private artifacts and worker.
 Explicit console-code mode is a local test facility, not production email proof.
-The existing SingleRun frontend and Redis store are not imported or changed.
+The separate SingleRun frontend and its state registry are not imported or changed.
 
 @author ross richardson
 """

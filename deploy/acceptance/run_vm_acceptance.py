@@ -33,16 +33,17 @@ def new_project_name():
     return 'vm-acceptance-' + secrets.token_hex(6)
 
 
-def isolated_config(template, work, web_port, redis_port):
+def isolated_config(template, work, web_port, postgres_port):
     """Retain production settings, substituting only local test resources."""
     import copy
     config = copy.deepcopy(template)
-    redis = config['services']['redis']
-    redis['ports'] = [f'127.0.0.1:{redis_port}:6379']
+    postgres = config['services']['postgres']
+    postgres['ports'] = [f'127.0.0.1:{postgres_port}:5432']
     web = config['services']['web']
     web['build']['context'] = str(work)
     web['env_file'] = [str(work/'deploy/.env')]
-    web['environment']['REDIS_URL'] = f'redis://127.0.0.1:{redis_port}/0'
+    config['secrets']['postgres_password']['file'] = str(work/'.postgres-password')
+    config['secrets']['vm_postgres_dsn']['file'] = str(work/'.postgres.dsn')
     web['command'] = ['uvicorn', 'acceptance_server:app', '--host', '127.0.0.1',
                       '--port', str(web_port), '--workers', '1']
     web['volumes'] = ['/var/run/docker.sock:/var/run/docker.sock',
@@ -134,11 +135,13 @@ def main():
     started = False
     try:
         tracked = subprocess.check_output(['git','-C',str(frontend),'ls-files','-z']).decode().split('\0')
+        tracked += [str(p.relative_to(frontend)) for p in (frontend/'jasmine_web').glob('vm_*.py')]
+        tracked += [str(p.relative_to(frontend)) for p in (frontend/'jasmine_web').glob('vm_*.sql')]
         for name in tracked:
             source = frontend/name
             if not name or source.is_symlink() or not source.is_file():
                 continue
-            if not (source.suffix == '.py' or name.startswith('static/') or name == 'Dockerfile' or name.startswith('requirements')):
+            if not (source.suffix in ('.py', '.sql') or name.startswith('static/') or name in ('Dockerfile', 'constraints-runtime.txt') or name.startswith('requirements')):
                 continue
             target = work/name
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -149,20 +152,26 @@ def main():
             'deployment':{'image': args.image,'java_heap_gib':2,'memory':'4Gi','cpu':2,
                 'session_storage':{'allowance_gib':10,'warning_free_gib':3,'build_reserve_gib':2,'cleanup_enabled':True}}
         }]}))
-        web_port, redis_port = free_port(), free_port()
-        while redis_port == web_port:
-            redis_port = free_port()
+        web_port, postgres_port = free_port(), free_port()
+        while postgres_port == web_port:
+            postgres_port = free_port()
+        password = secrets.token_hex(32)
+        for name, value in (('.postgres-password', password),
+                            ('.postgres.dsn', f'postgresql://jasmine_vm:{password}@127.0.0.1:{postgres_port}/jasmine_vm')):
+            path = work/name
+            path.write_text(value+'\n')
+            path.chmod(0o600)
         (work/'deploy').mkdir()
         env = work/'deploy/.env'
         env.write_text('# (C) Copyright 2026, by Ross Richardson\n# Temporary local acceptance settings.\n# @author ross richardson\nDEPLOY_MODE=vm\nVM_SECURITY_MODE=development\nCOOKIE_SECURE=false\nENABLE_HSTS=false\nVM_MAX_SESSIONS=1\n' +
             ''.join(f'{key}={secrets.token_urlsafe(32)}\n' for key in ('SESSION_SECRET','ADMIN_PASSWORD','HARD_RESET_SECRET')))
         env.chmod(0o600)
         (work/'acceptance_server.py').write_text('''# (C) Copyright 2026, by Ross Richardson
-# Test entrypoint: isolated Redis provides independent cleanup ownership.
+# Test entrypoint: isolated PostgreSQL provides independent cleanup ownership.
 # @author ross richardson
 from app import app
 ''')
-        config = isolated_config(yaml.safe_load((frontend/'deploy/compose.vm.yaml').read_text()), work, web_port, redis_port)
+        config = isolated_config(yaml.safe_load((frontend/'deploy/compose.vm.yaml').read_text()), work, web_port, postgres_port)
         (work/'compose.json').write_text(json.dumps(config))
         # Save the template and non-secret generated configuration as evidence.
         shutil.copy2(frontend/'deploy/compose.vm.yaml', out/'production-template.yaml')
@@ -183,7 +192,7 @@ from app import app
             if time.monotonic()>deadline:
                 raise TimeoutError('Compose frontend did not become healthy')
             time.sleep(.5)
-        report['checks'].append({'name':'Compose frontend and Redis startup','status':'passed'})
+        report['checks'].append({'name':'Compose frontend and PostgreSQL startup','status':'passed'})
         print('capacity-and-private-networks', flush=True)
         report['checks'].append({'name':'capacity and private model binding','status':'passed', **capacity_checks(base, model_id, client)})
         print('browser-build-run-pause-reset-storage', flush=True)

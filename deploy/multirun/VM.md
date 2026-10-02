@@ -21,7 +21,8 @@ whether the job can retry or needs review. Laptop deadline credit is disabled.
 The files in [vm/](vm/) are installation templates. No VM/provider has been chosen,
 provisioned or modified by adding these files. Real TLS, SMTP delivery, boot/restart,
 disk limits, backup restoration and external privacy checks must pass on the chosen
-staging VM before public launch. The existing SingleRun/Redis deployment is separate.
+staging VM before public launch. The SingleRun frontend is a separate application
+using PostgreSQL as well; it can join the same resource pool as described below.
 Do not substitute its Compose template for this MultiRun service.
 
 The optional Visualiser is still the pinned **development levels preview**. It
@@ -156,9 +157,30 @@ Unknown settings, HTTP origins, mutable image tags, unsafe paths, invalid quotas
 and incompatible retention/email settings are rejected. The example pool admits
 one 50k model job plus the default Visualiser processor. It is a conservative staging
 allocation, **not** measured production sizing. Leave host/Python/PostgreSQL/cache
-overhead and reserved SingleRun capacity outside this pool. Queue reservations
-coordinate model jobs and Visualiser processing within MultiRun, not the Redis
-SingleRun scheduler. Both deployments need explicitly partitioned budgets.
+overhead outside the pool. For MultiRun-only hosting, these settings cover model
+jobs and Visualiser processing. When SingleRun shares the host, give the pool the
+total workload budget and configure the interactive frontend with the same
+database plus `VM_SHARED_POOL_ID=simpaths-online` and
+`VM_SHARED_BATCH_SCHEMA=jasmine_batch`, using its separate `jasmine_vm` schema.
+The application role must have the schema/table permissions documented in
+`JAS-mine-web/docs/vm-postgresql.md`.
+
+Optional `[pool]` settings `hold_cpu_millis`, `hold_memory_mib` and
+`hold_storage_mib` preserve interactive headroom even when no SingleRun session
+is open. Raise the total budget accordingly: enough capacity must remain after
+holdback for a model and any required processor. Actual interactive allocations
+occupying that headroom are counted once. SingleRun admission, batch claims and
+Visualiser processors take the same PostgreSQL pool-row lock; allocation and
+session insertion/removal commit together. Stopping or failed cleanup keeps the
+reservation until workload removal is confirmed. Idle polling does not lock the
+common pool.
+
+Drain SingleRun, including owned orphans, before first joining the pool. Its
+binding is stored durably so a missing environment setting cannot bypass common
+admission later. The standalone local SingleRun bootstrap creates a different
+database and therefore does not join automatically. If the services deliberately
+use separate pools/databases on one host, partition CPU/RAM/disk explicitly.
+Common bookkeeping is not a hard disk quota or a production capacity measurement.
 
 Limits default to 100 configurations, 12 repetitions, 110 unfinished jobs per user,
 220 per pool, 4 GiB retained uploads and a 10 GiB prepared-download cache. Runtime

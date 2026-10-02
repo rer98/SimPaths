@@ -466,7 +466,9 @@ Before production, integrate these trusted service APIs with authenticated
 submission, durable preparation-job admission/recovery, managed prepared-file
 locations, retention and hard storage quotas. Reviewed aggregation rules are also
 required before publishing provider-derived aggregate downloads. The existing
-SingleRun application, Redis coordination and Cloud Run mode are unchanged.
+SingleRun application and Cloud Run mode were unchanged by this increment.
+SingleRun's later PostgreSQL-only migration and shared resource admission are
+documented in JAS-mine-web's `docs/vm-postgresql.md` and [the VM guide](VM.md).
 
 ### Durable preparation and authenticated submission adapter
 

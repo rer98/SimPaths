@@ -20,8 +20,15 @@ prepared = []
 image = "sha256:REPLACE_WITH_64_HEXADECIMAL_DIGITS"
 
 [pool]
+# These are TOTAL allocations for model/result work. When SingleRun joins this
+# pool, reserve interactive headroom here and configure its VM_SHARED_POOL_ID.
+# hold_cpu_millis = 2000
+# hold_memory_mib = 8192
+# hold_storage_mib = 10240
+# Increase total capacity above the holds to fit at least one batch workload.
 # Allows one 50k model job and one default Visualiser processor together.
-# Explicitly leave host, database, web-service and SingleRun capacity outside this pool.
+# Leave host/database/web-service reserves outside; include SingleRun only when
+# it joins this common pool, increasing totals and choosing interactive holds.
 cpu_millis = 3000
 memory_mib = 6144
 storage_mib = 13312

@@ -104,11 +104,26 @@ def job_leases(queue):
     return [queue._lease(row, row) for row in rows]
 
 
-def timing_summary(rows):
+def timing_summary(rows, *, phases=('running-alone', 'mixed-running')):
     return {phase: {endpoint: performance.summarize([row for row in rows
                 if row['phase'] == phase and row['endpoint'] == endpoint])
             for endpoint in ('status', 'charts', 'logs')}
-        for phase in ('running-alone', 'mixed-running')}
+        for phase in phases}
+
+
+async def finish_polling_phase(measurements, phase, *, timeout=15):
+    """Finish every running request before a control can block Java readers."""
+    require(measurements.phase == phase, 'Polling phase changed before its measurement finished')
+    measurements.phase = 'measurement-drain'
+    until = time.monotonic()+timeout
+    while any(row['phase'] == phase for row in measurements.pending.values()):
+        require(time.monotonic() < until, 'Outstanding polling did not finish during '+phase)
+        await asyncio.sleep(.05)
+    await measurements.drain()
+    selected = [row for row in measurements.rows if row['phase'] == phase]
+    value = performance.summarize(selected)
+    require(value['requests'] > 0 and value['measured'] == value['requests'] and not value['failures'],
+            'Polling failed during '+phase)
 
 
 def cpu_overlap(path, identifiers):
@@ -459,16 +474,26 @@ async def exercise(trial, passed):
                     require((await request('GET', '/status/'+sid))['status'] == 'running',
                             'Interactive simulation finished before the mixed measurement')
                     await asyncio.sleep(.5)
-                await measurements.drain()
-                selected = [row for row in measurements.rows if row['phase'] == phase]
-                require(not performance.summarize(selected)['failures'], 'Polling failed during '+phase)
+                trial.sampler.phase = 'measurement-drain'
+                await finish_polling_phase(measurements, phase)
                 require(await page.evaluate('() => [...document.querySelectorAll(".js-plotly-plot")].some(p => '
                     '(p.data || []).some(t => (t.x || []).length || (t.y || []).length))'),
                     'Browser did not draw populated simulation charts')
 
+            async def pause():
+                # Use the normal UI so it knows Java may hold its write lock
+                # until the current step finishes, and suppresses chart retries.
+                await expect(page.locator('#pause-btn')).to_be_enabled(timeout=30000)
+                measurements.phase = trial.sampler.phase = 'pausing'
+                await page.locator('#pause-btn').click()
+                await page.wait_for_function("() => lifecycle === 'idle' && runState === 'paused' "
+                                             "&& pendingLifecycleRequest === null", timeout=330000)
+                await wait_state('paused')
+                await expect(page.locator('#offline-banner')).not_to_be_visible()
+
             await sample('running-alone', trial.options.baseline_charts)
-            await request('POST', '/pause/'+sid)
-            await wait_state('paused')
+            await pause()
+            measurements.phase = trial.sampler.phase = 'batch-startup'
             passed('interactive simulation and populated charts measured without a batch model')
             await asyncio.to_thread(trial.submit, 'background')
             trial.frozen = trial.queue.inspect('background', trial.experiments['background'])['specification']
@@ -526,8 +551,7 @@ async def exercise(trial, passed):
             await page.screenshot(path=str(trial.out/'mixed-running.png'), timeout=15000)
             passed('interactive status, populated charts and logs remain available during real batch CPU and disk load',
                    overlap=cpu_overlap(trial.out/'resources.jsonl', (model.id, batch.id)))
-            await request('POST', '/pause/'+sid)
-            await wait_state('paused')
+            await pause()
             before = trial.background()
             allocation(lease.attempt_id)
             trial.sampler.phase = measurements.phase = 'worker-recovery'
@@ -600,6 +624,7 @@ async def exercise(trial, passed):
             (trial.out/'interactive-HealthStatistics.csv').write_bytes(raw)
             passed('interactive simulation finishes all eight years during batch work; another owner cannot download its output',
                    **complete_summary)
+            measurements.phase = trial.sampler.phase = 'resetting'
             await request('POST', '/reset/'+sid)
             response = await context.request.get(url, timeout=60000)
             require(response.ok and hashlib.sha256(await response.body()).hexdigest() == summary_hash,
@@ -609,6 +634,7 @@ async def exercise(trial, passed):
             logs = await asyncio.to_thread(model.logs, tail=20000)
             (trial.out/'interactive-java.log').write_bytes(logs)
             require(b'Processor: error processing' not in logs, 'Interactive Java chart-processing error')
+            measurements.phase = trial.sampler.phase = 'leaving'
             response = await context.request.post(trial.base+'/leave/'+sid, max_redirects=0, timeout=120000)
             require(response.status == 303 and response.headers.get('location') == '/', 'Interactive Leave failed')
             require(not await asyncio.to_thread(trial.client.containers.list,
@@ -659,7 +685,8 @@ async def exercise(trial, passed):
             trial.report['poll_response_times'] = timing_summary(measurements.rows)
             for phase, endpoints in trial.report['poll_response_times'].items():
                 for endpoint, value in endpoints.items():
-                    require(value['measured'] > 0 and value['failures'] == 0, 'Missing or failed '+phase+' '+endpoint+' samples')
+                    require(value['measured'] == value['requests'] > 0 and value['failures'] == 0,
+                            'Missing or failed '+phase+' '+endpoint+' samples')
             require(not trial.report['page_errors'], 'Uncaught browser exceptions')
             passed('measured browser requests and drawn charts have no polling or uncaught JavaScript errors')
         finally:
@@ -667,6 +694,9 @@ async def exercise(trial, passed):
             await browser.close()
             await measurements.drain()
             trial.report['poll_response_times'] = timing_summary(measurements.rows)
+            other_phases = sorted({row['phase'] for row in measurements.rows}
+                                  - {'running-alone', 'mixed-running'})
+            trial.report['other_phase_response_times'] = timing_summary(measurements.rows, phases=other_phases)
             (trial.out/'browser-timings.jsonl').write_text(''.join(json.dumps(row)+'\n' for row in measurements.rows))
 
 

@@ -107,6 +107,11 @@ The proof checks:
 - At least 60 active-run chart responses before batch launch and 180 during
   real batch execution, plus normal status/log polling and populated charts.
   Docker samples must show CPU progress for both models in the same interval.
+  Each running measurement waits for its outstanding requests and JSON checks
+  before the test uses the browser's Pause control. Pause and recovery have
+  separate labels, since Java's Pause write lock can temporarily block readers
+  until the current simulation step finishes. The browser must settle to paused
+  without an offline banner before recovery starts.
 - A separate worker process stops and restarts while its model keeps running.
   Recovery must adopt the same attempt, execution key and container, and retain
   capacity throughout the expired-lease interval. The normal 60-second lease
@@ -126,8 +131,12 @@ The proof checks:
 The private report contains checks, image/revision/input identities, exact
 allocation snapshots, per-phase request means/medians/95th and 99th percentiles,
 responses over 500 ms, resource samples, small summary CSVs, bounded model logs
-and screenshots. Poll failures, uncaught browser exceptions, Java chart errors,
-sampling errors and uncertain cleanup fail the report. Cleanup checks ownership
+and screenshots. Poll failures or missing timings in a measured running window,
+uncaught browser exceptions, Java chart errors, sampling errors and uncertain
+cleanup fail the report. Control/recovery polling is retained in
+`other_phase_response_times` and the unfiltered `browser-timings.jsonl`;
+its functional checks still require confirmed pause, recovery and isolation.
+Cleanup checks ownership
 and confirmed stop before deleting only this proof's resources. If model removal
 is uncertain, the private workspace, PostgreSQL state and DSN file are retained
 for recovery; inspect `recovery_files_retained` and the cleanup errors before
@@ -145,12 +154,46 @@ Local harness checks, without Docker or PostgreSQL:
 python -m unittest discover -s deploy/acceptance -p test_mixed_load_acceptance.py -v
 ```
 
-**Validation checkpoint (2 October):** 16 new harness cases and 28 reused
-completion/timing helper cases pass locally. The first real attempt,
+**Validation checkpoint (2–3 October):** 20 harness cases pass locally, including
+four asynchronous cases for outstanding requests, JSON validation and failures
+across measurement boundaries. The 28 reused completion/timing helper cases
+passed during the original implementation. The first real attempt,
 `mixed-load-20261002-210241/report.json`, stopped before provisioning because
 7.21 GiB RAM was available, below the 11 GiB starting requirement. No models
-or disposable database were started. This report is not mixed-load evidence;
-free RAM and rerun into a new evidence directory.
+or disposable database were started. That report contains no mixed-load model
+measurements.
+
+The subsequent `mixed-load-20261002-232140/report.json` passed all nine model,
+admission, restart and isolation checks: both simulations completed all eight
+years, MultiRun used one attempt, and final allocations were released. The final
+polling check failed because two status timeouts and four aborted chart requests
+during the test's direct Pause were still labelled `mixed-running`. The original
+report remains failed. The corrected harness finishes the running measurement
+before pausing through the UI and retains separate control summaries. No
+application, authentication, secrets or cookie code changed for this correction.
+
+**Full mixed-load proof passed — 3 October:**
+`mixed-load-20261003-000304/report.json` passed all ten checks. Both real models
+completed 2019–2026, MultiRun kept one attempt and its frozen inputs/seed, and
+the final common ledger had no remaining allocations. Worker/frontend restart,
+cross-owner download denial and Reset/Leave isolation passed. Resource sampling
+and cleanup reported no errors, and the browser had no uncaught exceptions.
+
+During mixed execution, all 944 measured requests succeeded, with none exceeding
+the 500 ms polling interval:
+
+| Endpoint | Requests | Mean (ms) | Median (ms) | 95th percentile (ms) | Maximum (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Status | 702 | 18.50 | 13.16 | 47.97 | 94.50 |
+| Charts | 180 | 31.24 | 26.90 | 52.28 | 100.92 |
+| Logs | 62 | 25.30 | 18.84 | 53.98 | 74.79 |
+
+The 339 measured requests before batch launch also had no failures or responses
+over 500 ms. The 179 resource samples showed a 7.49 GiB peak combined model
+container memory reading (including cache), minimum available host RAM of
+6.32 GiB and minimum free root storage of 15.09 GiB. Pause delays and requests interrupted by deliberate
+page closure remain in the separate phase summaries and raw evidence. This
+validates the tested pair; larger production workloads still need measurement.
 
 For the generic database races, common admission, controlled cutover and HTTP proof,
 see `JAS-mine-web/docs/vm-postgresql.md`. The current proof uses actual HTTP routes

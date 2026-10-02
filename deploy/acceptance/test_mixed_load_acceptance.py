@@ -4,6 +4,7 @@ Fictional resources only; the acceptance runner performs real model/browser chec
 @author ross richardson
 """
 from contextlib import contextmanager, nullcontext
+import asyncio
 import json
 from pathlib import Path
 import runpy
@@ -13,7 +14,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -56,15 +57,20 @@ class EvidenceTests(unittest.TestCase):
             runner.ledger(queue)
 
     def test_mixed_timings_do_not_hide_failed_requests_or_merge_the_baseline(self):
-        result = runner.timing_summary([
+        rows = [
             dict(phase='running-alone', endpoint='charts', request_ms=10, http_status=200),
             dict(phase='mixed-running', endpoint='charts', request_ms=45, http_status=200),
             dict(phase='mixed-running', endpoint='charts', request_ms=None, failure='network_failure'),
-            dict(phase='closing', endpoint='charts', request_ms=None, failure='intentional_navigation')])
+            dict(phase='pausing', endpoint='status', request_ms=10000, body_error=True),
+            dict(phase='closing', endpoint='charts', request_ms=None, failure='intentional_navigation')]
+        result = runner.timing_summary(rows)
         self.assertEqual(result['running-alone']['charts']['mean_ms'], 10)
         self.assertEqual(result['mixed-running']['charts']['mean_ms'], 45)
         self.assertEqual(result['mixed-running']['charts']['requests'], 2)
         self.assertEqual(result['mixed-running']['charts']['failures'], 1)
+        controls = runner.timing_summary(rows, phases=('pausing', 'closing'))
+        self.assertEqual(controls['pausing']['status']['failures'], 1)
+        self.assertEqual(controls['closing']['charts']['failures'], 1)
 
     def test_real_cpu_progress_requires_both_models_in_the_same_interval(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -218,6 +224,86 @@ class CleanupTests(unittest.TestCase):
             runner.stop_process(process)
         process.terminate.assert_called_once()
         process.kill.assert_called_once()
+
+
+class PollingBoundaryTests(unittest.IsolatedAsyncioTestCase):
+    def measurements(self):
+        value = runner.performance.BrowserMeasurements()
+        value.phase = 'mixed-running'
+        return value
+
+    def request(self, measurements, endpoint='status', elapsed=12):
+        request = Mock(url='http://localhost/'+endpoint+'/fictional', timing={'responseEnd': elapsed})
+        measurements.request(request)
+        return request
+
+    def response(self, measurements, request, payload, *, status=200):
+        response = Mock(request=request, status=status, headers={})
+        response.json = AsyncMock(return_value=payload)
+        measurements.response(response)
+        return response
+
+    async def test_running_request_finishes_before_pause_failures_are_recorded_separately(self):
+        measurements = self.measurements()
+        request = self.request(measurements)
+        self.response(measurements, request, {'status': 'running'})
+        finish = asyncio.create_task(runner.finish_polling_phase(measurements, 'mixed-running'))
+        await asyncio.sleep(0)
+        self.assertFalse(finish.done())
+        self.assertEqual(measurements.phase, 'measurement-drain')
+        measurements.finished(request)
+        await finish
+        measurements.phase = 'pausing'
+        control_request = self.request(measurements, 'charts')
+        measurements.failed(control_request)
+        self.assertEqual(measurements.rows[0]['phase'], 'mixed-running')
+        self.assertEqual(measurements.rows[0]['request_ms'], 12)
+        self.assertEqual(measurements.rows[1]['phase'], 'pausing')
+        self.assertEqual(measurements.rows[1]['failure'], 'network_failure')
+        summary = runner.timing_summary(measurements.rows, phases=('mixed-running', 'pausing'))
+        self.assertEqual(summary['mixed-running']['status']['failures'], 0)
+        self.assertEqual(summary['pausing']['charts']['failures'], 1)
+
+    async def test_finished_request_body_is_checked_before_the_running_window_passes(self):
+        measurements = self.measurements()
+        request = self.request(measurements)
+        body = asyncio.get_running_loop().create_future()
+        async def read_body():
+            return await body
+        response = self.response(measurements, request, None)
+        response.json.side_effect = read_body
+        measurements.finished(request)
+        finish = asyncio.create_task(runner.finish_polling_phase(measurements, 'mixed-running'))
+        await asyncio.sleep(0)
+        self.assertFalse(finish.done())
+        body.set_result({'error': 'fictional upstream timeout'})
+        with self.assertRaisesRegex(AssertionError, 'Polling failed during mixed-running'):
+            await finish
+        self.assertTrue(measurements.rows[0]['body_error'])
+        self.assertEqual(measurements.rows[0]['phase'], 'mixed-running')
+
+    async def test_running_network_http_and_timing_failures_cannot_be_hidden_by_phase_change(self):
+        for failure in ('network', 'http', 'timing'):
+            with self.subTest(failure=failure):
+                measurements = self.measurements()
+                request = self.request(measurements, elapsed=float('nan') if failure == 'timing' else 12)
+                if failure == 'network':
+                    measurements.failed(request)
+                else:
+                    self.response(measurements, request, {'status': 'running'}, status=503 if failure == 'http' else 200)
+                    measurements.finished(request)
+                with self.assertRaisesRegex(AssertionError, 'Polling failed during mixed-running'):
+                    await runner.finish_polling_phase(measurements, 'mixed-running')
+                self.assertEqual(measurements.rows[0]['phase'], 'mixed-running')
+                self.assertEqual(runner.timing_summary(measurements.rows)['mixed-running']['status']['failures'], 1)
+
+    async def test_outstanding_request_blocks_the_pause_and_is_not_relabelled(self):
+        measurements = self.measurements()
+        request = self.request(measurements)
+        with self.assertRaisesRegex(AssertionError, 'Outstanding polling did not finish during mixed-running'):
+            await runner.finish_polling_phase(measurements, 'mixed-running', timeout=0)
+        self.assertEqual(measurements.pending[request]['phase'], 'mixed-running')
+        self.assertIsNone(measurements.rows[0]['request_ms'])
 
 
 class WorkerLifecycleTests(unittest.TestCase):

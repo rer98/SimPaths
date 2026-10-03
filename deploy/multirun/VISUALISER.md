@@ -43,7 +43,8 @@ the upstream page design and variable/domain definitions rather than copying the
 into a separate maintained page. Changed upstream integration anchors stop the
 build for review. The scientific calculation modules are unchanged by this page
 adaptation. The preferred future arrangement is an upstream-supported aggregate
-data-source interface; that contribution has not yet been agreed with Reese.
+data-source interface; the proposed reusable changes are separate pull requests
+for Reese's team to review. This hosting build does not modify that checkout.
 
 Charts, dependencies, PMH/UKRI logos and the upstream interpretation/citation pages
 are served locally. Guidance styles are extracted into local CSS, Google Fonts
@@ -57,7 +58,7 @@ cached dependencies can build without downloading packages:
 ```bash
 cd ~/git/SimPathsWeb/SimPaths
 /usr/bin/node deploy/multirun/visualiser/build.cjs \
-  --source "$HOME/git/SimPathsWeb/SimPaths-Policy-Impacts-Visualiser" \
+  --source /tmp/codex-rer/visualiser-source-9a904b5-20260930 \
   --dependencies "$HOME/.npm/_npx/668c188756b835f3/node_modules" \
   --output "$HOME/simpaths-multirun-local/visualiser-build-20260929"
 ```
@@ -79,8 +80,8 @@ Add both flags to the existing launcher:
   --visualiser-preview
 ```
 
-For the maintained-application temporary build with the current SimPaths Online
-branding, use `--visualiser-build /tmp/codex-rer/visualiser-build-20260930-d` instead. Keep that
+For the multiple-alternative temporary build with SimPaths Online
+branding, use `--visualiser-build /tmp/codex-rer/visualiser-build-20261003-multi-c` instead. Keep that
 directory while the service uses it; build a persistent copy for longer use.
 No model image rebuild or repeat simulation is required. Restart applies platform
 migration 019 and starts the private processor alongside the existing worker.
@@ -94,6 +95,39 @@ the user's configuration names, dataset references, model revision and seed map.
 Two selected configurations must belong to the same experiment, have complete
 verified output, match seed plans and remain accessible to their owner. A different
 prepared dataset in each configuration is supported.
+Older verified builds without the v2 reader retain single/pair controls; upgrading
+the hosting code does not offer sets until the application build can display them.
+
+For several alternatives, tick **Compare several alternatives**, choose the
+baseline and tick the required configurations. **Select all available alternatives**
+excludes the baseline and unavailable configurations. Up to 99 alternatives can
+be selected, within the experiment's configured limit. **Prepare Visualiser**
+processes the baseline once and every alternative separately. Progress counts all
+selected repetitions. Selection and progress survive refresh after submission.
+
+The generated link opens the maintained application with the complete aggregate
+set already loaded. **Alternative scenario** switches the displayed pair by
+configuration ID, retaining the user's names even when two names are identical.
+The selected alternative survives a page reload and a return from local-file mode.
+The current upstream charts show the baseline with one alternative at a time.
+Simultaneous comparison charts remain a Visualiser development; this connection
+supplies separate identified series for that future interface. It does not pool
+alternatives into a single Scenario or change scientific calculations/suppression.
+
+The aggregate API keeps single/pair results in `simpaths.visualiser.v1`. A set
+uses `simpaths.visualiser.v2`: `comparison` names the baseline and ordered alternative
+configuration IDs; `data.series` contains one `{configuration, rows}` entry for each
+configuration. All rows use the existing aggregate schema. Baseline rows retain
+`scenario: "baseline"`; each separate alternative retains `scenario: "scenario"`.
+Consumers must use the enclosing configuration ID to distinguish alternatives.
+No private run summaries or raw records are added. Each API read rechecks every
+selected source's permissions, including deletion/revocation of the last alternative.
+Requests specify job UUIDs; published series identify frozen configuration IDs.
+
+The Results page also offers **Include several alternatives** for comparison ZIPs.
+See [completed-result downloads](LOCAL_WEB.md#viewing-and-downloading-completed-results)
+for the numbered folders, input deduplication and versioned manifest. Existing
+two-configuration downloads remain compatible with the local folder picker.
 
 Queued progress and ready links survive a browser refresh. A failed preparation
 can be requested again; this repeats aggregation, not the simulations. Provider
@@ -118,7 +152,12 @@ large-output resource measurements remain deployment work.
 
 Private intermediate metrics are processed one run at a time, never sent to HTTP,
 and removed on success/failure. The cache is bounded to 256 MiB, 64 selections and
-10 per owner; published JSON is bounded to 16 MiB and 50,000 aggregate rows.
+10 per owner. Single/pair publications are bounded to 16 MiB and 50,000 aggregate
+rows. Comparison sets are bounded to 64 MiB including metadata, 50,000 rows per
+configuration and 200,000 rows in total; the same fixed aggregate fields and
+finite-value checks apply. A set may exceed these bounds before the selection
+limit; processing fails without changing simulations, and smaller selections can
+be prepared separately.
 These are development bounds, not a claim that the current parser streams a large
 individual CSV: it still reads that run's two files into memory. Benchmark typical
 long simulations and the updated parser before selecting production limits.
@@ -131,8 +170,8 @@ No login token is stored there. The Node calculation bundle and runner are not
 public assets. Diagnostics are private, bounded and discarded; HTTP reports
 controlled errors rather than exception contents.
 The complete aggregate artifact, including its public provenance metadata, has
-its own 16 MiB serialization/checksum bound. The 256 KiB experiment-settings limit
-remains unchanged. Existing verified ready reports retain their links across the
+its own serialization/checksum bound (16 MiB for a single/pair, 64 MiB for a set).
+The separate 2 MiB experiment-settings limit remains unchanged. Existing verified ready reports retain their links across the
 encoding correction. Operator diagnostics identify the failed processing stage
 without printing raw values or exception contents.
 
@@ -169,16 +208,23 @@ Unknown categories fail publication rather than leaking arbitrary raw strings.
 ```bash
 cd ~/git/JAS-mine/JAS-mine-web
 ~/simpaths-browser-tests/venv/bin/python tests/browser/batch_visualiser.py \
-  --build /tmp/codex-rer/visualiser-build-20260930-d
+  --backend-pattern test_comparisons.py test_visualiser.py test_results.py test_input_results.py test_downloads.py \
+  --build /tmp/codex-rer/visualiser-build-20261003-multi-c
 ```
 
-The default runs the complete backend suite, then a real-browser proof with
+Without `--backend-pattern` the command runs the complete backend suite, then a real-browser proof with
 fictional native CSVs and the actual pinned chart bundle. It exercises shared
 capacity, refresh, source roles/names, aggregate-only network traffic, permission
 changes, source deletion and six local runs processed on two workers. Add
 `--browser-only` after a separately passing backend suite, or
 `--backend-pattern test_visualiser.py` for a focused integration rerun.
 It uses disposable PostgreSQL, creates no production data and sends no email.
+The focused command above runs 77 backend checks plus the browser proof. New set
+checks cover separate numerical series, selected-name switching and refresh,
+numbered ZIP folders/options/settings, deduplicated inputs, all-source permissions,
+provider raw-download denial and cached ZIP resumption after restart. Native-CSV
+checks also confirm that alternatives are not pooled by the current role-based
+aggregation. PostgreSQL/Chromium acceptance must run outside the coding sandbox.
 
 Acceptance passed on 29 September 2026. All 292 backend cases passed across the
 full run and focused retry/Visualiser reruns. Evidence is in

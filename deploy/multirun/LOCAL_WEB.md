@@ -357,11 +357,33 @@ DemographicStatistics, AlignmentStatistics, LabourStatistics, HealthStatistics a
 WellbeingByGender CSVs when produced. The `manifest.json` file records configuration
 names, each folder's random seed and checksums. Files keep their original bytes.
 
-Extract the ZIP and select this named folder containing Baseline and/or Scenario
+For several alternatives, tick **Include several alternatives** in the download
+panel and select the required configurations. The baseline is excluded from the
+alternative choices. The ZIP contains `Baseline/run_X` and `Scenario_1/run_X`,
+`Scenario_2/run_X`, etc. Its `jasmine-results-v2` manifest records the experiment
+name, explicit baseline/alternative configuration IDs, full names, each output
+folder, frozen settings, seeds and checksums. Every repetition retains its
+`input/options.txt`. A baseline with more than one alternative uses a bounded
+filename such as `comparison-Configuration-1-vs-2-scenarios-<reference>.zip`;
+the manifest keeps the complete names.
+
+**Include input dataset** adds each distinct retained owner-supplied dataset once.
+If all configurations use the same ID, the input folder is `Inputs`. Otherwise,
+its first occurrence determines `Inputs_Baseline` or `Inputs_Scenario_N`; every
+configuration's `input_folder` points to the right copy. Thus two alternatives
+sharing one dataset reuse that folder, even when their baseline uses another.
+Every selected configuration must permit detailed downloads, including an
+alternative placed last in the list. A missing/revoked/deleted source prevents
+starting or resuming the set; the service does not silently omit it. Large ZIPs
+use the same compressed, verified, resumable preparation described below.
+
+Extract a single/pair ZIP and select its named folder containing Baseline and/or Scenario
 in the Policy Impact Visualiser's **Visualise Your Own Data** picker. Larger
-experiments can download separate comparison pairs. The current folder scanner
-accepts only those two role names; schema/statistical compatibility and direct
-integration are still to be agreed with the visualiser maintainers. Restricted
+experiments can still download separate comparison pairs. The current local folder
+scanner accepts only those two role names; numbered multiple-alternative ZIPs need
+future Visualiser picker support. The authenticated Online connection already
+supplies all selected aggregates and lets users switch the displayed alternative;
+see [the connection guide](VISUALISER.md). Restricted
 provider results require server-side aggregation with approved output controls,
 so they cannot use this local raw-CSV route.
 

@@ -57,6 +57,9 @@ class VisualiserBackend:
                     re.fullmatch(r'\d+\.visualiser\.js',name) or name.endswith('.LICENSE.txt')):
                 self.assets[name]=content
         self.manifest=manifest
+        # Advertise a set only when the verified application bundle includes
+        # its v2 reader. Older pinned builds still support the original pair.
+        self.supports_comparison_sets=b'simpaths.visualiser.v2' in self.assets['visualiser.js']
         self.public_datasets=frozenset(public_datasets)
         self.identity=dict(build=manifest,publication='own-and-public-preview-v1',
                            public_datasets=sorted(self.public_datasets),node=version,memory_mib=memory_mib)
@@ -74,14 +77,18 @@ class VisualiserBackend:
                                               sha256=self.manifest['files'][name])):
                 pass
 
-    def process(self,sources,work,command,progress):
+    def process(self,sources,work,command,progress,*,comparison_set=False):
         from jasmine_web.batch.local_executor import atomic_json
         from jasmine_web.batch.results import verified_file, OutputUnavailable
+        if comparison_set and not self.supports_comparison_sets:
+            raise ValueError('This Visualiser build supports single/pair results only')
         self._verify_code()
         metrics=[]
+        series=[]
         done=0
-        for configuration in sources:
+        for configuration_index,configuration in enumerate(sources):
             config=configuration['configuration']
+            configuration_metrics=[]
             for index,run in enumerate(config['runs']):
                 selected=[f for f in configuration['files']
                           if f['name'].startswith(run['folder']+'/csv/')]
@@ -91,7 +98,7 @@ class VisualiserBackend:
                         raise ValueError('Need one person and benefit file per run')
                     return files[0]
                 inputs=[one('person'),one('benefit')]
-                output=work/(config['role'].lower()+'-'+str(index)+'.json')
+                output=work/('configuration-'+str(configuration_index)+'-run-'+str(index)+'.json')
                 with ExitStack() as stack:
                     descriptors=[stack.enter_context(verified_file(self.root,item)) for item in inputs]
                     before=[os.fstat(f.fileno()) for f in descriptors]
@@ -106,12 +113,25 @@ class VisualiserBackend:
                         if (initial.st_size,initial.st_mtime_ns,initial.st_ctime_ns)!=(
                                 after.st_size,after.st_mtime_ns,after.st_ctime_ns):
                             raise OutputUnavailable()
-                metrics.append(str(output));done+=1;progress(done)
+                configuration_metrics.append(str(output));done+=1;progress(done)
+            if comparison_set:
+                # Keep each alternative separate. The pinned aggregation groups
+                # by role, so pooling several "scenario" metric lists is invalid.
+                output=work/('configuration-'+str(configuration_index)+'-aggregate.json')
+                atomic_json(work/'request.json',dict(operation='aggregate',metrics=configuration_metrics,output=str(output)))
+                command([self.node,'--max-old-space-size='+str(max(128,self.memory-256)),
+                         str(self.build/'runner.cjs'),str(work/'request.json')])
+                from jasmine_web.batch.visualiser import artifact
+                series.append(dict(configuration=config['id'],rows=artifact(output)))
+            else:
+                metrics.extend(configuration_metrics)
+        notice='Development preview using Visualiser revision '+self.manifest['revision'][:12]+\
+            '. Baseline and scenario levels are shown. Paired impact calculations will use the updated Visualiser release.'
+        if comparison_set:
+            return dict(series=series,comparison_available=False,notice=notice)
         output=work/'aggregate.json'
         atomic_json(work/'request.json',dict(operation='aggregate',metrics=metrics,output=str(output)))
         command([self.node,'--max-old-space-size='+str(max(128,self.memory-256)),
                  str(self.build/'runner.cjs'),str(work/'request.json')])
         from jasmine_web.batch.visualiser import artifact
-        return dict(rows=artifact(output),comparison_available=False,
-            notice='Development preview using Visualiser revision '+self.manifest['revision'][:12]+
-                '. Baseline and scenario levels are shown. Paired impact calculations will use the updated Visualiser release.')
+        return dict(rows=artifact(output),comparison_available=False,notice=notice)

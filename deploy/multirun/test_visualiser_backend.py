@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import sys
 import tempfile
 import unittest
@@ -45,19 +46,21 @@ def native_texts(value=10, *, category='White', regions=('UKI',)):
     return csv_text(people),csv_text(benefits)
 
 
-def sources(root, *, category='White', regions=('UKI',)):
+def sources(root, *, category='White', regions=('UKI',), alternatives=1):
     result=[]
-    for role,offset in [('Baseline',0),('Scenario',5)]:
+    groups=[('Baseline',0,'Baseline'),*[('Scenario',5*i,'Scenario' if alternatives==1 else 'Scenario_'+str(i))
+                                      for i in range(1,alternatives+1)]]
+    for role,offset,prefix in groups:
         files=[];runs=[]
         for number,value in enumerate((10,20,30),1):
-            folder=f'{role}/run_{number}'
+            folder=f'{prefix}/run_{number}'
             runs.append(dict(folder=folder,seed=str(605+number)))
             for name,text in zip(('Person.csv','BenefitUnit.csv'),native_texts(value+offset,category=category,regions=regions)):
                 relative=f'{folder}/csv/{name}'
                 path=root/relative;path.parent.mkdir(parents=True,exist_ok=True);path.write_text(text)
                 files.append(dict(name=relative,path=relative,bytes=path.stat().st_size,
                     sha256=hashlib.sha256(path.read_bytes()).hexdigest()))
-        result.append(dict(configuration=dict(id=role.lower(),name=role+' example',role=role,
+        result.append(dict(configuration=dict(id=prefix.lower(),name=role+' example',role=role,
             dataset='own-inputs',model='sha256:'+'a'*64,runs=runs),files=files))
     return result
 
@@ -95,6 +98,39 @@ class VisualiserBackendTests(unittest.TestCase):
         for private in ('PRIVATE_ROW_SENTINEL','id_Person','id_BenefitUnit','70000000000000001',str(self.root)):
             self.assertNotIn(private,text)
         self.assertFalse(result['comparison_available'])
+
+    def test_multiple_alternatives_use_independent_unchanged_calculations_and_one_baseline(self):
+        from jasmine_web.batch.visualiser import validate_publication
+        self.assertTrue(self.backend.supports_comparison_sets)
+        selected=sources(self.root,alternatives=2)
+        progress=[]
+        published=self.backend.process(selected,self.work,self.command,progress.append,comparison_set=True)
+        validate_publication(published,configurations=[s['configuration'] for s in selected])
+        self.assertEqual(progress,list(range(1,10)))
+        self.assertEqual([s['configuration'] for s in published['series']],['baseline','scenario_1','scenario_2'])
+        for series,expected in zip(published['series'],(20,25,30)):
+            overall=next(r for r in series['rows'] if r['variable']=='Mental Component Summary (MCS)'
+                and r['stratifier']=='Overall' and r['variable_value']=='Mean')
+            self.assertAlmostEqual(overall['mean_value'],expected)
+            self.assertEqual(overall['n_runs'],3)
+            self.assertEqual(overall['total_sample'],36)
+        for private in ('PRIVATE_ROW_SENTINEL','id_Person','id_BenefitUnit',str(self.root)):
+            self.assertNotIn(private,json.dumps(published))
+
+    def test_older_verified_application_keeps_pair_support_without_offering_sets(self):
+        legacy=self.root/'legacy-build'
+        shutil.copytree(BUILD,legacy)
+        application=b'/* Fictional v1-only application asset. */'
+        (legacy/'visualiser.js').write_bytes(application)
+        manifest=json.loads((legacy/'build.json').read_text())
+        manifest['files']['visualiser.js']=hashlib.sha256(application).hexdigest()
+        (legacy/'build.json').write_text(json.dumps(manifest))
+        backend=VisualiserBackend(legacy,self.root)
+        self.assertFalse(backend.supports_comparison_sets)
+        result=backend.process(sources(self.root),self.work,self.command,lambda _:None)
+        self.assertEqual({r['scenario'] for r in result['rows']},{'baseline','scenario'})
+        with self.assertRaises(ValueError):
+            backend.process([],self.work,self.command,lambda _:None,comparison_set=True)
 
     def test_unexpected_raw_category_is_not_published(self):
         with self.assertRaises(ValueError):

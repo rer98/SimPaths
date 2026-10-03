@@ -14,5 +14,8 @@
 .vm-source { margin-top:14px; padding:12px; background:#0f93a110;
   border:1px solid #0f93a133; border-radius:6px; font-size:12px; overflow-wrap:anywhere; }
 .vm-source p { margin:8px 0 0; }
+.vm-scenario-select { display:block; width:100%; box-sizing:border-box; margin-top:8px;
+  padding:8px; font:inherit; background:#faf7ef; color:#1e293b;
+  border:1px solid #0f93a1; border-radius:6px; }
 .vm-notice { color:#c2410c; background:#fee8e2; border-left:4px solid #ff6e51;
   border-radius:6px; padding:12px; font-size:13px; line-height:1.6; }

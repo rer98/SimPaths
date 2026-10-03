@@ -82,6 +82,7 @@ for(const name of selected){
 }
 fs.copyFileSync(path.join(__dirname,'safe_csv.js'),path.join(staging,'safeCsv.js'));
 fs.copyFileSync(path.join(__dirname,'entry.jsx'),path.join(staging,'entry.jsx'));
+fs.copyFileSync(path.join(__dirname,'comparison_data.mjs'),path.join(staging,'comparison_data.mjs'));
 const entry=fs.readFileSync(path.join(staging,'entry.jsx'),'utf8');
 fs.writeFileSync(path.join(staging,'entry.js'),babel.transformSync(entry,{
   filename:'entry.jsx',presets:[[reactPreset,{runtime:'classic'}]],

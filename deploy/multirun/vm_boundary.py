@@ -57,6 +57,39 @@ def check(get, path, *, denied=False, cookie='', headers=None, marker=b'', maxim
     return {'path': path, 'status': status}, data
 
 
+def aggregate_envelope(value):
+    """Check both published formats without accepting arbitrary/raw fields."""
+    from jasmine_web.batch.visualiser import validate_publication
+    if not isinstance(value, dict):
+        raise ValueError('Unexpected Visualiser envelope')
+    multiple = value.get('format') == 'simpaths.visualiser.v2'
+    expected = {'format', 'backend', 'experiment', 'configurations', 'data'}
+    if multiple:
+        expected.add('comparison')
+    if set(value) != expected or value['format'] not in ('simpaths.visualiser.v1', 'simpaths.visualiser.v2'):
+        raise ValueError('Unexpected Visualiser envelope')
+    configurations = value['configurations']
+    if not isinstance(configurations, list) or not 1 <= len(configurations) <= (100 if multiple else 2):
+        raise ValueError('Unexpected Visualiser configurations')
+    for item in configurations:
+        if (not isinstance(item, dict) or set(item) != {'id', 'name', 'role', 'dataset', 'model', 'runs'}
+                or any(not isinstance(item[k], str) for k in ('id', 'name', 'role', 'dataset', 'model'))
+                or item['role'] not in ('Baseline', 'Scenario') or not isinstance(item['runs'], list)
+                or not 1 <= len(item['runs']) <= 1000):
+            raise ValueError('Unexpected Visualiser configuration metadata')
+        for run in item['runs']:
+            if (not isinstance(run, dict) or set(run) != {'folder', 'seed'}
+                    or any(not isinstance(run[k], str) for k in ('folder', 'seed'))):
+                raise ValueError('Unexpected Visualiser run metadata')
+    if multiple:
+        expected_selection = dict(baseline=configurations[0]['id'],
+                                 scenarios=[item['id'] for item in configurations[1:]])
+        if value['comparison'] != expected_selection:
+            raise ValueError('Visualiser comparison does not match its configurations')
+    validate_publication(value['data'], configurations=configurations if multiple else None)
+    return value
+
+
 def privacy_checks(get, name, marker, *, cookie='', other_cookie='', experiment=None,
                    restricted_job=None, visualiser_key=None, extra_paths=()):
     checks = []
@@ -98,13 +131,10 @@ def privacy_checks(get, name, marker, *, cookie='', other_cookie='', experiment=
                     cookie=cookie, headers=headers, marker=marker)
                 checks.append(result)
     if visualiser_key and cookie:
-        from jasmine_web.batch.visualiser import MAX_ARTIFACT, validate_publication
+        from jasmine_web.batch.visualiser import MAX_COMPARISON_ARTIFACT
         path = '/api/visualiser/'+visualiser_key+'/data'
-        result, body = check(get, path, cookie=cookie, maximum=MAX_ARTIFACT)
-        value = json.loads(body)
-        if set(value) != {'format', 'backend', 'experiment', 'configurations', 'data'} or value['format'] != 'simpaths.visualiser.v1':
-            raise ValueError('Unexpected Visualiser envelope')
-        validate_publication(value['data'])
+        result, body = check(get, path, cookie=cookie, maximum=MAX_COMPARISON_ARTIFACT)
+        aggregate_envelope(json.loads(body))
         if marker in body or any(s in body for s in (b'id_Person', b'id_BenefitUnit', b'/srv/', b'/home/', b'/work/')):
             raise ValueError('Raw columns or private paths in Visualiser data')
         checks.append(result)

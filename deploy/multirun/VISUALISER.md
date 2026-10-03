@@ -339,6 +339,13 @@ The native deployment templates and external canary/permission probe are describ
 in [VM.md](VM.md). Passing local browser tests does not replace checking the actual
 deployed HTTPS proxy and storage mappings.
 
+The [local HTTPS rehearsal](VM.md#local-https-rehearsal-before-choosing-a-host)
+checks the deployment proxy template with fictional pair/multiple-alternative
+aggregates and a compressed, interrupted/resumed ZIP after an application restart.
+It uses the real access/publication routes with a synthetic calculation backend;
+it complements the maintained-Visualiser browser proof and the external-host
+acceptance below. It does not require choosing a VM or public domain.
+
 **Required deployment check, recorded 30 September 2026:** the production web
 server/reverse proxy must not expose private storage through static directory
 mappings. Keep uploads, prepared inputs, execution workspaces/raw output,

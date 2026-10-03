@@ -152,7 +152,9 @@ class VMConfigTests(unittest.TestCase):
             n_runs=3, total_sample=36, min_sample=12, mean_sample=12, mean_value=20,
             sd_value=10, lower_ci=8.7, upper_ci=31.3)
         aggregate = dict(format='simpaths.visualiser.v1', backend={}, experiment='experiment',
-            configurations=[], data=dict(rows=[row], comparison_available=False, notice='Test'))
+            configurations=[dict(id='baseline', name='Fictional baseline', role='Baseline',
+                dataset='fictional', model='a'*64, runs=[dict(folder='Baseline/run_1', seed='606')])],
+            data=dict(rows=[row], comparison_available=False, notice='Test'))
         calls = []
         def get(path, cookie='', headers=None, **kwargs):
             calls.append((path, cookie, headers))

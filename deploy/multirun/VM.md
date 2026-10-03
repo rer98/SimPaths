@@ -329,6 +329,74 @@ growth or large-VM capacity from the earlier two-year laptop runs.
 
 ## 7. External privacy acceptance
 
+### Local HTTPS rehearsal before choosing a host
+
+Run the automated rehearsal from the SimPaths checkout:
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths &&
+~/simpaths-browser-tests/venv/bin/python deploy/multirun/proxy_rehearsal.py \
+  --frontend "$HOME/git/JAS-mine/JAS-mine-web"
+```
+
+It creates a disposable loopback PostgreSQL database through the existing test
+runner and starts the actual MultiRun HTTP routes behind a real Nginx process.
+The proxy uses `vm/nginx.conf.example`, substituting only a temporary `localhost`
+hostname, unprivileged IPv4 loopback ports, certificate and ACME paths. Changed
+cache/private-file protections stop the adaptation for review. No system proxy
+configuration or machine/browser trust settings are installed. The client trusts
+only the temporary certificate; normal trust and wrong-name TLS connections must
+fail. Service secrets and cookie rules use the existing implementation.
+
+The rehearsal checks:
+
+- Secure sign-in, foreign-origin mutation rejection and two separate owners.
+- Private canaries, traversal/dotfiles and server-only Visualiser asset denials,
+  both anonymously and while signed in.
+- Aggregate-only pair and multiple-alternative responses, including provider
+  results whose raw/input/full/range downloads remain denied.
+- A real compressed comparison ZIP with retained owner inputs, matching seeds,
+  checksums and every run's `options.txt`. Fictional source data exceed the normal
+  512 MiB large-download threshold; the threshold is not reduced for the test.
+- A deliberately slow transfer lasting beyond 30 seconds, interrupted partway.
+  A fresh application process must retain both owner sessions, queued/completed
+  jobs and aggregate links, then resume the same ZIP through HTTPS using Range
+  and If-Range. HEAD, suffix/invalid ranges and changed validators are checked.
+- Source deletion and account revocation invalidating saved/resumed links without
+  altering other retained output.
+
+Requirements: Linux, working local Docker access, OpenSSL and at least 2 GiB free
+on the temporary-files filesystem. No scientific models run and no emails are
+sent. The fixture uses bounded-memory fictional data: by default a 520 MiB source
+with a 64 MiB varied tail, giving a sizeable compressed download. All source,
+received archive, credentials and certificate files are temporary. Only the
+rehearsal's labelled proxy container, random test schema and temporary directories
+are removed. Persistent local services and volumes are untouched.
+
+Nginx normally runs in a read-only, unprivileged container, with 128 MiB RAM and
+half a CPU; the PostgreSQL runner uses 768 MiB. The `nginx:stable-alpine` test image
+is pulled if absent, resolved to its image ID before use and recorded in evidence.
+It is a rehearsal dependency, not the production image/version choice. To use an
+already installed compatible Nginx instead, supply `--nginx /usr/sbin/nginx`;
+its PID/temp files remain inside the rehearsal directory. `--slow-seconds 310`
+also tests continuous transfer beyond five minutes; the default is 34 seconds.
+
+Reports and private logs go to a new `~/simpaths-benchmarks/https-rehearsal-*`
+directory, or a new `--output` directory. The outer report records disposable
+database cleanup; `model-proof/report.json` records proxy checks, archive identity,
+restart/resume and cleanup. A pass requires both reports to pass and cleanup to
+complete. Cookies, codes, session secrets and the private key are not recorded in
+evidence. The report identifies its data as synthetic and its scope as local.
+
+The fixture completes configurations explicitly with fictional files and uses a
+synthetic aggregation backend; it does not run the scientific model, the actual
+Visualiser charts or the native model dispatcher. Those have their separate
+model/browser/VM proofs. This rehearsal does not test a future host's IPv6,
+firewall, filesystem quota, systemd/reboot, public certificate, SMTP or backup
+destination. Repeat the external checks below on the chosen deployment host.
+
+### Checks against the chosen deployment hostname
+
 Run the existing fictional browser/Visualiser proofs before deployment, then test
 the **external HTTPS hostname** after configuring the proxy. `vm_boundary.py`
 creates harmless, unique canaries in existing private directories and removes only
@@ -356,7 +424,8 @@ file, outside Git/evidence; the probe never records these values. Add:
 ```
 
 The probe requires successful sign-in, retained completed restricted output,
-denied full/input/range downloads, strictly validated aggregate rows and denied
+denied full/input/range downloads, strictly validated aggregate rows in either
+the pair or multiple-alternative format, and denied
 anonymous/other-owner aggregate access. `full_acceptance` is false when these
 optional cases are absent, even if the basic path checks pass. Remove cookie files
 afterward. Its GET-only checks send no emails and restart no simulations.
@@ -433,7 +502,29 @@ policy/HTTP tests. The sandbox HTTP check bounded selector waits in its test pro
 because cross-thread wakeups stalled; no application/test source was changed for
 that workaround. Compose configuration and systemd syntax checks passed, with the
 local Python path substituted only in the temporary unit used for syntax checking.
-Nginx syntax and real host configuration still require the installed VM.
+The local HTTPS rehearsal above now exercises real Nginx syntax and transport;
+the actual host configuration still requires the installed VM.
+
+On 4 October 2026, `https-rehearsal-20261004-003741` passed all 27 local helper
+checks and all ten HTTPS rehearsal stages. Its 63 privacy/access requests checked
+private files, traversal, aggregate delivery and owner/provider permissions through
+real Nginx. The 520 MiB fictional source produced a 41,997,396-byte compressed ZIP.
+A deliberately slow transfer was interrupted after 4,390,912 bytes and 34.25
+seconds, then resumed after a fresh application restart. The complete archive
+matched its original SHA-256/ETag, including manifest hashes, nine run settings
+files and two distinct input bundles. Owner sessions, queued/completed jobs and
+aggregate links survived restart. Physical source deletion and account revocation
+blocked saved and resumed links while other retained output remained available.
+Both `report.json` and `model-proof/report.json` confirm success and cleanup of
+the temporary database, proxy and fixture files.
+
+Earlier partial runs exposed rehearsal setup issues: the local parser's required
+test flag, Nginx module temporary paths in a read-only container, Uvicorn's normal
+SIGTERM exit, case-insensitive HTTP header lookup and the worker-only deletion
+lock. These are corrected and covered locally. The test uses the existing cache,
+authentication, session-secret and cookie rules; it does not change their design.
+This evidence is a synthetic local transport proof, separate from the real model
+and Visualiser browser proofs and from acceptance on the chosen deployment host.
 
 Production acceptance still requires the chosen VM, its actual filesystem/proxy,
 email delivery, boot/restart, interrupted transfer, backup restore and resource

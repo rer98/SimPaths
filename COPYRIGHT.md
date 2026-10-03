@@ -114,3 +114,8 @@ their headers. Generated local-service `training-imports.json`, `release.json`
 and `payload-retired.json` records are (C) Copyright 2026, by Ross Richardson;
 @author ross richardson. Credentials are private runtime state and are not
 published. Copied model/data files retain their existing notices and licences.
+
+Generated MultiRun `releases/catalogue.json`, versioned release manifests and
+resource-policy records have the same attribution, also recorded in each new
+release bundle's `COPYRIGHT.md`. Copied JARs, workbooks and adapter sources retain
+their existing attribution and licences; metadata attribution does not relicense them.

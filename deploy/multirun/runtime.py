@@ -85,6 +85,9 @@ def create_registry(args,q,state,send_mail,*,capacity=Resources(2000,5120,12288)
 def create_application(args,q,state,access,datasets,preparations,keys,image,origin,*,
                        local_codes=False,terminate_on_dispatch_failure=False):
     releases=frozen_release(state,image)
+    default=next(iter(releases))
+    print('Default model release: '+releases[default].get('name',default)+
+          f' ({default}); {len(releases)} retained version(s)',flush=True)
     adapter=DispatchAdapter(PreparationAdapter(datasets,releases,state/'artifacts'))
     execution=private_directory(state/'execution')
     with q._connection() as c:

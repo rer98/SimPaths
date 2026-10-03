@@ -66,13 +66,14 @@ Use a reviewed MultiRun JAR and parameter workbooks in the SimPaths checkout,
 matching the tested model build. Install the already tested user-input execution
 image and all training-snapshot source images; there are no implicit image pulls.
 Resolve `model.image` to an immutable installed `sha256:...` image ID. The first
-serve creates a private frozen copy of the JAR/default workbooks. Subsequent starts
-verify its hashes and reject an image change. Record source commits, JAR hash,
+serve creates a private frozen release bundle. Subsequent starts verify all retained
+versions and the selected default image. Record source commits, JAR hash,
 image IDs, training receipts and the Visualiser build manifest for every release.
 
-The frozen release is currently one release per state directory. A scientific model
-upgrade needs an explicitly reviewed transition preserving old jobs/dataset bindings;
-do not delete `release/` or repoint an image tag as an upgrade shortcut.
+Use [retained model releases](RELEASES.md) to register/select a compatible newer
+version for new inputs while preserving existing jobs/dataset bindings. Keep
+`model.image` consistent with the selected release and retain all older images and
+bundles. Do not delete `release/` or repoint an image tag as an upgrade shortcut.
 
 ## 2. Provision persistent private storage
 

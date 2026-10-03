@@ -27,6 +27,14 @@ workbook set or population, create or select a second dataset and choose it on t
 comparison card. Different inputs must use the same model JAR version. Each card
 has its own validated population/years; all cards share the seed sequence.
 
+The **Model release** selector in Create Input Dataset defaults to the operator's
+selected version and names retained older versions separately. Prepared datasets
+keep their original model; choosing a newer default does not upgrade them. Dataset
+selection supplies that model to new experiment settings. Explicit web YAML/copy
+version pins survive refresh and are checked against the chosen inputs at review.
+See [retained model releases](RELEASES.md) for registration, selection and safe
+upgrades. No JAR rebuild or new simulation is needed merely to adopt the registry.
+
 **Create input dataset** appears to the left of **New experiment**, which remains
 the initially visible page. Give uploaded inputs a name before preparation. The
 name is retained with the published dataset; selectors refresh automatically, including datasets still being prepared, while

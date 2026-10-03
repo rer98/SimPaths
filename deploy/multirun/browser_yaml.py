@@ -23,6 +23,7 @@ class BrowserYaml:
         if not isinstance(document, dict):
             raise ConfigurationError('yaml', 'expected an experiment or native SimPaths configuration')
         baseline, auto_retry = None, True
+        native=False
         notes = []
         if 'format' in document:
             if (document.get('format') != WEB_FORMAT or
@@ -35,6 +36,7 @@ class BrowserYaml:
             snapshot = normalise(document, limits=self.submission_limits)
             notes.append('This configuration has no saved baseline or retry preference; no baseline is selected and automatic retries are enabled.')
         else:
+            native=True
             if not dataset:
                 raise ConfigurationError('dataset', 'choose a default input dataset before importing native SimPaths YAML')
             snapshot = import_native_yaml(text, model_release=next(iter(self.releases)),
@@ -50,7 +52,7 @@ class BrowserYaml:
         # The exact same model/form checks are used again at review/submission.
         self.browser_configuration(data['dataset_revision'], form)
         notes.append('Supported settings omitted from the YAML use the model defaults shown in the form. Check all values before submitting.')
-        return dict(dataset=data['dataset_revision'], form=form, notes=notes)
+        return dict(dataset=data['dataset_revision'], form=form, notes=notes, model_from_dataset=native)
 
     def browser_export_yaml(self, dataset, form):
         request = self.browser_configuration(dataset, form)

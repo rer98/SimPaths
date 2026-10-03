@@ -18,6 +18,8 @@ prepared = []
 [model]
 # Replace with the reviewed, already installed model image's immutable ID.
 image = "sha256:REPLACE_WITH_64_HEXADECIMAL_DIGITS"
+# Must match the default selected by deploy.multirun.releases; old bundles/images
+# remain retained. See deploy/multirun/RELEASES.md before changing versions.
 
 [pool]
 # These are TOTAL allocations for model/result work. When SingleRun joins this

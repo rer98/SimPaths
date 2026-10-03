@@ -5,7 +5,7 @@ The form exposes fixed configurations and a validated shared seed plan.
 
 @author ross richardson
 """
-from .artifacts import ArtifactError
+from .artifacts import ArtifactError, fingerprint
 from .configuration import normalise
 from .prepared_dataset import FORMAT, INPUT_FORMAT
 from .queue_adapter import read_prepared
@@ -29,7 +29,7 @@ class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
             max_configurations=self.max_configurations, configuration_ceiling=Limits().max_run_sets,
             max_repetitions=self.max_repetitions, max_yaml_bytes=Limits().max_bytes,
             yaml=True, sweeps=True, first_seed='606',
-            releases=[dict(id=k, name='SimPaths UK — uploaded inputs',
+            releases=[dict(id=k, name=v.get('name','SimPaths UK — uploaded inputs'),
                 workbooks=list(public_workbooks(v['defaults']))) for k,v in self.releases.items()],
             common=[dict(id='population',label='Simulated population',kind='int',default=20000,min=1,max=50000),
                     dict(id='start_year',label='First year',kind='int',default=2019,min=2011,max=2024),
@@ -62,6 +62,7 @@ class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
         if resolved.get('state')=='pending':
             definition=resolved['definition'];model=definition['model'];year=model['selection']['year']
             return dict(id=resolved['dataset_id'],name=resolved.get('display_name') or 'Your pending UK inputs',
+                model_release=model['release'].get('release'),
                 values=dict(start_year=year,population=20000,end_year=min(2026,year+1)),locked=['start_year'],
                 inputs=dict(fingerprint=resolved['definition_hash'],comparison_state='pending',files={},
                     source_files={**model['release']['defaults'],**definition['uploads']},
@@ -79,7 +80,12 @@ class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
                 else f"Your prepared UK inputs — {identity['start_year']}")
         values = dict(start_year=identity['start_year'], population=identity.get('population',20000),
                       end_year=min(2026,identity['start_year']+1))
+        release=identity.get('release',{}).get('id')
+        if release is None:
+            release=next((key for key,entry in self.releases.items()
+                          if (entry['identity']['model'] if 'identity' in entry else fingerprint(entry['jar']))==identity['model']),None)
         return dict(id=resolved['dataset_id'],name=resolved.get('display_name') or name,values=values,
+                    model_release=release,
                     inputs=dict(fingerprint=receipt['sha256'],comparison_state='prepared',
                         files={k:v for k,v in identity['prepared'].items()
                                if k=='input.mv.db' or k.lower().endswith(('.xlsx','.xls'))},

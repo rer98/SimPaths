@@ -35,6 +35,7 @@ class BrowserYamlTests(unittest.TestCase):
         form['baseline'] = form['run_sets'][1]['id']
         exported = self.model.browser_export_yaml(self.dataset, form)
         imported = self.import_text(exported['text'])
+        self.assertFalse(imported['model_from_dataset'])
         self.assertEqual(imported['dataset'], self.dataset)
         expected = self.model.browser_configuration(self.dataset, form)
         actual = self.model.browser_configuration(imported['dataset'], imported['form'])
@@ -50,6 +51,7 @@ class BrowserYamlTests(unittest.TestCase):
         native['randomSeed'] = -9223372036854775808
         native['collector_args']['persistHouseholds'] = False
         imported = self.import_text(yaml.safe_dump(native))
+        self.assertTrue(imported['model_from_dataset'])
         self.assertEqual(imported['dataset'],self.dataset)
         form = imported['form']
         self.assertEqual(form['first_seed'],'-9223372036854775808')

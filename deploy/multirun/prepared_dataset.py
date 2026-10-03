@@ -71,6 +71,9 @@ def verify_snapshot(prepared, receipt):
     verify(prepared / "input", receipt["identity"]["prepared"])
     if fingerprint(prepared / "model.jar") != receipt["identity"]["model"]:
         raise ArtifactError("Prepared model JAR changed")
+    release=receipt['identity'].get('release')
+    if release is not None and fingerprint(prepared/'run.sh') != release['runner']:
+        raise ArtifactError('Prepared execution script changed')
 
 
 def validate_selection(configuration, receipt):
@@ -90,10 +93,15 @@ def validate_selection(configuration, receipt):
     # compatibility during execution must preserve an already accepted seed plan.
 
 
-def allocation(receipt):
-    large = receipt["identity"].get("population") == 50000
-    return dict(cpu_millis=2000, memory_mib=5120 if large else 4096,
-                storage_mib=10240 if receipt["identity"]["format"] in (FORMAT, INPUT_FORMAT) else 6144)
+def allocation(receipt, *, population=None, repetitions=1):
+    from .resource_policy import DEFAULT_POLICY, simulation_resources
+    identity=receipt['identity']
+    policy=identity.get('release',{}).get('resource_policy',DEFAULT_POLICY)
+    resources=simulation_resources(policy,population=population or identity.get('population',20000),
+                                   repetitions=repetitions)
+    if identity['format'] not in (FORMAT, INPUT_FORMAT):
+        resources['storage_mib']=6144  # Preserve the original small local proof.
+    return resources
 
 
 def check_input_receipt(receipt):
@@ -106,6 +114,16 @@ def check_input_receipt(receipt):
         raise ArtifactError('Invalid prepared input receipt')
     check_manifest(identity['prepared'])
     check_manifest({'model.jar': identity['model']})
+    if 'release' in identity:
+        from .releases import CONTRACT
+        from .resource_policy import check_policy
+        release=identity['release']
+        if (type(release) is not dict or set(release) != {'id','contract','resource_policy','runner'}
+                or not re.fullmatch(r'release-[a-f0-9]{64}',str(release['id']))
+                or release['contract']!=CONTRACT):
+            raise ArtifactError('Prepared input release requires a compatible hosting adapter')
+        check_policy(release['resource_policy'])
+        check_manifest({'run.sh':release['runner']})
     for kind in ('defaults', 'uploads'):
         check_manifest(identity['sources'][kind])
     from .prepare_inputs import selection

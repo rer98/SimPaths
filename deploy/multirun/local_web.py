@@ -45,33 +45,14 @@ def register_training(datasets, preparations, path):
 
 
 def frozen_release(state, image):
-    """Freeze the model JAR and parameter workbooks once for this local service."""
-    from jasmine_web.batch.local_executor import atomic_json
-    release=state/'release'
-    config=release/'release.json'
-    if not config.exists():
-        staging=state/'release.pending'
-        if staging.exists():
-            raise ArtifactError('Incomplete local release snapshot; inspect release.pending before restarting')
-        staging.mkdir(mode=0o700)
-        (staging/'defaults').mkdir(mode=0o700)
-        model=fingerprint(ROOT/'multirun.jar',staging/'model.jar')
-        defaults={}
-        for file in (ROOT/'input').glob('*.xls*'):
-            if file.name in ('DatabaseCountryYear.xlsx','EUROMODpolicySchedule.xlsx'):
-                continue
-            defaults[file.name]=fingerprint(file,staging/'defaults'/file.name)
-        if not defaults:
-            raise ArtifactError('No parameter workbooks found')
-        atomic_json(staging/'release.json',dict(image=image,model=model,defaults=defaults))
-        staging.rename(release)
-    info=json.loads(config.read_text())
-    if fingerprint(release/'model.jar')!=info['model']:
-        raise ArtifactError('Frozen local model changed')
-    for name,expected in info['defaults'].items():
-        if fingerprint(release/'defaults'/name)!=expected:
-            raise ArtifactError('Frozen parameter workbook changed')
-    return {'local-'+info['model']['sha256'][:16]:dict(image=info['image'],jar=release/'model.jar',defaults=release/'defaults')}
+    """Bootstrap once, then load all retained bundles without recopying source."""
+    from .releases import ReleaseRegistry
+    registry=ReleaseRegistry(state)
+    if (state/'release.pending').exists():
+        raise ArtifactError('Incomplete legacy release snapshot; inspect release.pending before restarting')
+    if not registry.catalogue.exists() and not (state/'release'/'release.json').exists():
+        registry.register(image=image,name='SimPaths UK — initial release',jar=ROOT/'multirun.jar',defaults=ROOT/'input')
+    return registry.load(expected_image=image)
 
 
 def retire_finished(queue, executor):
@@ -224,8 +205,13 @@ def main(argv=None):
     access,datasets,preparations,keys=create_registry(args,q,state,console_mail)
     if args.command!='serve':
         return 0
-    docker=DockerCLI()
-    image=json.loads(docker.call('image','inspect','simpaths-interactive:uk-user-data'))[0]['Id']
+    from .releases import ReleaseRegistry, installed_image
+    registry=ReleaseRegistry(state)
+    if registry.catalogue.exists() or (state/'release'/'release.json').exists():
+        image=next(iter(registry.load().values()))['image']
+    else:
+        image=json.loads(DockerCLI().call('image','inspect','simpaths-interactive:uk-user-data'))[0]['Id']
+    installed_image(image)
     origin=f'http://127.0.0.1:{args.port}'
     app=create_application(args,q,state,access,datasets,preparations,keys,image,origin,local_codes=True)
     import uvicorn

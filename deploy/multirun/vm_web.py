@@ -108,9 +108,15 @@ def main(argv=None):
             check_smtp(os.environ)
             from jasmine_web.batch.docker_executor import DockerCLI
             import json
-            image = json.loads(DockerCLI().call('image', 'inspect', options.image))[0]
-            if image['Id'] != options.image or image['Config'].get('Volumes'):
-                raise ValueError('Install the pinned model image without implicit volumes')
+            from .releases import ReleaseRegistry
+            registry=ReleaseRegistry(options.state)
+            images={options.image}
+            if registry.catalogue.exists() or (options.state/'release'/'release.json').exists():
+                images.update(r['image'] for r in registry.load(expected_image=options.image).values())
+            for identity in images:
+                image = json.loads(DockerCLI().call('image', 'inspect', identity))[0]
+                if image['Id'] != identity or image['Config'].get('Volumes'):
+                    raise ValueError('Install all retained pinned model images without implicit volumes')
             with q._connection() as connection:
                 connection.execute('SELECT 1')
             print('Storage, SMTP settings, pinned image and PostgreSQL connection checked. No mail was sent or jobs created.')
@@ -127,12 +133,8 @@ def main(argv=None):
             capacity=Resources(**options.capacity), per_user_active=options.per_user_active)
         if args.command != 'serve':
             return 0
-        # A saved release keeps its image as well as its JAR/workbooks pinned.
-        release = options.state/'release'/'release.json'
-        if release.exists():
-            import json
-            if json.loads(release.read_text()).get('image') != options.image:
-                raise ValueError('Pinned image differs from the retained release; stage a reviewed release transition')
+        # Registration/default selection is an explicit operator action. The
+        # registry checks this image and retains every older queued release.
         app = create_application(options, q, options.state, access, datasets, preparations, keys,
             options.image, options.origin, terminate_on_dispatch_failure=True)
         import uvicorn

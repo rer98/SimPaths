@@ -20,10 +20,11 @@ from .prepared_dataset import INPUT_FORMAT, allocation, check_input_receipt, ver
 from .queue_adapter import read_prepared
 from .schema import (DEFAULT_MAX_CONFIGURATIONS, DEFAULT_MAX_REPETITIONS, Limits,
                      deployment_configuration_limit, deployment_repetition_limit)
+from .resource_policy import DEFAULT_POLICY, check_policy, simulation_resources
 
 
 class SubmissionModel:
-    """Server-configured immutable releases; currently the bounded proof profile."""
+    """Server-configured immutable releases and model-owned execution policies."""
     def __init__(self, releases, *, max_repetitions=DEFAULT_MAX_REPETITIONS,
                  max_configurations=DEFAULT_MAX_CONFIGURATIONS):
         self.releases = releases
@@ -42,11 +43,21 @@ class SubmissionModel:
             raise ArtifactError('Release must pin an immutable installed image')
         request = selection(request)
         defaults, _ = selected_sources(configured['defaults'], uploads, request)
+        helper = configured.get('helper', Path(__file__).with_name('PrepareDataset.java'))
         identity = dict(release=release, image=image, model=fingerprint(configured['jar']),
                         defaults={k:fingerprint(p) for k,p in sorted(defaults.items())},
-                        helper=fingerprint(Path(__file__).with_name('PrepareDataset.java')))
+                        helper=fingerprint(helper))
+        policy = check_policy(configured.get('resource_policy', DEFAULT_POLICY))
+        if 'runner' in configured:
+            identity.update(contract=configured['contract'],resource_policy=policy,
+                            runner=fingerprint(configured['runner']))
+        frozen=configured.get('identity')
+        if frozen and (any(identity[key]!=frozen[key] for key in ('image','model','defaults'))
+                or 'runner' in configured and any(identity[key]!=frozen[key]
+                    for key in ('helper','runner','contract','resource_policy'))):
+            raise ArtifactError('Retained model release changed; restore its verified bundle')
         return dict(image=image, parameters=dict(release=identity, selection=request),
-                    resources=Resources(2000,5120,12288))
+                    resources=Resources(**policy['preparation']))
 
     def experiment(self, resolved, request):
         from jasmine_web.batch.policy import Resources
@@ -62,6 +73,9 @@ class SubmissionModel:
             raise ArtifactError('Input dataset is unavailable')
         if len({self.model_identity(chosen) for chosen in choices.values()}) != 1:
             raise ArtifactError('All configurations must use inputs prepared for the same model version')
+        selected = self.releases.get(config.as_dict()['model_release'])
+        if selected is None or fingerprint(selected['jar'])['sha256'] != self.model_identity(resolved):
+            raise ArtifactError('Select inputs prepared for the configuration’s model version')
         runs, budgets = [], []
         for item in config.as_dict()['run_sets']:
             single = config.run_configuration(item['id'])
@@ -95,7 +109,9 @@ class SubmissionModel:
             if (common['country']!='UK' or common['start_year']!=year or common['end_year']>2026
                     or common['population']>50000):
                 raise ArtifactError('Configuration must match the selected inputs and supported population/years')
-            resources=dict(cpu_millis=2000,memory_mib=4096,storage_mib=10240)
+            release=resolved['definition']['model']['release']
+            resources=simulation_resources(release.get('resource_policy',DEFAULT_POLICY),
+                population=common['population'],repetitions=len(seeds))
             result=dict(id=run['id'],parameters=config.editable_configuration())
         else:
             receipt=read_prepared(resolved['location'])
@@ -104,9 +120,7 @@ class SubmissionModel:
             verify_snapshot(resolved['location'],receipt)
             args=container_submission(config.editable_configuration(),resolved['location'],resolved['model_digest'])
             result=args['run_sets'][0]
-            resources=allocation(receipt)
-        if data['common']['population']>20000:
-            resources['memory_mib']=5120
+            resources=allocation(receipt,population=data['common']['population'],repetitions=len(seeds))
         return result,Resources(**resources)
 
     def replace_run(self, previous, resolved, run, seeds):
@@ -159,9 +173,10 @@ class PreparationAdapter:
         params = self.parameters(lease)
         release = params['model']['release']
         configured = self.releases[release['release']]
-        if any(lease.resources[k] < v for k,v in dict(cpu_millis=2000,memory_mib=5120,storage_mib=12288).items()):
+        minimum=check_policy(release.get('resource_policy',DEFAULT_POLICY))['preparation']
+        if any(lease.resources[k] < v for k,v in minimum.items()):
             raise ArtifactError('Preparation allocation is too small')
-        helper = Path(__file__).with_name('PrepareDataset.java')
+        helper = configured.get('helper', Path(__file__).with_name('PrepareDataset.java'))
         if fingerprint(helper) != release['helper'] or configured['image'] != release['image']:
             raise ArtifactError('Preparation adapter or image changed; retain the reviewed release')
         if request.stat().st_dev != self.artifacts.stat().st_dev:
@@ -230,6 +245,20 @@ class PreparationAdapter:
         identity = dict(format=INPUT_FORMAT,source='validated-selected-files',country='UK',
             start_year=params['model']['selection']['year'],source_image=release['image'],model=release['model'],
             sources=dict(defaults=release['defaults'],uploads=uploaded),selection=params['model']['selection'],prepared=prepared)
+        if 'runner' in release:
+            identity['release']=dict(id=release['release'],contract=release['contract'],
+                resource_policy=release['resource_policy'],runner=release['runner'])
+            runner=self.releases[release['release']]['runner']
+            if not (target/'run.sh').exists():
+                temporary=target/'.run.sh.pending'
+                temporary.unlink(missing_ok=True)
+                if fingerprint(runner,temporary)!=release['runner']:
+                    raise ArtifactError('Frozen execution script changed')
+                with temporary.open('rb') as copied:
+                    os.fsync(copied.fileno())
+                temporary.replace(target/'run.sh')
+            if fingerprint(target/'run.sh')!=release['runner']:
+                raise ArtifactError('Prepared execution script changed')
         receipt = dict(identity=identity,sha256=digest(identity),revision='inputs-'+digest(identity))
         check_input_receipt(receipt)
         if candidate != target/'input':
@@ -244,7 +273,7 @@ class PreparationAdapter:
             temporary.replace(target/'model.jar')
         if fingerprint(target/'model.jar') != release['model']:
             raise ArtifactError('Prepared model changed')
-        for file in [target/'model.jar',*(target/'input').rglob('*')]:
+        for file in [target/'model.jar',*([target/'run.sh'] if 'runner' in release else []),*(target/'input').rglob('*')]:
             if file.is_file():
                 os.chmod(file,0o400)
         if (target/'receipt.json').exists() and read_prepared(target) != receipt:

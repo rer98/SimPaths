@@ -18,6 +18,10 @@ see [LOCAL_WEB.md](LOCAL_WEB.md) for the laptop and [VM.md](VM.md) for the super
 native VM setup, external privacy checks and capacity measurements. Java production
 code and existing SingleRun configurations are unchanged.
 
+[RELEASES.md](RELEASES.md) describes immutable model/default/adapter bundles,
+operator default selection, preservation of accepted jobs and the versioned
+resource-policy interface for future storage calibration.
+
 ## Review the example
 
 From the SimPaths repository, use Python 3.11+ with

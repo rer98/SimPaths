@@ -46,9 +46,8 @@ class SimPathsContainerAdapter(SimPathsLocalAdapter):
 
     def container_command(self, lease, request):
         config = self._configuration(lease)
-        minimum = allocation(self.receipt)
-        if config.as_dict()['common']['population'] > 20000:
-            minimum['memory_mib'] = 5120
+        minimum = allocation(self.receipt,population=config.as_dict()['common']['population'],
+                             repetitions=len(config.as_dict()['seed_plan']['seeds']))
         if any(lease.resources[key] < value for key, value in minimum.items()):
             raise ArtifactError("Allocation is below the prepared example's CPU, RAM or storage requirement")
         if self.receipt["identity"]["format"] in (FORMAT, INPUT_FORMAT):
@@ -61,7 +60,8 @@ class SimPathsContainerAdapter(SimPathsLocalAdapter):
             from jasmine_web.batch.docker_executor import InsufficientWorkspaceSpace
             raise InsufficientWorkspaceSpace(error.required_bytes, error.available_bytes) from error
         (request / "run.yml").write_text(config.native_yaml(lease.configuration_id))
-        shutil.copyfile(Path(__file__).with_name("container_run.sh"), request / "run.sh")
+        runner = self.prepared/'run.sh' if 'release' in self.receipt['identity'] else Path(__file__).with_name('container_run.sh')
+        shutil.copyfile(runner, request / "run.sh")
         manifest = []
         identity = self.receipt["identity"]
         for name, item in {"model.jar": identity["model"],

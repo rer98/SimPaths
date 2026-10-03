@@ -93,6 +93,75 @@ class SubmissionAdapterTests(unittest.TestCase):
         with self.assertRaises(ArtifactError):
             self.model.preparation('approved',self.uploads,{**self.selection,'image':'evil'})
 
+    def versioned_plan(self, policy=None):
+        from .releases import ReleaseRegistry
+        registry=ReleaseRegistry(self.root/'release-state')
+        key=registry.register(image=self.image,name='Fictional retained release',
+            jar=self.releases['approved']['jar'],defaults=self.releases['approved']['defaults'],policy=policy)
+        self.releases.update(registry.load())
+        plan=self.model.preparation(key,self.uploads,self.selection)
+        params=dict(model=plan['parameters'],uploads={k:{a:v[a] for a in ('id','bytes','sha256')}
+                                                      for k,v in self.uploads.items()})
+        self.lease.specification['run_sets'][0]['parameters']=params
+        self.lease.specification['prepared_fingerprint']=digest(params)
+        self.lease.resources=plan['resources'].__dict__
+        return key,plan
+
+    def test_versioned_preparation_uses_retained_helper_and_publishes_its_runner(self):
+        key,plan=self.versioned_plan()
+        with patch('deploy.multirun.submission_adapter.subprocess.run') as compiler:
+            self.adapter.container_command(self.lease,self.request)
+        self.assertEqual(compiler.call_args.args[0][-1],str(self.releases[key]['helper']))
+        # Generate fictional prepared files through the fixture, using the
+        # already-copied sources rather than running a scientific model.
+        shutil.rmtree(self.request/'sources')
+        shutil.rmtree(self.request/'classes')
+        self.result()
+        self.adapter.validate(self.lease,self.work)
+        target=self.adapter.artifacts/self.lease.execution_key
+        receipt=read_prepared(target)
+        self.assertEqual(receipt['identity']['release']['id'],key)
+        self.assertEqual(fingerprint(target/'run.sh'),plan['parameters']['release']['runner'])
+        verify_snapshot(target,receipt)
+        config=self.pending_config(); config['model_release']=key
+        ready=dict(dataset_id='pending-owned',location=str(target),model_digest=self.image,
+                   prepared_fingerprint=receipt['sha256'])
+        result=self.model.experiment(ready,dict(configuration=config))
+        bound=result['run_sets'][0]
+        lease=SimpleNamespace(specification=dict(seeds=result['seed_plan'],run_sets=[bound],
+            dataset_id=ready['dataset_id'],model_digest=self.image,prepared_fingerprint=receipt['sha256']),
+            configuration_id=bound['id'],resources=bound['execution']['resources'])
+        request=self.root/'simulation-request'; request.mkdir()
+        with patch('deploy.multirun.container_adapter.require_workspace_space'):
+            SimPathsContainerAdapter(target,self.image).container_command(lease,request)
+        self.assertEqual((request/'run.sh').read_bytes(),self.releases[key]['runner'].read_bytes())
+
+    def test_prepared_and_pending_resources_keep_the_reviewed_release_policy(self):
+        from .resource_policy import DEFAULT_POLICY
+        policy=deepcopy(DEFAULT_POLICY); policy['simulation']['storage']['setup_mib']=11264
+        key,plan=self.versioned_plan(policy)
+        config=self.pending_config(); config['model_release']=key
+        original=self.model.experiment(self.pending(),dict(configuration=config))
+        self.assertEqual(original['resources'].storage_mib,11264)
+        # In-memory operator settings cannot rewrite the signed selection or
+        # its prepared receipt when a pending dataset becomes ready.
+        self.releases['approved']['resource_policy']=deepcopy(DEFAULT_POLICY)
+        self.releases['approved']['resource_policy']['simulation']['storage']['setup_mib']=12288
+        self.result(); self.adapter.validate(self.lease,self.work)
+        target=self.adapter.artifacts/self.lease.execution_key; receipt=read_prepared(target)
+        ready=dict(dataset_id='pending-owned',location=str(target),model_digest=self.image,
+                   prepared_fingerprint=receipt['sha256'])
+        _,resources=self.model.bind_run(ready,original['run_sets'][0],original['seed_plan'])
+        self.assertEqual(resources,original['resources'])
+        self.assertEqual(receipt['identity']['release']['resource_policy'],policy)
+
+    def test_preparation_enforces_its_frozen_policy_not_only_old_hardcoded_minima(self):
+        from .resource_policy import DEFAULT_POLICY
+        policy=deepcopy(DEFAULT_POLICY); policy['preparation']['storage_mib']=13312
+        self.versioned_plan(policy)
+        self.lease.resources['storage_mib']=12288
+        with self.assertRaisesRegex(ArtifactError,'allocation'): self.command()
+
     def test_preparation_freezes_schedule_model_and_uploads(self):
         command = self.command()
         self.assertEqual(command.image,self.image)
@@ -184,6 +253,7 @@ class SubmissionAdapterTests(unittest.TestCase):
         config = proof_configuration().editable_configuration()
         config = normal_fixed(config)
         config['dataset_revision']='dataset-owned'
+        config['model_release']='approved'
         plan = self.model.experiment(resolved,dict(configuration=config,baseline=config['run_sets'][0]['id']))
         self.assertEqual(plan['seed_plan'],['606','607','608'])
         self.assertEqual(plan['model_digest'],self.image)
@@ -200,6 +270,7 @@ class SubmissionAdapterTests(unittest.TestCase):
     def pending_config(self):
         config=normal_fixed(proof_configuration().editable_configuration())
         config['dataset_revision']='pending-owned'
+        config['model_release']='approved'
         return config
 
     def test_pending_inputs_allow_configuration_without_opening_a_database(self):

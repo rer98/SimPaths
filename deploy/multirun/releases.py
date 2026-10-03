@@ -87,6 +87,13 @@ class ReleaseRegistry:
     @contextmanager
     def locked(self):
         private_directory(self.state)
+        from .maintenance import service_state
+        with service_state(self.state):
+            with self._registry_lock():
+                yield
+
+    @contextmanager
+    def _registry_lock(self):
         private_directory(self.root)
         fd = os.open(self.root/'registry.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         try:

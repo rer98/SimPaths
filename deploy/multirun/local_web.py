@@ -112,6 +112,8 @@ def parse_args(argv=None):
     parser.add_argument('command',choices=['serve','approve','revoke'])
     parser.add_argument('--frontend',type=Path,default=frontend_path())
     parser.add_argument('--state',type=Path,default=Path.home()/'simpaths-multirun-local')
+    parser.add_argument('--dsn-file',type=Path,
+                        help='Existing private PostgreSQL DSN; use for an isolated restored service instead of local database bootstrap')
     parser.add_argument('--prepared',type=Path,action='append',default=[],help='Verified Quick Start import; reused in place')
     parser.add_argument('--email',help='Email to approve or revoke; prompted if omitted')
     parser.add_argument('--port',type=int,default=5002)
@@ -197,7 +199,21 @@ def main(argv=None):
         raise SystemExit('The configured maximum repetition count exceeds the runtime limits: '+str(error)) from None
     os.umask(0o077)
     state=private_directory(args.state)
-    q=Queue(local_postgres(state),'simpaths-local')
+    from .maintenance import service_state
+    with service_state(state):
+        if args.dsn_file:
+            from .vm_web import private_text
+            dsn=private_text(args.dsn_file)
+        else:
+            dsn=local_postgres(state)
+        q=Queue(dsn,'simpaths-local')
+        from jasmine_web.batch.backup import database_guard
+        with database_guard(q):
+            return run_service(args,state,q)
+
+
+def run_service(args,state,q):
+    from jasmine_web.batch.docker_executor import DockerCLI
     q.migrate()
     async def console_mail(email,code):
         print(f'LOCAL TEST CODE for {email}: {code}',flush=True)

@@ -272,10 +272,14 @@ every queued MultiRun dependency.
 
 Backups must include `releases/`, any legacy `release/`, private prepared datasets
 and their scripts, plus the matching PostgreSQL state and existing credentials.
-Keep private paths stable on restore. `ReleaseRegistry.inventory()` returns the verified
-default-first inventory without creating files or upgrading legacy catalogues;
-operator-status and future backup tooling
-should reuse this inventory rather than parse human-readable `list` output. Future
+The [backup and restore commands](BACKUP.md) save this complete retained inventory
+and registered external prepared inputs, with native PostgreSQL row verification.
+Restore explicitly relocates prepared locations to a new private state; frozen
+model/settings identities stay unchanged. Required Docker image IDs are recorded
+and checked at activation, but image bytes need separate protected storage.
+`ReleaseRegistry.inventory()` returns the verified default-first inventory without
+creating files or upgrading legacy catalogues; operator status and backup reuse
+this inventory rather than parse human-readable `list` output. Future
 release retirement must inspect queued/running/retry/preparation/dataset references
 before reclaiming bundles or images. It is deliberately outside default selection.
 

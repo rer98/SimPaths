@@ -11,6 +11,8 @@ Inspect an existing SimPaths Online service without starting its applications or
 altering submitted work. This command provides terminal output and a versioned
 JSON report. It uses the selected resource pool, verified retained releases and
 the existing private state directories.
+For consistent snapshots and isolated recovery, use the separate
+[backup and restore commands](BACKUP.md).
 
 ## Laptop
 
@@ -153,6 +155,7 @@ up (`postgres-queue-20261003-142214`).
 The reusable `database_inventory` helper returns safe report metadata and private
 prepared-location references separately. `filesystem_inventory` reports sizes;
 `ReleaseRegistry.inventory()` verifies retained releases without catalogue
-upgrades or creating lock files. Future matching backup/restore tooling should
-reuse these interfaces and validate its own complete dependency set rather than
-parse terminal output or assume this bounded status report is a backup manifest.
+upgrades or creating lock files. The matching backup/restore commands reuse the
+verified release inventory and build a complete file/table manifest under
+maintenance locks. They do not parse terminal output or treat this bounded status
+report as a backup manifest.

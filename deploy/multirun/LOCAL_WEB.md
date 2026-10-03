@@ -11,6 +11,8 @@ For a persistent HTTPS deployment use [the native VM guide](VM.md), not this
 console-code launcher. Both routes share the application setup in `runtime.py`.
 For a read-only terminal overview of an existing service, see
 [operator status](OPERATOR.md).
+For matching PostgreSQL/private-file backups and isolated recovery, see
+[backup and restore](BACKUP.md).
 The page uses the same SimPaths logo and favicon as SingleRun, with the logo
 beside **SimPaths Online**, with **UK MultiRun** beneath the title, including
 before sign-in. The browser tab is titled **SimPaths Online — UK MultiRun**. The
@@ -785,6 +787,14 @@ Do not remove its state, imported datasets or Docker volume while work is active
 The first start freezes the model JAR and default workbooks for uploaded-data
 preparation. Restarting does not silently replace that release from a changed
 checkout. Release upgrades and state retirement are separate operator tasks.
+
+Offline backups require the launcher and active writers to stop, with all model
+and processor reservations settled. The backup command does not cancel jobs.
+Restore uses a separate empty database/new private state and stays inactive until
+verified activation. When starting an activated restored copy, supply both its
+`--state` and private `--dsn-file`; this explicitly selects the restored database
+without changing the usual local database startup or authentication secrets.
+See [the recovery runbook](BACKUP.md) for commands and interruption recovery.
 
 ## Acceptance
 

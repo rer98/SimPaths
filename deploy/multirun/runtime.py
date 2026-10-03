@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import signal
 import threading
+from functools import wraps
 
 from .browser_model import BrowserModel
 from .local_web import configuration_runtime, frozen_release, register_training, retire_finished
@@ -33,6 +34,17 @@ from jasmine_web.batch.submission_service import Submissions
 from jasmine_web.batch.worker import Worker
 
 
+def maintenance_guard(operation):
+    @wraps(operation)
+    def guarded(args,q,state,*values,**settings):
+        from .maintenance import service_state
+        from jasmine_web.batch.backup import database_guard
+        with service_state(state), database_guard(q):
+            return operation(args,q,state,*values,**settings)
+    return guarded
+
+
+@maintenance_guard
 def create_registry(args,q,state,send_mail,*,capacity=Resources(2000,5120,12288),per_user_active=1):
     q.create_pool(capacity,holdback=getattr(args,'holdback',None),policy=Policy(per_user_active=per_user_active,
         per_user_unfinished=args.max_unfinished_jobs,pool_unfinished=args.pool_unfinished_jobs),
@@ -82,6 +94,7 @@ def create_registry(args,q,state,send_mail,*,capacity=Resources(2000,5120,12288)
     return access,datasets,preparations,keys
 
 
+@maintenance_guard
 def create_application(args,q,state,access,datasets,preparations,keys,image,origin,*,
                        local_codes=False,terminate_on_dispatch_failure=False):
     releases=frozen_release(state,image)
@@ -139,6 +152,14 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                 os.kill(os.getpid(),signal.SIGTERM)
     @asynccontextmanager
     async def lifespan(app):
+        from .maintenance import service_state
+        from jasmine_web.batch.backup import database_guard
+        # Covers hosts embedding this application as well as native launchers.
+        with service_state(state), database_guard(q):
+            async with running(app):
+                yield
+    @asynccontextmanager
+    async def running(app):
         thread=threading.Thread(target=dispatch,name='multirun-dispatcher',daemon=True)
         thread.start()
         def notify():

@@ -132,21 +132,24 @@ def main(argv=None):
             from jasmine_web.batch.access import email_address
             if options.admin_email:
                 email_address(options.admin_email)
-        q.migrate()
-        from .runtime import create_application, create_registry
-        access, datasets, preparations, keys = create_registry(options, q, options.state, verification_mail,
-            capacity=Resources(**options.capacity), per_user_active=options.per_user_active)
-        if args.command != 'serve':
+        from .maintenance import service_state
+        from jasmine_web.batch.backup import database_guard
+        with service_state(options.state), database_guard(q):
+            q.migrate()
+            from .runtime import create_application, create_registry
+            access, datasets, preparations, keys = create_registry(options, q, options.state, verification_mail,
+                capacity=Resources(**options.capacity), per_user_active=options.per_user_active)
+            if args.command != 'serve':
+                return 0
+            # Registration/default selection is an explicit operator action. The
+            # registry checks this image and retains every older queued release.
+            app = create_application(options, q, options.state, access, datasets, preparations, keys,
+                options.image, options.origin, terminate_on_dispatch_failure=True)
+            import uvicorn
+            print('SimPaths Online VM service: '+options.origin+'; loopback listener only.', flush=True)
+            uvicorn.run(app, host='127.0.0.1', port=options.port, workers=1,
+                        proxy_headers=True, forwarded_allow_ips='127.0.0.1', access_log=False)
             return 0
-        # Registration/default selection is an explicit operator action. The
-        # registry checks this image and retains every older queued release.
-        app = create_application(options, q, options.state, access, datasets, preparations, keys,
-            options.image, options.origin, terminate_on_dispatch_failure=True)
-        import uvicorn
-        print('SimPaths Online VM service: '+options.origin+'; loopback listener only.', flush=True)
-        uvicorn.run(app, host='127.0.0.1', port=options.port, workers=1,
-                    proxy_headers=True, forwarded_allow_ips='127.0.0.1', access_log=False)
-        return 0
     except Exception as error:
         # Connection errors can contain credentials; never print their text.
         if isinstance(error, (ValueError, FileNotFoundError)):

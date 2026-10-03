@@ -120,6 +120,31 @@ class VMRuntimeTests(unittest.TestCase):
             self.access.approve_email('alice@example.org', seconds=None)
             self.assertEqual(client.get('/api/dashboard').status_code, 403)
 
+    def test_restore_marker_blocks_application_and_registry_before_assembly_changes(self):
+        from .artifacts import ArtifactError
+        from .maintenance import GATE
+        from jasmine_web.batch.backup import table_inventory
+        from jasmine_web.batch.local_executor import atomic_json
+        with self.q._connection() as c: before=table_inventory(c,self.q)
+        atomic_json(self.state/GATE,dict(phase='verified'))
+        with self.assertRaises(ArtifactError):self.app()
+        with self.assertRaises(ArtifactError):
+            runtime.create_registry(self.args,self.q,self.state,self.deliver)
+        with self.q._connection() as c:self.assertEqual(table_inventory(c,self.q),before)
+        self.assertFalse((self.state/'operator-settings.json').exists())
+
+    def test_running_application_and_offline_maintenance_exclude_each_other(self):
+        from .artifacts import ArtifactError
+        from .maintenance import state_guard
+        from jasmine_web.batch.backup import database_guard
+        with TestClient(self.app(),base_url=self.origin) as client:
+            until(lambda:client.get('/healthz').status_code==200)
+            with self.assertRaises(ArtifactError):
+                with state_guard(self.state,exclusive=True):pass
+            with self.assertRaises(Conflict):
+                with database_guard(self.q,exclusive=True):pass
+        with state_guard(self.state,exclusive=True),self.assertRaises(ArtifactError):self.app()
+
     def test_actual_dispatcher_completes_frozen_runtime_and_provider_download_stays_denied(self):
         dataset = self.dataset(provider=True)
         with TestClient(self.app(), base_url=self.origin) as client:

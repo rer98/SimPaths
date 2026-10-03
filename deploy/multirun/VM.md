@@ -381,24 +381,22 @@ with encryption and access control; never store them in a public/static director
 Choose a backup retention period that respects the data's own retention rules and
 record how expired/deleted private data ages out of backups.
 
-For the initial offline-consistent backup procedure:
+Use the automated [backup and restore runbook](BACKUP.md). The offline command
+locks the state and complete queue schema, rejects active/unreleased work, takes
+a native PostgreSQL snapshot and copies verified private files and all registered
+prepared inputs. It never copies live PGDATA. Download/Visualiser caches are
+regenerable and omitted; deployment configuration, Visualiser builds and required
+Docker images must be retained separately.
 
-1. Schedule a maintenance window and let active model/aggregation/download work
-   finish. Do not cancel users' jobs to make a backup convenient.
-2. Stop the application gracefully, preventing new dispatch. Check PostgreSQL for
-   zero unfinished attempts, unreleased execution reservations and processing
-   reservations, and inspect the service's labelled containers. A surviving model
-   can still write after web shutdown; wait for it to settle via normal recovery.
-3. Take `pg_dump` in custom format and a protected archive/snapshot of private
-   storage while the application and all its workers are quiescent. Use private
-   credential files/environment, never a password-bearing shell argument.
-4. Record checksums, timestamp, PostgreSQL version, source/JAR/image/build identities
-   and backup contents. Store the copy on separate protected storage; restart the
-   service and check readiness. Never copy a live PGDATA directory as a backup.
-5. Restore into an isolated staging host with the same stable paths and reviewed
-   code/images. Verify owners, permissions, results/input downloads and aggregate
-   access before marking backup recovery complete. Do not resume old queued jobs
-   during a restore exercise or send copied outbox messages to real addresses.
+Restore uses a new private directory and separate empty database. It verifies
+every table row and file, relocates registered input paths explicitly and stays
+inactive until verified activation with all required images installed. A matching
+interrupted restore can resume. Stop/isolate the original service and containers
+before activation; an old backup cannot undo later external work or sent emails.
+Do not dispatch copied queued jobs or send copied outbox messages during an
+isolated restore exercise. Configure delivery and automatic expiry off initially.
+This command covers MultiRun's one-pool schema/private files; standalone SingleRun
+state and interactive container volumes need their own backup procedure.
 
 Routine application updates preserve state/database/secrets and drain or adopt
 existing work. Keep the previous tested code and build for rollback. Database
@@ -430,3 +428,11 @@ Nginx syntax and real host configuration still require the installed VM.
 Production acceptance still requires the chosen VM, its actual filesystem/proxy,
 email delivery, boot/restart, interrupted transfer, backup restore and resource
 measurements. Do not label template/unit tests as completed VM deployment.
+
+The offline backup/restore proof passed all 55 focused database/deployment checks
+on 3 October, across `postgres-queue-20261003-155508` and the corrected
+`postgres-queue-20261003-160608` rerun. Native dump/restore, inactive gating,
+interrupted recovery, exact row/file verification, existing sign-in and
+owner/provider output permissions passed with fictional data and no real mail.
+Temporary resources were cleaned up. See [BACKUP.md](BACKUP.md) for scope and
+the additional staging-host recovery checks.

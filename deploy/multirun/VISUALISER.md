@@ -226,6 +226,16 @@ provider raw-download denial and cached ZIP resumption after restart. Native-CSV
 checks also confirm that alternatives are not pooled by the current role-based
 aggregation. PostgreSQL/Chromium acceptance must run outside the coding sandbox.
 
+Multiple-alternative acceptance passed on 3 October 2026 in
+`vm-visualiser-20261003-220301` using build `multi-c`: all 77 focused backend cases
+and nine browser stages passed. This includes alternative switching/names/refresh,
+numbered comparison ZIP folders with frozen settings and per-run options, strict
+aggregate-only browser responses, local worker reuse without uploads, owner
+isolation and denial after source deletion. The report records no uncaught browser
+errors and confirms temporary-database cleanup. The controlled ValueError is the
+deliberate failed-preparation/retry test. Eight native-CSV/backend checks also pass
+locally, including independent three-series statistics and older-build compatibility.
+
 Acceptance passed on 29 September 2026. All 292 backend cases passed across the
 full run and focused retry/Visualiser reruns. Evidence is in
 `vm-visualiser-20260929-223919` (full run),
@@ -240,7 +250,7 @@ The model-side numerical/schema tests run separately:
 
 ```bash
 cd ~/git/SimPathsWeb/SimPaths
-SIMPATHS_VISUALISER_TEST_BUILD=/tmp/codex-rer/visualiser-build-20260930-d \
+SIMPATHS_VISUALISER_TEST_BUILD=/tmp/codex-rer/visualiser-build-20261003-multi-c \
   ~/simpaths-browser-tests/venv/bin/python \
   -m unittest deploy.multirun.test_visualiser_backend -v
 ```

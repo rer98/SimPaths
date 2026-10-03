@@ -24,6 +24,17 @@ shared seed sequence and submit. **My jobs** shows durable status, attempt count
 cancellation and automatic-retry controls. A browser refresh or closure does not
 cancel submitted work.
 
+Each page has a collapsed **Help with…** panel beside its controls: New Experiment,
+Create Input Dataset, My Datasets, My Jobs, Storage and Results. The panels explain
+inputs and model versions, configuration/repetition workload, parameter sweeps,
+retry eligibility and cancellation, retention and deletion, Online Visualiser
+comparisons, optional input downloads and resumable ZIPs. They refer to the
+service's displayed allowances and dates rather than fixing values in the help.
+The Results panel explains that current charts switch between alternatives and
+that the local-folder picker still requires a separate Baseline/Scenario pair.
+Restart the launcher and refresh the page after updating this guidance; no model
+image or Visualiser build is required.
+
 The **Default input dataset** supplies inputs to every card unless that card
 selects an alternative. Each dataset contains its prepared population/donor database,
 UKMOD policy schedule and parameter workbooks. To compare a different schedule,

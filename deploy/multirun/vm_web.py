@@ -89,10 +89,15 @@ def database_dsn(options):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('check', 'preflight', 'serve', 'approve', 'revoke'))
+    parser.add_argument('command', choices=('check', 'preflight', 'serve', 'approve', 'revoke', 'status'))
     parser.add_argument('--config', type=Path, required=True)
     parser.add_argument('--email')
+    parser.add_argument('--json',action='store_true',help='JSON output for status')
+    parser.add_argument('--limit',type=int,default=20,help='Maximum job details for status')
     args = parser.parse_args(argv)
+    if args.command=='status':
+        from .operator_status import main as status
+        return status(['--config',str(args.config),'--limit',str(args.limit)]+(['--json'] if args.json else []))
     try:
         options = load_config(args.config)
         if args.command == 'check':

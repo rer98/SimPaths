@@ -9,6 +9,8 @@ tested PostgreSQL queue and container adapters. It does not start `app.py`, use
 Redis, or replace the interactive SingleRun page. No image rebuild is needed.
 For a persistent HTTPS deployment use [the native VM guide](VM.md), not this
 console-code launcher. Both routes share the application setup in `runtime.py`.
+For a read-only terminal overview of an existing service, see
+[operator status](OPERATOR.md).
 The page uses the same SimPaths logo and favicon as SingleRun, with the logo
 beside **SimPaths Online**, with **UK MultiRun** beneath the title, including
 before sign-in. The browser tab is titled **SimPaths Online — UK MultiRun**. The

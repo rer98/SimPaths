@@ -31,6 +31,14 @@ def private_directory(path):
     if any(p.is_symlink() for p in (path, *path.parents)):
         raise ArtifactError('Release directories must not contain symlinks')
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return existing_directory(path)
+
+
+def existing_directory(path):
+    """Verify a private directory without creating it or changing its mode."""
+    path = Path(path).absolute()
+    if any(p.is_symlink() for p in (path, *path.parents)):
+        raise ArtifactError('Release directories must not contain symlinks')
     info = path.stat()
     if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
         raise ArtifactError('Release directories must be private and service-owned')
@@ -111,7 +119,7 @@ class ReleaseRegistry:
         directory = self.state/'release' if record['legacy'] else self.root/key
         if not directory.is_dir():
             raise ArtifactError('Retained release bundle is missing; restore it before restarting')
-        private_directory(directory)
+        existing_directory(directory)
         path = directory/'release.json'
         if fingerprint(path) != record['manifest']:
             raise ArtifactError('Retained release metadata changed; restore the original bundle')
@@ -182,6 +190,24 @@ class ReleaseRegistry:
             if expected_image is not None and next(iter(releases.values()))['image'] != expected_image:
                 raise ArtifactError('Configured image differs from the selected release; register/select the reviewed release explicitly')
             return releases
+
+    def inventory(self):
+        """Verify a read-only snapshot of retained releases, without upgrading.
+
+        Catalogue publication is atomic and bundles immutable. Reading the old
+        catalogue during selection is valid; this creates no locks/directories.
+        Legacy inventory does not write a catalogue. Reuse this for status/backup.
+        """
+        existing_directory(self.state)
+        if self.root.exists() or self.root.is_symlink():
+            existing_directory(self.root)
+        catalogue = self._catalogue()
+        if catalogue is None:
+            path = self.state/'release'/'release.json'
+            info = read_json(path)
+            key = 'local-'+info['model']['sha256'][:16]
+            catalogue = dict(default=key, entries={key:dict(legacy=True,manifest=fingerprint(path))})
+        return self._load(catalogue)
 
     def register(self, *, image, name, jar, defaults, policy=None, make_default=False):
         self._name(name)

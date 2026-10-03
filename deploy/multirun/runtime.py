@@ -226,4 +226,9 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
         return JSONResponse({'ready':ready},status_code=200 if ready else 503)
     app.router.routes.append(Route('/healthz',healthz,methods=['GET']))
     app.state.submissions=service
+    from datetime import datetime, timezone
+    atomic_json(state/'operator-settings.json',dict(format='simpaths.operator.settings.v1',
+        pool_id=q.pool_id,schema=q.schema,recorded_at=datetime.now(timezone.utc).isoformat(),
+        model_release=default,notification_delivery=args.notification_emails,
+        retention_cleanup=args.retention_cleanup,visualiser_enabled=args.visualiser_preview))
     return app

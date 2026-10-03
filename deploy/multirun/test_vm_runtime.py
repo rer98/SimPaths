@@ -185,6 +185,19 @@ class VMRuntimeTests(unittest.TestCase):
             with self.subTest(changes=changes), self.assertRaises(Conflict):
                 runtime.create_registry(self.args, self.q, self.state, self.deliver, **changes)
 
+    def test_operator_launch_settings_record_flags_without_credentials_or_owner_data(self):
+        import json
+        self.app()
+        path=self.state/'operator-settings.json'
+        data=json.loads(path.read_text())
+        self.assertEqual(data['pool_id'],self.q.pool_id)
+        self.assertEqual(data['schema'],self.q.schema)
+        self.assertFalse(data['notification_delivery'])
+        self.assertFalse(data['retention_cleanup'])
+        self.assertEqual(path.stat().st_mode & 0o777,0o600)
+        for secret in (self.q.dsn,'alice@example.org',str(self.state)):
+            self.assertNotIn(secret,path.read_text())
+
     def test_database_migrations_and_registry_work_without_cluster_superuser_privileges(self):
         import psycopg
         from psycopg import sql

@@ -238,6 +238,27 @@ miss brief peaks; the normal running-workspace monitor stays enabled throughout.
 Measure other supported populations, longer horizons/collectors and the intended
 production VM before treating these initial settings as calibrated production limits.
 
+The 3 October 2026 measurement passed for both 50,000-person, 2019–2026 cases:
+
+| Repetitions | Working allowance | Sampled workspace peak | Headroom at sampled peak | Retained CSV size |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 4.5 GiB | 2.90 GiB | 1.60 GiB | 230.63 MiB |
+| 3 | 5.5 GiB | 3.09 GiB | 2.41 GiB | 691.84 MiB |
+
+Each case completed in one attempt. The three-repetition case used seeds 606,
+607 and 608; only the first made a large native input snapshot. Production cleanup
+reclaimed both input copies and temporary files while preserving every run's
+`options.txt` and verified CSV output. The prepared source was unchanged, and the
+proof's containers/workspaces and disposable database were cleaned up.
+
+Evidence: `multirun-storage-20261003-124138/model-proof/report.json` and the matching
+outer `report.json` under `$HOME/simpaths-benchmarks`. The per-repetition CSV size
+was 230.27–230.93 MiB. This supports the initial 512 MiB term for this tested
+profile; the fixed allowance also had substantial sampled headroom. Component
+peaks in the report occur independently and must not be added to calculate a
+workspace peak. These sampled measurements do not cover other workloads or
+replace production filesystem quota acceptance.
+
 ## Retention, image protection and backups
 
 There is no automatic release or image retirement in this feature. Retain all
@@ -251,8 +272,9 @@ every queued MultiRun dependency.
 
 Backups must include `releases/`, any legacy `release/`, private prepared datasets
 and their scripts, plus the matching PostgreSQL state and existing credentials.
-Keep private paths stable on restore. `ReleaseRegistry.load()` returns the verified
-default-first inventory for future operator-status and backup tooling; those tools
+Keep private paths stable on restore. `ReleaseRegistry.inventory()` returns the verified
+default-first inventory without creating files or upgrading legacy catalogues;
+operator-status and future backup tooling
 should reuse this inventory rather than parse human-readable `list` output. Future
 release retirement must inspect queued/running/retry/preparation/dataset references
 before reclaiming bundles or images. It is deliberately outside default selection.
@@ -283,9 +305,11 @@ checks passed without skips in `postgres-queue-20261003-124101/model-proof/repor
 including calculated storage, old signed allocations, pending-size increases,
 retries and rejection of excessive repetition counts. All 12 generic storage
 checks passed in `multirun-storage-20261003-124138/tests.log`, including per-configuration
-capacity rejection and signed allocation preservation. The full-length model
-measurement in that latter directory is running; no production calibration claim
-is made from the bookkeeping checks.
+capacity rejection and signed allocation preservation. Both full-length model
+measurements in that latter directory passed, including input-copy reclamation,
+preserved options/output and unchanged prepared source. The measured sizes above
+support these initial allowances for the tested profile; broader production
+calibration remains required.
 
 Initial release-support validation on 3 October 2026: all 85 transition-proof cases passed without skips
 in `postgres-queue-20261003-112048/report.json`. The local MultiRun suite also

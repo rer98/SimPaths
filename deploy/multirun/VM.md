@@ -24,6 +24,8 @@ disk limits, backup restoration and external privacy checks must pass on the cho
 staging VM before public launch. The SingleRun frontend is a separate application
 using PostgreSQL as well; it can join the same resource pool as described below.
 Do not substitute its Compose template for this MultiRun service.
+Use [operator status](OPERATOR.md) to inspect recorded work, shared reservations,
+storage, cleanup, notifications and retained releases from the service account.
 
 The optional Visualiser is still the pinned **development levels preview**. It
 accepts user-supplied inputs and explicitly imported public training datasets.

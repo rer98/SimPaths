@@ -29,6 +29,8 @@ from .releases import ReleaseRegistry, atomic_json, existing_directory, installe
 FORMAT = 'simpaths.multirun.backup.v1'
 GATE_FORMAT = 'simpaths.multirun.restore.v1'
 EXCLUDE = (LOCK,GATE,'execution/download-cache','execution/visualiser-cache')
+EXCLUDE += ('.backup-files.lock',)
+LIVE_FORMAT = 'simpaths.multirun.backup.v2'
 
 
 def utc():
@@ -191,7 +193,9 @@ def load_manifest(backup):
     value=read_metadata(backup/'manifest.json')
     fields={'format','id','created_at','pool_id','schema','postgres_major','state_source','state_tree',
         'prepared','database','dump','images','default_release','release_ids','omitted_caches','attribution'}
-    if (type(value) is not dict or set(value)!=fields or value['format']!=FORMAT or
+    if isinstance(value,dict) and value.get('format')==LIVE_FORMAT:
+        fields |= {'recovery','vm'}
+    if (type(value) is not dict or set(value)!=fields or value['format'] not in (FORMAT,LIVE_FORMAT) or
             not re.fullmatch('[a-f0-9]{32}',str(value['id'])) or
             not re.fullmatch('[a-z][a-z0-9_]{0,62}',str(value['schema'])) or
             not re.fullmatch('[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}',str(value['pool_id'])) or
@@ -202,6 +206,9 @@ def load_manifest(backup):
             any(not re.fullmatch('sha256:[a-f0-9]{64}',str(p)) for p in value['images']) or
             value['omitted_caches']!=['download-cache','visualiser-cache']):
         raise ArtifactError('Invalid or incompatible backup manifest')
+    if value['format']==LIVE_FORMAT:
+        from .backup_single import validate_manifest
+        validate_manifest(value)
     absolute(value['state_source'])
     for i,record in enumerate(value['prepared']):
         if (type(record) is not dict or set(record)!={'source','directory','tree'} or
@@ -211,12 +218,18 @@ def load_manifest(backup):
     roots=[Path(value['state_source']),*[Path(r['source']) for r in value['prepared']]]
     if any(a==b or a.is_relative_to(b) or b.is_relative_to(a) for i,a in enumerate(roots) for b in roots[i+1:]):
         raise ArtifactError('Backup source directories overlap')
-    for table,entry in value['database'].items():
+    validate_database(value['database'])
+    return value
+
+
+def validate_database(database):
+    if not isinstance(database,dict) or not database or len(database)>1000:
+        raise ArtifactError('Invalid database verification inventory')
+    for table,entry in database.items():
         if (not re.fullmatch('[a-z][a-z0-9_]{0,62}',table) or type(entry) is not dict or
                 set(entry)!={'rows','sha256'} or type(entry['rows']) is not int or entry['rows']<0 or
                 not re.fullmatch('[a-f0-9]{64}',str(entry['sha256']))):
             raise ArtifactError('Invalid database verification inventory')
-    return value
 
 
 def verify(backup):
@@ -284,13 +297,22 @@ def check_restored_files(backup, manifest, target):
 def restored_database(c, queue, manifest, target):
     from jasmine_web.batch.backup import check_schema, require_idle, table_inventory
     from psycopg import sql
-    check_schema(c,queue); require_idle(c,queue)
+    check_schema(c,queue)
+    live=manifest['format']==LIVE_FORMAT
+    if not live: require_idle(c,queue)
     rows=c.execute(sql.SQL('SELECT location FROM {}').format(sql.Identifier(queue.schema,'prepared_locations'))).fetchall()
     mapping=[(new,old) for old,new in mappings(manifest,target)]
     inverse={row['location']:relocate(row['location'],mapping) for row in rows}
     result=table_inventory(c,queue,original_locations=inverse)
-    expected=deepcopy(manifest['database'])
-    expected['executor_bindings']=dict(rows=0,sha256=hashlib.sha256(b'').hexdigest())
+    if live:
+        from types import SimpleNamespace
+        expected=load_gate(target)['recovery_database']['batch']
+        vm={s:table_inventory(c,SimpleNamespace(schema=s)) for s in manifest['vm']}
+        if vm!=load_gate(target)['recovery_database']['vm']:
+            raise ArtifactError('Restored SingleRun database differs from its approved recovery conversion')
+    else:
+        expected=deepcopy(manifest['database'])
+        expected['executor_bindings']=dict(rows=0,sha256=hashlib.sha256(b'').hexdigest())
     if result!=expected:
         raise ArtifactError('Restored database differs from the backup beyond the approved path and executor relocation')
     return result
@@ -309,6 +331,7 @@ def load_gate(target):
     expected={'format','backup_sha256','database','phase','created_at'}
     if type(gate) is not dict:raise ArtifactError('Invalid inactive restore marker')
     if gate.get('phase')=='verified':expected.add('verified_at')
+    if 'recovery_database' in gate: expected.add('recovery_database')
     if (set(gate)!=expected or gate.get('format')!=GATE_FORMAT or
             gate.get('phase') not in ('copying-files','files-copied','verified') or
             any(not re.fullmatch('[a-f0-9]{64}',str(gate.get(k))) for k in ('backup_sha256','database'))):
@@ -378,8 +401,15 @@ def restore(queue, backup, target, tools, *, resume=False, after_database=None):
             # its commit, accept only the exact snapshot or its verified relocation.
             before=table_inventory(c,queue)
             if before==manifest['database']:
+                live=manifest['format']==LIVE_FORMAT
+                if live:
+                    from types import SimpleNamespace
+                    from .backup_live import recovery_inventory, recover_database
+                    if {s:table_inventory(c,SimpleNamespace(schema=s)) for s in manifest['vm']} != {s:v['database'] for s,v in manifest['vm'].items()}:
+                        raise ArtifactError('SingleRun database differs from the dumped recovery snapshot')
                 mapping=mappings(manifest,target)
                 with c.transaction():
+                    if live: recover_database(c,queue,manifest,target)
                     rows=c.execute(sql.SQL('SELECT dataset_id,location FROM {}').format(
                         sql.Identifier(queue.schema,'prepared_locations'))).fetchall()
                     for row in rows:
@@ -389,6 +419,12 @@ def restore(queue, backup, target, tools, *, resume=False, after_database=None):
                     # There is no active work or held capacity. The next worker
                     # binds this new host/root before serving or claiming jobs.
                     c.execute(sql.SQL('DELETE FROM {}').format(sql.Identifier(queue.schema,'executor_bindings')))
+                    if live:
+                        # Save the verification journal before the transaction
+                        # commits. On crash, either the exact dump remains or
+                        # this exact converted transaction has committed.
+                        gate['recovery_database']=recovery_inventory(c,queue,manifest,target)
+                        atomic_json(target/GATE,gate)
             restored_database(c,queue,manifest,target)
             ReleaseRegistry(target).inventory()
             gate['phase']='verified'; gate['verified_at']=utc(); atomic_json(target/GATE,gate)
@@ -396,11 +432,22 @@ def restore(queue, backup, target, tools, *, resume=False, after_database=None):
     return summary(manifest,'restore',inactive=True)
 
 
-def activate(queue, backup, target, *, image_check=installed_image):
+def activate(queue, backup, target, *, image_check=installed_image, source_isolated=False):
     from jasmine_web.batch.backup import frozen_database
     target=existing_directory(target); backup=existing_directory(backup)
     manifest=verify(backup)
-    with state_guard(target,exclusive=True), frozen_database(queue) as (c,_):
+    live=manifest['format']==LIVE_FORMAT
+    if live and not source_isolated:
+        raise ArtifactError('Confirm source isolation with --source-isolated before activating an online recovery point')
+    with ExitStack() as stack:
+        if live:
+            # If the old state still exists on this host, also check its service
+            # mutex. Isolation on a destroyed/different host remains an explicit
+            # operator decision; a flag cannot stop remote source containers.
+            source=Path(manifest['state_source'])
+            if source.exists(): stack.enter_context(state_guard(source,exclusive=True))
+        stack.enter_context(state_guard(target,exclusive=True))
+        c,_=stack.enter_context(frozen_database(queue,idle=not live))
         gate=load_gate(target)
         if (gate.get('format')!=GATE_FORMAT or gate.get('phase')!='verified' or
                 gate.get('backup_sha256')!=file_hash(backup,'manifest.json')['sha256'] or
@@ -417,7 +464,7 @@ def activate(queue, backup, target, *, image_check=installed_image):
 
 def summary(manifest, operation, **extra):
     files=[*manifest['state_tree']['files'].values(),*[f for p in manifest['prepared'] for f in p['tree']['files'].values()]]
-    return dict(format=FORMAT,operation=operation,passed=True,backup_id=manifest['id'],
+    return dict(format=manifest['format'],operation=operation,passed=True,backup_id=manifest['id'],
         files=len(files),file_bytes=sum(f['bytes'] for f in files),tables=len(manifest['database']),
         rows=sum(t['rows'] for t in manifest['database'].values()),**extra)
 
@@ -434,6 +481,9 @@ def main(argv=None):
     parser.add_argument('--schema')
     parser.add_argument('--client-container',help='Use native PostgreSQL clients inside the selected loopback database container')
     parser.add_argument('--resume',action='store_true',help='Resume only a matching inactive, interrupted restore')
+    parser.add_argument('--online',action='store_true',help='Create a recovery point while simulations continue')
+    parser.add_argument('--minimum-free-gib',type=int,default=1,help='Free-space reserve for online capture; use a separate backup filesystem')
+    parser.add_argument('--source-isolated',action='store_true',help='Operator confirms original services/models cannot execute after recovery')
     parser.add_argument('--json',action='store_true')
     args=parser.parse_args(argv)
     try:
@@ -468,10 +518,15 @@ def main(argv=None):
                         args.client_container='jasmine-multirun-local-'+hashlib.sha256(str(state).encode()).hexdigest()[:12]
             from jasmine_web.batch.store import Queue
             queue=Queue(dsn,pool,schema=schema)
-            if args.command=='activate': result=activate(queue,args.backup,state)
+            if args.command=='activate': result=activate(queue,args.backup,state,source_isolated=args.source_isolated)
             else:
                 tools=PostgresTools(dsn,container=args.client_container)
-                result=create(queue,state,args.backup,tools) if args.command=='create' else restore(
+                creator=create
+                if args.online:
+                    if args.command!='create': raise ArtifactError('--online is only a backup creation option')
+                    from .backup_live import create as creator
+                options=dict(minimum_free_gib=args.minimum_free_gib) if args.online else {}
+                result=creator(queue,state,args.backup,tools,**options) if args.command=='create' else restore(
                     queue,args.backup,state,tools,resume=args.resume)
         if args.json: print(json.dumps(result,sort_keys=True))
         else:

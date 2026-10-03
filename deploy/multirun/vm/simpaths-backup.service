@@ -1,0 +1,40 @@
+# (C) Copyright 2026, by Ross Richardson
+# Low-priority online capture, encryption and verified off-machine copying.
+# @author ross richardson
+[Unit]
+Description=SimPaths Online protected backup
+After=network-online.target docker.service
+Wants=network-online.target
+RequiresMountsFor=/srv/simpaths-online/private /srv/simpaths-backups
+
+[Service]
+Type=oneshot
+User=simpaths-online
+Group=simpaths-online
+SupplementaryGroups=docker
+WorkingDirectory=/opt/simpaths-online/SimPaths
+# SMTP is used only when backup alerts are explicitly enabled in backup.toml.
+EnvironmentFile=-/etc/simpaths-online/smtp.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/simpaths-online/venv/bin/python -m deploy.multirun.backup_schedule run --config /etc/simpaths-online/backup.toml
+UMask=0077
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=2h
+KillMode=control-group
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/srv/simpaths-online/private/multirun /srv/simpaths-backups
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+MemoryMax=512M
+TasksMax=128
+StandardOutput=journal
+StandardError=journal

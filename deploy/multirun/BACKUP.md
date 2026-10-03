@@ -1,6 +1,6 @@
 <!-- (C) Copyright 2026, by Ross Richardson
 
-Offline MultiRun backup, isolated restoration, activation and recovery validation.
+Offline/online shared-service recovery, encryption, scheduling and safe restoration.
 
 @author ross richardson
 -->
@@ -10,12 +10,22 @@ Offline MultiRun backup, isolated restoration, activation and recovery validatio
 `python -m deploy.multirun.backup` saves a matching PostgreSQL snapshot and private
 files. Restore uses a **new state directory and a separate empty database**. It
 verifies both and leaves the copy inactive until an explicit activation command.
-None of these commands starts simulations, sends email or runs expiry cleanup.
+Capture/verify/restore/activate never starts simulations or sends email. The separate
+scheduled runner can send explicitly enabled operator alerts and retire its own old
+completed encrypted copies.
 
-This first implementation requires a maintenance window. It covers one MultiRun
-queue schema containing one resource pool. It does not back up standalone
-SingleRun session databases or interactive model containers/volumes. If SingleRun
-shares the pool, its interactive reservations must also be released first.
+Choose the appropriate mode:
+
+| Mode | Source during capture | Recovery coverage |
+| --- | --- | --- |
+| Default offline (`v1`) | Maintenance window; no active or unreleased work | Exact MultiRun state/files, with approved path relocation |
+| `create --online` (`v2`) | Simulations and ordinary PostgreSQL writers continue | Immutable MultiRun inputs/settled output, interrupted-attempt records, and shared SingleRun registries/saved exports |
+
+Both require one queue schema containing one resource pool. Online capture includes
+SingleRun schemas in the **same PostgreSQL database** durably bound to that pool.
+Independent SingleRun databases are outside this command's scope. Neither mode
+provides an in-memory Java/H2 checkpoint or resumes an interrupted scientific run
+from its last simulated year. Existing offline safety checks remain in place.
 
 ## What is saved
 
@@ -49,7 +59,7 @@ allow room for a complete second copy and the dump on the destination filesystem
 File inventories are bounded to 100,000 entries per tree and 64 MiB of metadata.
 Exceeding a bound or running out of space fails without publishing a backup.
 
-## Prepare a maintenance window
+## Prepare an offline maintenance window
 
 1. Prevent new submissions at the operational entry point and let current work
    finish. Include preparations, models, uploads, downloads, Visualiser processors
@@ -127,9 +137,194 @@ connections require native clients. Passwords are supplied through the existing
 private connection file/environment, not command arguments or printed reports.
 
 All commands accept `--json`, returning counts, operation and success/failure in
-`simpaths.multirun.backup.v1`. Exit status is 0 for success and 2 for failure.
+`simpaths.multirun.backup.v1` or `v2`. Exit status is 0 for success and 2 for failure.
 The manifest itself contains private paths and filenames; it is not a public
 operator-status report.
+
+## Capture while simulations continue
+
+Use the updated hosting code on every source launcher/worker. Online mode relies
+on its deletion/control fences; an older launcher or an unrelated operator process
+writing/deleting private files cannot participate in this protocol safely.
+
+```bash
+python -m deploy.multirun.backup create --online \
+  --config /etc/simpaths-online/multirun.toml \
+  --backup /protected-backup-parent/online-YYYYMMDD-HHMMSS \
+  --minimum-free-gib 1 --json
+```
+
+For the laptop, use the frontend/state/pool/schema options from the earlier example
+instead of `--config`, adding `--online`. Keep the source launcher and PostgreSQL
+running. Capture retains immutable files against deletion, locks release updates,
+and exports a repeatable-read database snapshot. Native `pg_dump --snapshot` uses
+that exact snapshot. Ordinary queue transactions, uploads/new publication, model
+execution, chart/status reads and existing downloads continue. Housekeeping defers
+physical deletion; an explicit deletion request receives a retryable conflict.
+
+Shared SingleRun capture temporarily fences Java mutations and container removal
+with a separate nonblocking PostgreSQL advisory lock. Start/Pause/Reset/uploads
+should be retried after capture; the running engine is not paused. Its status/chart
+reads and activity updates continue. Capture checks the reviewed VM schema,
+deployment/session/model labels, private network and immutable runtime image before
+reading a container. A busy fence or unavailable/changed retained source fails
+without publishing a partial recovery point.
+
+Online copies include snapshot-ready uploads, verified prepared datasets, finished
+attempt receipts, retained CSVs and each run's `input/options.txt`. Large repeated
+run-input copies, unconfirmed/active workspaces, receiving uploads and caches are
+excluded. An output whose deletion was requested before the snapshot stays
+unavailable after restoration; restoration does not resurrect it.
+
+Shared SingleRun copies include the full registry/security tables, current settings,
+original text/workbook inputs with private source mappings, immutable image IDs,
+and permitted saved output ZIPs. The newest export is excluded when the engine is
+running. Paused exports are preserved as saved files and may be scientifically
+partial; the backup does not label them completed. Closed export trees and original
+inputs are checked for changes before/after streaming. A live input H2 database is
+excluded; an already closed saved export can contain its original input copy.
+The source API's detailed-output denial remains recorded in the recovery copy.
+
+Use a **separate backup filesystem** so copying cannot consume the live model's
+reserved working space or fill Docker/PostgreSQL storage. Reserve room for the
+verified plaintext snapshot, encrypted copy and SFTP readback copy. Per-file space
+checks retain `minimum_free_gib` (default 1 GiB); this is a safety floor, not a disk
+quota or a shared reservation. Size it and the backup volume from measured peaks.
+Capture is bounded by file/metadata limits; a long exported snapshot can delay
+PostgreSQL vacuum reclamation. Test responsiveness and capture duration with the
+chosen staging volume and representative data before enabling the timer.
+
+### Restoring an online recovery point
+
+Use the same isolated-target commands below. Online restoration additionally:
+
+- Settles only snapshot-interrupted attempts as recovery interruptions. Cancellation,
+  recorded revocation/time limits, retry opt-out, attempt caps and cumulative budgets
+  keep their existing meanings. Eligible transient interruptions retry normally;
+  other outcomes require review. Partial scientific output is never published.
+- Charges execution only through the snapshot time, preserves attempts already
+  spent, retry credits, frozen seeds/settings and existing retry delay, and releases
+  only the isolated target's obsolete model/processor/interactive reservations.
+  Time spent offline or awaiting operator activation is not execution time.
+- Marks snapshot-receiving uploads failed in the target; source uploads are untouched.
+- Converts shared SingleRun sessions into private saved-export records, without
+  live endpoints/credentials or a container reservation. The restored deployment
+  gets a distinct executor identity so it cannot adopt/remove source containers.
+  Existing ownership cookies remain usable when the original configured signing
+  secret is retained; current model authorisation is checked on every download.
+- Provides the original `/sim/<session-id>` page with saved exports/settings and a
+  link to launch a fresh session. Saved recovery files expire 30 days after capture;
+  later backups/restores preserve that deadline. Cleanup removes only these private
+  recovered files/records, with no source-container removal. An old backup may
+  already have expired saved exports when restored. A download accepted before
+  expiry retains the verified file until its transfer ends; later requests fail.
+
+Activation of `v2` requires **`--source-isolated`**, confirming that the original
+services and models cannot execute concurrently with the target. It also checks
+the original state's maintenance lock when that directory still exists locally.
+The flag cannot stop another host: isolate it operationally first. Restore gates
+also prevent a separate shared SingleRun launcher starting against an unfinished
+target. No source session signing secret, cookie policy or launcher secret-generation
+design changes are introduced. Retain SingleRun's configured signing secret/catalogue
+separately with the other deployment artifacts.
+
+## Scheduled encryption and protected off-machine copying
+
+The provider-independent runner is `python -m deploy.multirun.backup_schedule`.
+Templates in `vm/backup.toml.example`, `vm/simpaths-backup.service` and
+`vm/simpaths-backup.timer` are **not installed or enabled** by this work.
+
+1. On a separate trusted recovery machine, generate/protect an OpenPGP encryption
+   key and test recovery. Retain its private key, passphrase and trusted fingerprint
+   outside the VM. Install only an exported public key on the VM. Pin the complete
+   primary-key fingerprint in a mode-0600 operator configuration. GnuPG uses an
+   isolated temporary public keyring, explicit options and no automatic key discovery.
+2. Install a reviewed private TOML from the example. Config/SSH private-key/host-pin
+   files must be service-owned and private, without links. A public key may be
+   root/service-owned and read-only to other accounts. Config parents may be
+   root-managed; backup storage itself is service-owned 0700.
+3. Select a separate protected backup host later. The optional `[remote]` section
+   uses pinned-host OpenSSH SFTP with explicit identity, no agent/forwarding and
+   strict host-key checking. Verify the host key independently before installing
+   the private `known_hosts` file. The destination must support SFTP hard links.
+   Remove `[remote]` until configured; local encryption alone is not off-machine
+   disaster protection.
+4. Set operator alerts explicitly with `[alerts] enabled=true`, an operator-only
+   recipient and the reviewed SMTP environment. The default is disabled. Messages
+   contain an incident ID and stage, without user identities, raw data, paths,
+   logs, DSNs or attachments. Stable message IDs and durable pending notices support
+   retry; SMTP acknowledgement loss can still produce duplicate deliveries.
+5. Manually run and inspect the configured protection before installing/enabling
+   the reviewed systemd templates. The timer checks hourly, with jitter; capture
+   defaults to once per 24 hours. Retry eligibility defaults to 30 minutes and is
+   acted on at the next timer check. The service uses low CPU/I/O priority, a 512 MiB
+   memory ceiling and a two-hour process timeout, without changing model policies.
+
+```bash
+python -m deploy.multirun.backup_schedule run \
+  --config /etc/simpaths-online/backup.toml
+python -m deploy.multirun.backup_schedule status \
+  --config /etc/simpaths-online/backup.toml
+```
+
+The private durable journal separates capture, encryption and transfer. A failed
+transfer retries the **same verified encrypted snapshot**, without recapturing data
+or restarting simulations. Source identity includes the resolved VM settings and
+database endpoint, so editing a DSN/TOML at the same path cannot make an old pending
+snapshot count as protection for another source. Credential-only rotations do not
+change that identity. Finish pending work before changing the source or destination.
+The plaintext directory is erased only after a complete
+encrypted local file and checksum receipt exist. An interrupted encryption can be
+repeated from that verified plaintext. Abrupt interruption is recovered by the next
+runner; every stage remains unpublished/pending until its checks pass.
+
+Only ciphertext and its small receipt leave the VM. SFTP uploads under a partial
+name, reads the encrypted bytes back to verify SHA-256, then creates the final
+name atomically without replacing an existing completed file. Lost publication
+acknowledgements are resolved by checking identical remote bytes. This readback
+costs another transfer and temporary local copy. A conflicting/corrupt file fails
+protection; no overwrite fallback is used. Receipt delivery must finish too.
+
+`status` returns nonzero when there is no verified backup, protection is overdue,
+or backup work has failed. Include this in an independent host-monitoring check:
+email from this VM alone cannot alert if the VM, timer or configuration is broken.
+The runner retries failed mail and sends one incident-resolution notice when
+protection recovers. Status/terminal errors disclose only safe stages/IDs.
+
+Local retention defaults to 30 days and at least three completed encrypted copies.
+Only this runner's completed job directories are retired; pending work and the
+newest retained copies survive. These minimum-copy rules can retain a backup longer
+than 30 days during an outage. Define expiry/access/auditing on the separate host
+before deployment; this runner deliberately does not delete remote backups. A
+successful SSH transfer proves byte recovery, not protection from a compromised
+VM credential: configure a restricted backup account and independent retention or
+immutable snapshots on the storage host. Ciphertext checksums are not signatures;
+retain trusted receipts outside the VM and restore only trusted operator backups.
+
+### Recover an encrypted bundle off-machine
+
+Use the trusted ciphertext checksum from the independently retained receipt and
+a private recovery keyring containing the decryption key:
+
+```bash
+python -m deploy.multirun.backup_schedule unseal \
+  --encrypted /private/recovery-BACKUP_ID.tar.gpg \
+  --expected-sha256 CIPHERTEXT_SHA256 \
+  --keyring /private/recovery-keyring \
+  --destination /private/new-verified-backup
+```
+
+Decryption streams into private staging, rejects links/traversal/special files,
+checks GnuPG integrity and the complete backup manifest, then publishes into a
+fresh name. Failure publishes no plaintext backup. Continue with verify/restore
+and activation as below, adding `--source-isolated` for an online recovery point.
+The private decryption key is never required on the source VM.
+
+The native snapshot mechanism follows PostgreSQL's
+[exported-snapshot documentation](https://www.postgresql.org/docs/17/functions-admin.html#FUNCTIONS-SNAPSHOT-SYNCHRONIZATION).
+Encryption and transfer use the installed
+[GnuPG CLI](https://www.gnupg.org/documentation/manuals/gnupg26/gpg.1.html) and
+[OpenSSH SFTP](https://man.openbsd.net/sftp.1); no custom cryptography is introduced.
 
 ## Restore into an isolated target
 
@@ -174,7 +369,8 @@ It copies files, uses single-transaction native `pg_restore`, verifies every tab
 row and file, and writes an inactive `restore-pending.json` marker. Launchers and
 release changes refuse that marked directory.
 
-Only these relocation changes are allowed:
+For offline backups, only these relocation changes are allowed (online recovery
+also performs the interruption conversion described above):
 
 - Registered prepared locations move to the new state or to its private
   `.restored-inputs-<backup-id>/` directories; the imported-training path list follows.
@@ -182,7 +378,7 @@ Only these relocation changes are allowed:
   host/root before any dispatch. Original attempts/history remain unchanged.
 
 Frozen specifications, fingerprints, seeds, budgets, owners, approvals, outboxes
-and retention deadlines are preserved. Restore does not give files new retention
+and retention deadlines are preserved. Restore does not renew MultiRun retention
 periods or add execution attempts. Existing secrets are copied without changing
 the authentication/cookie design.
 
@@ -233,23 +429,26 @@ versions and Visualiser access. Enable delivery/expiry only after recovery revie
 
 Backups contain raw/private data, email identities, diagnostic files and the
 session secret. Store them outside source checkouts and web/static directories,
-with restricted access and encryption on separate storage. This command supplies
-private copies and checksums, not encryption or a backup scheduler. Hashes detect
+with restricted access and encryption on separate storage. Use the scheduled
+encryption/transfer commands above for routine protected copies. Hashes detect
 damage, not authenticity: restore only trusted operator backups. Define off-machine
-copying, access auditing and backup expiry, including how deleted data ages out.
+access auditing and backup expiry, including how deleted data ages out.
 
 The focused automated proof uses disposable PostgreSQL, native dump/restore and
-fictional files. It checks write/maintenance exclusion, exact data/file recovery,
+fictional files. It checks offline write/maintenance exclusion, online concurrent
+writes, exact data/file recovery,
 external-input relocation, interrupted restoration, image checks, existing-target
 refusal, queued-job recovery and owner/provider download permissions. It sends no
-real mail and runs no scientific simulations:
+real mail, contacts no backup host and runs no scientific simulations. Native
+encryption checks use a newly generated disposable GnuPG key, never a user keyring:
 
 ```bash
 cd ~/git/JAS-mine/JAS-mine-web
 ~/simpaths-browser-tests/venv/bin/python scripts/test_batch_queue.py \
   --test-pattern test_backup.py \
   --proof-script "$HOME/git/SimPathsWeb/SimPaths/deploy/multirun/backup_proof.py" \
-  --proof-requirements "$HOME/git/SimPathsWeb/SimPaths/deploy/multirun/requirements.txt"
+  --proof-requirements "$HOME/git/SimPathsWeb/SimPaths/deploy/multirun/requirements.txt" \
+    requirements-vm.txt
 ```
 
 All 55 focused checks passed across `postgres-queue-20261003-155508` (eight generic
@@ -261,3 +460,13 @@ operator and configuration checks. These are fictional-data recovery checks,
 not a production VM recovery exercise. Repeat restoration on the chosen staging
 VM with its actual storage, role privileges, deployment artifacts and isolation
 before accepting production recovery.
+
+Expansion validation: all **122 checks passed** in
+`postgres-queue-20261003-191224`: ten generic database cases and 112 hosting/shared
+SingleRun/encryption/HTTP cases, without failures, errors or skips. The disposable
+database was removed. Thirty local file/capture/scheduler/transfer cases also
+passed; the eight scheduler cases passed again after adding resolved-source and
+credential-rotation coverage. Transfer protocol
+faults use an isolated SFTP fake; the selected backup host, its key pin, account,
+atomic publication, independent retention and monitoring still require staging
+acceptance. No timer, backup host or real alert delivery has been enabled.

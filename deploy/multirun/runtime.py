@@ -46,6 +46,7 @@ def maintenance_guard(operation):
 
 @maintenance_guard
 def create_registry(args,q,state,send_mail,*,capacity=Resources(2000,5120,12288),per_user_active=1):
+    q.backup_state=state
     q.create_pool(capacity,holdback=getattr(args,'holdback',None),policy=Policy(per_user_active=per_user_active,
         per_user_unfinished=args.max_unfinished_jobs,pool_unfinished=args.pool_unfinished_jobs),
         update_admission_limits=True)
@@ -97,6 +98,7 @@ def create_registry(args,q,state,send_mail,*,capacity=Resources(2000,5120,12288)
 @maintenance_guard
 def create_application(args,q,state,access,datasets,preparations,keys,image,origin,*,
                        local_codes=False,terminate_on_dispatch_failure=False):
+    q.backup_state=state
     releases=frozen_release(state,image)
     default=next(iter(releases))
     print('Default model release: '+releases[default].get('name',default)+

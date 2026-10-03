@@ -388,6 +388,16 @@ prepared inputs. It never copies live PGDATA. Download/Visualiser caches are
 regenerable and omitted; deployment configuration, Visualiser builds and required
 Docker images must be retained separately.
 
+For routine capture while models continue, `create --online` adds matching
+immutable files and a repeatable-read SQL snapshot, including shared SingleRun
+registries and saved exports in the same database. Active output workspaces and
+in-memory models are excluded. Recovery settles interrupted attempts under their
+original retry budgets and gates saved SingleRun ownership before activation.
+The separate scheduled runner/templates supply public-key encryption, pinned
+off-machine copying, retries, local retention and opt-in operator alerts. They
+are not enabled automatically. Provision a separate backup volume, keep the
+decryption key off the VM, and configure independent monitoring and remote expiry.
+
 Restore uses a new private directory and separate empty database. It verifies
 every table row and file, relocates registered input paths explicitly and stays
 inactive until verified activation with all required images installed. A matching
@@ -395,8 +405,8 @@ interrupted restore can resume. Stop/isolate the original service and containers
 before activation; an old backup cannot undo later external work or sent emails.
 Do not dispatch copied queued jobs or send copied outbox messages during an
 isolated restore exercise. Configure delivery and automatic expiry off initially.
-This command covers MultiRun's one-pool schema/private files; standalone SingleRun
-state and interactive container volumes need their own backup procedure.
+Online capture covers the shared SingleRun registry and closed saved exports;
+independent SingleRun databases and model in-memory checkpoints remain separate.
 
 Routine application updates preserve state/database/secrets and drain or adopt
 existing work. Keep the previous tested code and build for rollback. Database
@@ -436,3 +446,10 @@ interrupted recovery, exact row/file verification, existing sign-in and
 owner/provider output permissions passed with fictional data and no real mail.
 Temporary resources were cleaned up. See [BACKUP.md](BACKUP.md) for scope and
 the additional staging-host recovery checks.
+
+The expanded online proof passed all 122 cases in
+`postgres-queue-20261003-191224`, with no failures, errors or skips and confirmed
+disposable-database cleanup. It includes concurrent PostgreSQL writes, interrupted
+attempt recovery, shared SingleRun saved exports/permissions, native GnuPG
+round trips and scheduler/transfer fault recovery. These fictional-data checks do
+not replace a recovery exercise or real SFTP/SMTP checks on the chosen host.

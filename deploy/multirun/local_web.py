@@ -56,6 +56,11 @@ def frozen_release(state, image):
 
 
 def retire_finished(queue, executor):
+    from jasmine_web.batch.backup_guard import defer_cleanup
+    return defer_cleanup(_retire_finished)(queue,executor)
+
+
+def _retire_finished(queue, executor):
     """Release finished container/input copies, retain scientific outputs and logs.
 
     Finished database state and confirmed container removal are prerequisites.

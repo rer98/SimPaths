@@ -796,6 +796,14 @@ verified activation. When starting an activated restored copy, supply both its
 without changing the usual local database startup or authentication secrets.
 See [the recovery runbook](BACKUP.md) for commands and interruption recovery.
 
+Use `create --online` for matching recovery points while submitted models continue.
+The online mode retains immutable inputs and finished output, excludes changing
+workspaces, and restores interrupted attempts under their original retry rules.
+Shared SingleRun registries/saved exports in the same database are included;
+independent SingleRun databases are not. Activation requires explicit source
+isolation. Scheduling/encrypted off-machine copies are optional operator commands,
+not actions taken by the laptop launcher. The offline mode above is still available.
+
 ## Acceptance
 
 From JAS-mine-web, using a Python with the installed Playwright browser:

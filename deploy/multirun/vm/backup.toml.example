@@ -1,0 +1,32 @@
+# (C) Copyright 2026, by Ross Richardson
+# Explicit scheduled online backup, encryption and pinned off-machine destination.
+# @author ross richardson
+# Install a reviewed private copy (0600); this example enables no timer or mail.
+[source]
+config = "/etc/simpaths-online/multirun.toml"
+# client_container = "the-actual-loopback-postgres-container"
+
+[backup]
+directory = "/srv/simpaths-backups"
+public_key = "/etc/simpaths-online/backup-recipient.asc"
+recipient = "REPLACE_WITH_THE_FULL_PUBLIC_KEY_FINGERPRINT"
+interval_hours = 24
+retry_minutes = 30
+keep_days = 30
+keep_latest = 3
+minimum_free_gib = 1
+
+# Optional. Remove this section until a separate protected backup host is chosen.
+# The host key must be verified independently before installing known_hosts.
+# Its SFTP service must support atomic hard-link publication.
+[remote]
+host = "backup-host.example.invalid"
+user = "simpaths-backup"
+port = 22
+directory = "/backups/simpaths-online"
+identity = "/etc/simpaths-online/backup-ssh-key"
+known_hosts = "/etc/simpaths-online/backup-known-hosts"
+
+[alerts]
+enabled = false
+# recipient = "operator@example.invalid"

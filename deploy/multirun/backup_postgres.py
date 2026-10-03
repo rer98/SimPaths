@@ -73,10 +73,11 @@ class PostgresTools:
         return server
 
     def dump(self, path, *, schema, snapshot):
+        schemas=[schema] if isinstance(schema,str) else list(schema)
         with Path(path).open('xb') as stream:
             os.chmod(path,0o600)
             self.run('pg_dump',['--format=custom','--compress=6','--no-owner','--no-privileges',
-                '--strict-names','--schema='+schema,'--snapshot='+snapshot],destination=stream)
+                '--strict-names',*['--schema='+s for s in schemas],'--snapshot='+snapshot],destination=stream)
             stream.flush(); os.fsync(stream.fileno())
 
     def restore(self, path):

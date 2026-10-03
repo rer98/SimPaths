@@ -5,6 +5,8 @@ Rejects links and special files; publication never replaces an existing director
 @author ross richardson
 """
 import ctypes
+from contextlib import contextmanager
+from contextvars import ContextVar
 import hashlib
 import json
 import os
@@ -18,6 +20,20 @@ from .releases import existing_directory
 MAX_ENTRIES = 100000
 MAX_METADATA = 64*1024**2
 RESERVE = 64*1024**2
+_reserve = ContextVar('backup_free_space_reserve',default=RESERVE)
+
+
+@contextmanager
+def reserve_space(amount):
+    if type(amount) is not int or amount<RESERVE:
+        raise ArtifactError('Invalid backup free-space reserve')
+    token=_reserve.set(amount)
+    try: yield
+    finally: _reserve.reset(token)
+
+
+def has_space(path, size=0):
+    return shutil.disk_usage(path).free>=size+_reserve.get()
 
 
 def name(value):
@@ -84,7 +100,7 @@ def file_hash(root, key, *, destination=None, expected_identity=None):
             while block := source.read(1024**2):
                 digest.update(block)
                 if output:
-                    if shutil.disk_usage(destination.parent).free<len(block)+RESERVE:
+                    if not has_space(destination.parent,len(block)):
                         raise ArtifactError('Insufficient free space for the backup or restore')
                     output.write(block)
             if identity(os.fstat(source.fileno()))!=identity(before):
@@ -111,6 +127,36 @@ def copy_tree(source, destination, *, exclude=()):
         raise ArtifactError('Source files changed during backup')
     sync_tree(destination)
     return dict(directories=sorted(directories),files=files), before
+
+
+def copy_selected(source, destination, keys):
+    """Copy a frozen list of immutable files, allowing unrelated new publication.
+
+    Caller retains those files against deletion. A changed selected inode still
+    fails, including a change after its copy; unselected workspaces are not read.
+    """
+    source = existing_directory(source)
+    keys = sorted(set(keys))
+    directories = set()
+    before = {}
+    for key in keys:
+        parts = name(key).parts
+        for i in range(1, len(parts)):
+            directories.add('/'.join(parts[:i]))
+        with open_file(source, key) as stream:
+            before[key] = identity(os.fstat(stream.fileno()))
+    if len(keys) + len(directories) > MAX_ENTRIES:
+        raise ArtifactError('Backup file inventory exceeds its entry limit')
+    destination.mkdir(mode=0o700)
+    for key in sorted(directories, key=lambda k: (k.count('/'), k)):
+        (destination/key).mkdir(mode=0o700)
+    files = {key:file_hash(source,key,destination=destination/key,expected_identity=before[key]) for key in keys}
+    for key in keys:
+        with open_file(source,key) as stream:
+            if identity(os.fstat(stream.fileno())) != before[key]:
+                raise ArtifactError('Selected source files changed during backup')
+    sync_tree(destination)
+    return dict(directories=sorted(directories),files=files)
 
 
 def check_tree(root, expected, *, exclude=()):

@@ -159,3 +159,20 @@ upgrades or creating lock files. The matching backup/restore commands reuse the
 verified release inventory and build a complete file/table manifest under
 maintenance locks. They do not parse terminal output or treat this bounded status
 report as a backup manifest.
+
+## Backup protection status
+
+The separate scheduled runner reports its private journal without user data:
+
+```bash
+python -m deploy.multirun.backup_schedule status \
+  --config /etc/simpaths-online/backup.toml
+```
+
+It shows the latest verified backup ID/checksum, its age, off-machine-copy status,
+pending capture/encrypt/copy stage and failure/alert state. Nonzero exit means no
+verified backup, overdue protection or failed work. Include it in independent
+host monitoring; the VM cannot email if it is down or its timer is disabled.
+Status does not capture, decrypt, send mail or delete files. Use
+[the recovery runbook](BACKUP.md) for schedules, key/host pins, retention and isolated
+restore/activation. No timer, host or alerts are enabled by this command.

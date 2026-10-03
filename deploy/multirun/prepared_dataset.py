@@ -93,12 +93,15 @@ def validate_selection(configuration, receipt):
     # compatibility during execution must preserve an already accepted seed plan.
 
 
-def allocation(receipt, *, population=None, repetitions=1):
-    from .resource_policy import DEFAULT_POLICY, simulation_resources
+def allocation(receipt, *, population=None, repetitions=1, resource_policy=None):
+    from .resource_policy import LEGACY_POLICY, check_policy, simulation_resources
     identity=receipt['identity']
-    policy=identity.get('release',{}).get('resource_policy',DEFAULT_POLICY)
-    resources=simulation_resources(policy,population=population or identity.get('population',20000),
-                                   repetitions=repetitions)
+    policy=check_policy(identity.get('release',{}).get('resource_policy',
+                                         LEGACY_POLICY if resource_policy is None else resource_policy))
+    from .queue_adapter import workspace_required_bytes
+    minimum=workspace_required_bytes(identity) if policy['simulation']['storage']['per_repetition_mib'] else 0
+    resources=simulation_resources(policy,population=identity.get('population',20000) if population is None else population,
+                                   repetitions=repetitions,minimum_setup_bytes=minimum)
     if identity['format'] not in (FORMAT, INPUT_FORMAT):
         resources['storage_mib']=6144  # Preserve the original small local proof.
     return resources

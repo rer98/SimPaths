@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 from .artifacts import ArtifactError, fingerprint, inventory, write_json
 from .local_web import frozen_release
-from .resource_policy import DEFAULT_POLICY, check_policy, simulation_resources
+from .resource_policy import DEFAULT_POLICY, LEGACY_POLICY, check_policy, simulation_resources, simulation_storage
 from . import releases
 from .releases import ReleaseRegistry
 
@@ -97,6 +97,7 @@ class ReleaseTests(unittest.TestCase):
         loaded=frozen_release(self.state,IMAGE_A)
         self.assertEqual(list(loaded),[key])
         self.assertEqual(loaded[key]['jar'],original/'model.jar')
+        self.assertEqual(loaded[key]['resource_policy'],LEGACY_POLICY)
         self.assertEqual((original/'release.json').read_bytes(),before)
         newer=self.register(make_default=True)
         self.assertIn(key,self.registry.load())
@@ -185,11 +186,38 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaises(ArtifactError): check_policy(policy)
         self.assertFalse(self.registry.catalogue.exists())
 
-    def test_initial_policy_preserves_current_allocations_and_defines_storage_formula(self):
-        self.assertEqual(simulation_resources(DEFAULT_POLICY,population=20000,repetitions=1000),
+    def test_legacy_policy_preserves_allocations_and_new_releases_scale_with_repetitions(self):
+        self.assertEqual(simulation_resources(LEGACY_POLICY,population=20000,repetitions=1000),
                          dict(cpu_millis=2000,memory_mib=4096,storage_mib=10240))
+        for count,total in ((1,4608),(3,5632),(12,10240),(1000,516096)):
+            with self.subTest(count=count):
+                self.assertEqual(simulation_resources(DEFAULT_POLICY,population=20000,repetitions=count),
+                    dict(cpu_millis=2000,memory_mib=4096,storage_mib=total))
         self.assertEqual(simulation_resources(DEFAULT_POLICY,population=50000,repetitions=1)['memory_mib'],5120)
         policy=deepcopy(DEFAULT_POLICY); policy['simulation']['storage']['per_repetition_mib']=100
-        self.assertEqual(simulation_resources(policy,population=20000,repetitions=3)['storage_mib'],10540)
+        self.assertEqual(simulation_resources(policy,population=20000,repetitions=3)['storage_mib'],4396)
         policy['simulation']['storage']['per_repetition_mib']=2**31-1
         with self.assertRaises(ArtifactError): simulation_resources(policy,population=20000,repetitions=2)
+
+    def test_input_copy_floor_rounds_up_without_multiplying_inputs_per_repetition(self):
+        minimum=6*1024**3+1
+        first=simulation_storage(DEFAULT_POLICY,repetitions=1,minimum_setup_bytes=minimum)
+        many=simulation_storage(DEFAULT_POLICY,repetitions=1000,minimum_setup_bytes=minimum)
+        self.assertEqual(first['setup_mib'],6145)
+        self.assertEqual(first['configured_setup_mib'],4096)
+        self.assertEqual(first['storage_mib'],6657)
+        self.assertEqual(many['setup_mib'],first['setup_mib'])
+        self.assertEqual(many['storage_mib']-first['storage_mib'],999*512)
+        self.assertEqual(DEFAULT_POLICY['simulation']['storage']['setup_mib'],4096)
+
+    def test_invalid_counts_sizes_and_storage_policies_are_rejected(self):
+        for count in (0,1001,True,3.0):
+            with self.subTest(count=count),self.assertRaises(ArtifactError):
+                simulation_storage(DEFAULT_POLICY,repetitions=count)
+        for size in (-1,True,1.5,2**31*1024**2):
+            with self.subTest(size=size),self.assertRaises(ArtifactError):
+                simulation_storage(DEFAULT_POLICY,repetitions=1,minimum_setup_bytes=size)
+        for setup,per in ((4095,512),(4096,-1),(4096,True)):
+            policy=deepcopy(DEFAULT_POLICY)
+            policy['simulation']['storage']=dict(setup_mib=setup,per_repetition_mib=per)
+            with self.assertRaises(ArtifactError): check_policy(policy)

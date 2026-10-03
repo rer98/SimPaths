@@ -88,6 +88,11 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
     default=next(iter(releases))
     print('Default model release: '+releases[default].get('name',default)+
           f' ({default}); {len(releases)} retained version(s)',flush=True)
+    storage=releases[default]['resource_policy']['simulation']['storage']
+    print(f"Default working storage: {storage['setup_mib']/1024:g} GiB fixed + "
+          f"{storage['per_repetition_mib']} MiB per repetition"+
+          ('; larger input copies can raise the fixed term' if storage['per_repetition_mib'] else '; retained fixed policy'),
+          flush=True)
     adapter=DispatchAdapter(PreparationAdapter(datasets,releases,state/'artifacts'))
     execution=private_directory(state/'execution')
     with q._connection() as c:

@@ -142,7 +142,7 @@ class SubmissionAdapterTests(unittest.TestCase):
         key,plan=self.versioned_plan(policy)
         config=self.pending_config(); config['model_release']=key
         original=self.model.experiment(self.pending(),dict(configuration=config))
-        self.assertEqual(original['resources'].storage_mib,11264)
+        self.assertEqual(original['resources'].storage_mib,12800)
         # In-memory operator settings cannot rewrite the signed selection or
         # its prepared receipt when a pending dataset becomes ready.
         self.releases['approved']['resource_policy']=deepcopy(DEFAULT_POLICY)
@@ -154,6 +154,26 @@ class SubmissionAdapterTests(unittest.TestCase):
         _,resources=self.model.bind_run(ready,original['run_sets'][0],original['seed_plan'])
         self.assertEqual(resources,original['resources'])
         self.assertEqual(receipt['identity']['release']['resource_policy'],policy)
+
+    def test_pending_storage_review_is_provisional_and_large_ready_inputs_raise_only_fixed_term(self):
+        key,_=self.versioned_plan()
+        config=self.pending_config(); config['model_release']=key
+        pending=self.model.experiment(self.pending(),dict(configuration=config))
+        self.assertTrue(all(item['provisional'] for item in pending['storage']))
+        self.assertEqual(pending['resources'].storage_mib,5632)
+        self.result(); self.adapter.validate(self.lease,self.work)
+        target=self.adapter.artifacts/self.lease.execution_key; receipt=read_prepared(target)
+        ready=dict(dataset_id='pending-owned',location=str(target),model_digest=self.image,
+                   prepared_fingerprint=receipt['sha256'])
+        # Metadata-only resource estimation; scientific file verification still
+        # checks the fixture's actual bytes before bind_run accepts the dataset.
+        with patch('deploy.multirun.queue_adapter.workspace_required_bytes',return_value=6*1024**3+1):
+            bound,resources=self.model.bind_run(ready,pending['run_sets'][0],pending['seed_plan'])
+            reviewed=self.model.experiment(ready,dict(configuration=config))
+        self.assertEqual(resources.storage_mib,7681)
+        self.assertEqual(reviewed['resources'].storage_mib,7681)
+        self.assertEqual(bound['parameters'],pending['run_sets'][0]['parameters'])
+        self.assertTrue(all(item['setup_mib']==6145 and not item['provisional'] for item in reviewed['storage']))
 
     def test_preparation_enforces_its_frozen_policy_not_only_old_hardcoded_minima(self):
         from .resource_policy import DEFAULT_POLICY

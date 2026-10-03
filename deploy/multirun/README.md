@@ -20,7 +20,7 @@ code and existing SingleRun configurations are unchanged.
 
 [RELEASES.md](RELEASES.md) describes immutable model/default/adapter bundles,
 operator default selection, preservation of accepted jobs and the versioned
-resource-policy interface for future storage calibration.
+resource policies, repetition-scaled working storage and full-length measurement.
 
 ## Review the example
 
@@ -402,8 +402,12 @@ MultiRun seed does not resample the starting population. Reuse is not evidence o
 scientific equivalence to rebuilding a population or a fix for the reported RNG issue.
 
 For initial validation, the 20,000-person profile uses a 2 GiB heap/4 GiB container;
-50,000 uses a 3 GiB heap/5 GiB container. Both have two CPUs and a 10 GiB scratch
-allowance. These allocations need measurement for longer research workloads.
+50,000 uses a 3 GiB heap/5 GiB container. Both have two CPUs. Historical standalone
+proofs retain their fixed 10 GiB scratch allowance; newly registered service releases
+default to 4 GiB plus 512 MiB per repetition, with a larger fixed term for larger
+input copies. See [RELEASES.md](RELEASES.md#resource-policy-interface) for frozen
+policies, submission review and the full-length storage proof. These initial
+allocations need measurement for representative research workloads.
 Allow disk space for the retained dataset, a private copy, the native input snapshot
 and outputs. Import/proof commands neither prune existing images nor delete retained
 datasets. Store production datasets in managed persistent storage with quotas;

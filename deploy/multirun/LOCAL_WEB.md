@@ -495,9 +495,32 @@ restricts new submissions; accepted jobs keep their frozen seed plans through
 preparation, execution and recovery. Repetitions within a configuration remain
 sequential. The attempt allowance and cumulative execution budget scale with
 the number of repetitions requested, using the runtime settings below. Increasing
-the permitted count does not raise concurrency or memory/storage allowances.
+the permitted count does not raise concurrency, RAM or pool capacity. New-release
+working storage scales with the requested count as described below; existing
+fixed-policy datasets/jobs retain their recorded allowances.
 Choose production settings after measuring representative workloads. This option
 requires no image rebuild.
+
+### Configure configuration working-storage allowances
+
+Newly registered releases default to **4 GiB fixed + 512 MiB per repetition**,
+with a larger fixed term when the selected input dataset's working copies need it.
+Three repetitions normally reserve 5.5 GiB; twelve reserve 10 GiB. The review page
+shows the calculated per-attempt allowance and flags pending inputs as provisional
+until their prepared database size is known. A configuration exceeding the service's
+configured pool capacity fails review; fitting jobs wait while capacity is busy.
+
+Storage settings belong to the immutable release's resource policy. Restarting
+an existing service keeps its retained policies, including historical fixed 10 GiB
+allocations. Register/select a compatible new release to opt new inputs into scaling;
+policy-only changes require no image rebuild. See [RELEASES.md](RELEASES.md#resource-policy-interface)
+for policy JSON, old-job protection, pending-size adjustments and the full 50,000-person
+2019–2026 measurement command. Retained datasets/results and download caches need
+their own space. Working reservations/monitoring do not enforce hard disk quotas.
+
+The large native input snapshot is made only on the first repetition. Successful
+cleanup removes it and the private working input copy after confirmed container
+removal, keeping CSVs, logs and **each repetition's `options.txt`**.
 
 ### Configure configuration runtime allowances
 

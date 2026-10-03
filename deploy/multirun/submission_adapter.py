@@ -20,7 +20,7 @@ from .prepared_dataset import INPUT_FORMAT, allocation, check_input_receipt, ver
 from .queue_adapter import read_prepared
 from .schema import (DEFAULT_MAX_CONFIGURATIONS, DEFAULT_MAX_REPETITIONS, Limits,
                      deployment_configuration_limit, deployment_repetition_limit)
-from .resource_policy import DEFAULT_POLICY, check_policy, simulation_resources
+from .resource_policy import LEGACY_POLICY, check_policy, simulation_resources, simulation_storage
 
 
 class SubmissionModel:
@@ -47,7 +47,7 @@ class SubmissionModel:
         identity = dict(release=release, image=image, model=fingerprint(configured['jar']),
                         defaults={k:fingerprint(p) for k,p in sorted(defaults.items())},
                         helper=fingerprint(helper))
-        policy = check_policy(configured.get('resource_policy', DEFAULT_POLICY))
+        policy = check_policy(configured.get('resource_policy', LEGACY_POLICY))
         if 'runner' in configured:
             identity.update(contract=configured['contract'],resource_policy=policy,
                             runner=fingerprint(configured['runner']))
@@ -76,7 +76,7 @@ class SubmissionModel:
         selected = self.releases.get(config.as_dict()['model_release'])
         if selected is None or fingerprint(selected['jar'])['sha256'] != self.model_identity(resolved):
             raise ArtifactError('Select inputs prepared for the configuration’s model version')
-        runs, budgets = [], []
+        runs, budgets, storage = [], [], []
         for item in config.as_dict()['run_sets']:
             single = config.run_configuration(item['id'])
             chosen = choices[single['dataset_revision']]
@@ -84,10 +84,29 @@ class SubmissionModel:
             runs.append(dict(run, execution=dict(dataset_id=chosen['dataset_id'],
                 model_digest=chosen['model_digest'], resources=resources.__dict__)))
             budgets.append(resources.__dict__)
+            storage.append(dict(configuration=item['id'],**self.storage_review(chosen,single,resources)))
         return dict(label=config.as_dict()['experiment']['name'], dataset_id=resolved['dataset_id'],
             model_digest=resolved['model_digest'], seed_plan=config.as_dict()['seed_plan']['seeds'],
             run_sets=runs, baseline=request.get('baseline'), auto_retry=request.get('auto_retry', True),
-            resources=Resources(**budgets[0]))
+            resources=Resources(**budgets[0]),storage=storage)
+
+    def storage_review(self,resolved,data,resources):
+        """Count-only working allowance; never return paths or scientific rows."""
+        pending=resolved.get('state')=='pending'
+        if pending:
+            policy=resolved['definition']['model']['release'].get('resource_policy',LEGACY_POLICY)
+            minimum=0
+        else:
+            receipt=read_prepared(resolved['location'])
+            selected=self.releases.get(data['model_release'],{})
+            policy=receipt['identity'].get('release',{}).get('resource_policy',
+                selected.get('resource_policy',LEGACY_POLICY))
+            from .queue_adapter import workspace_required_bytes
+            minimum=workspace_required_bytes(receipt['identity']) if policy['simulation']['storage']['per_repetition_mib'] else 0
+        details=simulation_storage(policy,repetitions=data['seed_plan']['repetitions'],minimum_setup_bytes=minimum)
+        # Small standalone proof receipts keep their original separate quota.
+        details['storage_mib']=resources.storage_mib
+        return dict(details,provisional=pending and bool(details['per_repetition_mib']))
 
     def model_identity(self, resolved):
         if resolved.get('state')=='pending':
@@ -110,7 +129,7 @@ class SubmissionModel:
                     or common['population']>50000):
                 raise ArtifactError('Configuration must match the selected inputs and supported population/years')
             release=resolved['definition']['model']['release']
-            resources=simulation_resources(release.get('resource_policy',DEFAULT_POLICY),
+            resources=simulation_resources(release.get('resource_policy',LEGACY_POLICY),
                 population=common['population'],repetitions=len(seeds))
             result=dict(id=run['id'],parameters=config.editable_configuration())
         else:
@@ -120,7 +139,9 @@ class SubmissionModel:
             verify_snapshot(resolved['location'],receipt)
             args=container_submission(config.editable_configuration(),resolved['location'],resolved['model_digest'])
             result=args['run_sets'][0]
-            resources=allocation(receipt,population=data['common']['population'],repetitions=len(seeds))
+            selected=self.releases.get(data['model_release'],{})
+            resources=allocation(receipt,population=data['common']['population'],repetitions=len(seeds),
+                                 resource_policy=selected.get('resource_policy',LEGACY_POLICY))
         return result,Resources(**resources)
 
     def replace_run(self, previous, resolved, run, seeds):
@@ -173,7 +194,7 @@ class PreparationAdapter:
         params = self.parameters(lease)
         release = params['model']['release']
         configured = self.releases[release['release']]
-        minimum=check_policy(release.get('resource_policy',DEFAULT_POLICY))['preparation']
+        minimum=check_policy(release.get('resource_policy',LEGACY_POLICY))['preparation']
         if any(lease.resources[k] < v for k,v in minimum.items()):
             raise ArtifactError('Preparation allocation is too small')
         helper = configured.get('helper', Path(__file__).with_name('PrepareDataset.java'))
@@ -323,7 +344,10 @@ class DispatchAdapter:
                             (q.pool_id,lease.specification['dataset_id'])).fetchone()
         if row is None:
             raise ArtifactError('Prepared dataset is unavailable')
-        return SimPathsContainerAdapter(row['location'],row['model_digest'])
+        run=next(r for r in lease.specification['run_sets'] if r['id']==lease.configuration_id)
+        release=self.preparation.releases.get(run['parameters'].get('model_release'),{})
+        return SimPathsContainerAdapter(row['location'],row['model_digest'],
+                                       resource_policy=release.get('resource_policy'))
 
     def required_space(self, candidate):
         return self.adapter(candidate).required_space(candidate)

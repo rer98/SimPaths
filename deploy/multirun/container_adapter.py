@@ -24,7 +24,7 @@ class ContainerExecution:
 
 
 class SimPathsContainerAdapter(SimPathsLocalAdapter):
-    def __init__(self, prepared, image):
+    def __init__(self, prepared, image, *, resource_policy=None):
         super().__init__(prepared)
         if not re.fullmatch(r"sha256:[a-f0-9]{64}", image):
             raise ArtifactError("Resolve the approved runtime image ID before submission")
@@ -32,6 +32,9 @@ class SimPathsContainerAdapter(SimPathsLocalAdapter):
                 and self.receipt["identity"]["source_image"] != image):
             raise ArtifactError("Revalidate the prepared dataset before changing its runtime image")
         self.image = image
+        from .resource_policy import LEGACY_POLICY, check_policy
+        self.resource_policy=check_policy(self.receipt['identity'].get('release',{}).get('resource_policy',
+            LEGACY_POLICY if resource_policy is None else resource_policy))
 
     def _configuration(self, lease):
         if lease.specification["model_digest"] != self.image:
@@ -42,18 +45,22 @@ class SimPathsContainerAdapter(SimPathsLocalAdapter):
         return super()._configuration(SimpleNamespace(specification=local, configuration_id=lease.configuration_id))
 
     def required_space(self, candidate):
-        return workspace_required_bytes(self.receipt['identity'])
+        required=workspace_required_bytes(self.receipt['identity'])
+        if self.resource_policy['simulation']['storage']['per_repetition_mib']:
+            required=max(required,candidate.resources['storage_mib']*1024**2)
+        return required
 
     def container_command(self, lease, request):
         config = self._configuration(lease)
         minimum = allocation(self.receipt,population=config.as_dict()['common']['population'],
-                             repetitions=len(config.as_dict()['seed_plan']['seeds']))
+                             repetitions=len(config.as_dict()['seed_plan']['seeds']),
+                             resource_policy=self.resource_policy)
         if any(lease.resources[key] < value for key, value in minimum.items()):
             raise ArtifactError("Allocation is below the prepared example's CPU, RAM or storage requirement")
         if self.receipt["identity"]["format"] in (FORMAT, INPUT_FORMAT):
             verify_snapshot(self.prepared, self.receipt)
         try:
-            require_workspace_space(self.receipt["identity"], request)
+            require_workspace_space(self.receipt["identity"], request,minimum_bytes=self.required_space(lease))
         except WorkspaceSpaceError as error:
             # Use the same durable, count-only storage outcome as preparation.
             # Other validation failures must not be misclassified as low space.

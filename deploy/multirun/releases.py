@@ -16,7 +16,7 @@ import stat
 import tempfile
 
 from .artifacts import ArtifactError, digest, fingerprint, inventory, snapshot_files, write_attribution
-from .resource_policy import DEFAULT_POLICY, check_policy
+from .resource_policy import DEFAULT_POLICY, LEGACY_POLICY, check_policy
 from .schema import OUTPUT_CONTRACT, PROFILE_VERSION, SCHEMA_VERSION
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -122,7 +122,7 @@ class ReleaseRegistry:
             identity = info
             if key != 'local-'+info['model']['sha256'][:16]:
                 raise ArtifactError('Legacy release identity changed')
-            extra = dict(name='SimPaths UK — retained '+key, resource_policy=check_policy(DEFAULT_POLICY))
+            extra = dict(name='SimPaths UK — retained '+key, resource_policy=check_policy(LEGACY_POLICY))
         else:
             if (type(info) is not dict or set(info) != {'format', 'id', 'name', 'identity'}
                     or info['format'] != FORMAT or info['id'] != key):
@@ -287,7 +287,9 @@ def main(argv=None):
     else:
         releases = registry.load()
         for index, (key, entry) in enumerate(releases.items()):
-            print(('default ' if index == 0 else 'retained ')+key+' | '+entry['name']+' | '+entry['image'])
+            storage=entry['resource_policy']['simulation']['storage']
+            print(('default ' if index == 0 else 'retained ')+key+' | '+entry['name']+' | '+entry['image']+
+                  f" | working storage: {storage['setup_mib']/1024:g} GiB + {storage['per_repetition_mib']} MiB/repetition")
     return 0
 
 

@@ -31,6 +31,7 @@ from adapter_fixture import DummyAdapter
 from browser_fixture import BrowserModel
 from . import runtime
 from .local_web import parse_args
+from .resource_policy import LEGACY_POLICY
 
 DSN = os.environ.get('JASMINE_BATCH_TEST_DSN')
 
@@ -64,7 +65,8 @@ class VMRuntimeTests(unittest.TestCase):
             self.args, self.q, self.state, deliver)
         self.owner = self.access.approve_email('alice@example.org')
         self.image = 'sha256:'+'a'*64
-        self.release = {'approved': dict(image=self.image, jar=self.state/'test.jar', defaults=self.state)}
+        self.release = {'approved': dict(image=self.image, jar=self.state/'test.jar', defaults=self.state,
+                                        resource_policy=LEGACY_POLICY)}
         self.origin = 'https://multirun.example.org'
         self.patches = ExitStack(); self.addCleanup(self.patches.close)
         self.patches.enter_context(patch.object(runtime, 'frozen_release', return_value=self.release))

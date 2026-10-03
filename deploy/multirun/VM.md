@@ -192,10 +192,16 @@ and execution concurrency of an existing pool cannot silently change: mismatched
 settings fail startup. Choose them during isolated staging; later changes need a
 reviewed pool transition that preserves accepted jobs/history.
 
-Runtime scaling does not automatically scale the model profile's workspace storage
-bound. Measure the largest intended repetition/horizon workload before raising
-repetition/concurrency limits; an otherwise valid long run can still exceed its
-workspace allowance.
+Newly registered release policies scale working storage independently of runtime:
+**4 GiB fixed + 512 MiB per repetition**, raising the fixed term for larger input
+copies. Twelve repetitions normally need 10 GiB per active configuration, plus
+separate retained-data/cache budgets. Submission review checks the capacity after
+interactive holdback. Pending datasets have provisional allowances until their
+prepared size is known. Already registered fixed policies and accepted jobs are
+preserved. See [RELEASES.md](RELEASES.md#resource-policy-interface) for configuration
+and the full-length storage measurement command. Measure the largest intended
+repetition/horizon/collector workload before raising repetition/concurrency limits;
+these estimates and workspace monitoring do not replace physical disk quotas.
 
 Install the SMTP environment from `vm/smtp.env.example` as a root-readable **0600**
 file. Use STARTTLS and the real sending address/credentials; implicit TLS on port

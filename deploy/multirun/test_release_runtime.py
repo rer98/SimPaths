@@ -30,7 +30,7 @@ from .artifacts import fingerprint
 from .browser_model import BrowserModel
 from .queue_adapter import read_prepared
 from .releases import ReleaseRegistry
-from .resource_policy import DEFAULT_POLICY
+from .resource_policy import DEFAULT_POLICY, LEGACY_POLICY
 from .submission_adapter import PreparationAdapter
 
 ORIGIN='https://releases.example.org'
@@ -218,7 +218,7 @@ class ReleaseRuntimeTests(unittest.TestCase):
         self.upgrade(same_model=True)
         original=self.submit(reviewed)
         old_job=self.fixture.sql('SELECT * FROM jobs WHERE experiment_id=%s',(original,))[0]
-        self.assertEqual(old_job['resources']['storage_mib'],10240)
+        self.assertEqual(old_job['resources']['storage_mib'],5632)
         new_prep=self.submit(self.preparation_review(self.second)); new_data=self.pending_dataset(new_prep)
         # Finish the already accepted old run synthetically so preparation can
         # claim this owner's slot, without modifying its policy or history.
@@ -228,6 +228,89 @@ class ReleaseRuntimeTests(unittest.TestCase):
         self.assertEqual(response.status_code,200,response.text)
         newer=self.submit(response.json()['review'])
         new_job=self.fixture.sql('SELECT * FROM jobs WHERE experiment_id=%s',(newer,))[0]
-        self.assertEqual(new_job['resources']['storage_mib'],11264)
+        self.assertEqual(new_job['resources']['storage_mib'],12800)
         self.assertEqual(old_job['model_digest'],IMAGE_A)
         self.assertEqual(new_job['model_digest'],IMAGE_B)
+
+    def test_storage_review_and_signed_resources_remain_frozen_after_default_change(self):
+        prep=self.submit(self.preparation_review(self.first)); data=self.pending_dataset(prep)
+        pending=self.experiment_review(data,self.first)
+        self.assertEqual(pending.status_code,200,pending.text)
+        self.assertEqual(pending.json()['storage'][0]['storage_mib'],5632)
+        self.assertTrue(pending.json()['storage'][0]['provisional'])
+        self.publish(self.q.claim('prepare'))
+        reviewed=self.experiment_review(data,self.first)
+        self.assertEqual(reviewed.status_code,200,reviewed.text)
+        item=reviewed.json()['storage'][0]
+        self.assertEqual((item['setup_mib'],item['per_repetition_mib'],item['repetitions']),(4096,512,3))
+        self.assertFalse(item['provisional'])
+        self.assertNotIn(str(self.root),reviewed.text)
+        self.assertEqual(self.client.post('/api/review-experiment',json=dict(dataset=data,form=self.form(self.first)),
+            headers={'X-CSRF-Token':'bad'}).status_code,403)
+        self.upgrade(same_model=True)
+        exp=self.submit(reviewed.json()['review'])
+        job=self.fixture.sql('SELECT resources FROM jobs WHERE experiment_id=%s',(exp,))[0]
+        self.assertEqual(job['resources']['storage_mib'],item['storage_mib'])
+
+    def test_excessive_repetitions_fail_review_before_jobs_or_attempts_are_created(self):
+        prep=self.submit(self.preparation_review(self.first)); data=self.pending_dataset(prep)
+        self.service.model=BrowserModel(self.registry.load(),max_repetitions=1000)
+        form=self.form(self.first); form['repetitions']=1000
+        before=self.fixture.sql('SELECT count(*) AS n FROM jobs')[0]['n']
+        response=self.client.post('/api/review-experiment',json=dict(dataset=data,form=form))
+        self.assertEqual(response.status_code,400,response.text)
+        self.assertIn('504.00 GiB',response.json()['error'])
+        self.assertIn('Reduce the number of repetitions',response.json()['error'])
+        self.assertEqual(self.fixture.sql('SELECT count(*) AS n FROM jobs')[0]['n'],before)
+        self.assertEqual(self.q.occupancy()['attempts'],0)
+
+    def test_pending_prepared_size_raise_is_checked_before_admission_without_spending_attempt(self):
+        prep=self.submit(self.preparation_review(self.first)); data=self.pending_dataset(prep)
+        exp=self.submit(self.experiment_review(data,self.first).json()['review'])
+        self.publish(self.q.claim('prepare'))
+        with patch('deploy.multirun.queue_adapter.workspace_required_bytes',return_value=30*1024**3):
+            self.service.lifecycle.reconcile()
+        job=self.fixture.sql('SELECT * FROM jobs WHERE experiment_id=%s',(exp,))[0]
+        self.assertEqual((job['state'],job['attempts'],job['spent_seconds']),('blocked',0,0))
+        self.assertIn('execution profile',job['input_issue'])
+        self.assertIsNone(self.q.claim('cannot-fit'))
+
+    def test_pending_prepared_size_raise_fits_pool_and_is_frozen_for_retry(self):
+        prep=self.submit(self.preparation_review(self.first)); data=self.pending_dataset(prep)
+        exp=self.submit(self.experiment_review(data,self.first).json()['review'])
+        self.publish(self.q.claim('prepare'))
+        with patch('deploy.multirun.queue_adapter.workspace_required_bytes',return_value=6*1024**3+1):
+            self.service.lifecycle.reconcile()
+        lease=self.q.claim('larger-inputs')
+        self.assertEqual(lease.resources['storage_mib'],7681)
+        self.q.started(lease)
+        self.assertEqual(self.q.finish(lease,outcome='transient',stop_evidence='a'*64),'retry_wait')
+        self.upgrade(same_model=True); self.fixture.ready_retries()
+        retry=self.q.claim('retry')
+        self.assertEqual(retry.resources,lease.resources)
+        self.assertEqual(retry.specification,lease.specification)
+
+    def test_review_uses_configured_capacity_while_existing_configuration_is_running(self):
+        prep=self.submit(self.preparation_review(self.first)); data=self.pending_dataset(prep)
+        self.publish(self.q.claim('prepare'))
+        exp=self.submit(self.experiment_review(data,self.first).json()['review'])
+        self.q.started(self.q.claim('running'))
+        response=self.experiment_review(data,self.first)
+        self.assertEqual(response.status_code,200,response.text)
+        another=self.submit(response.json()['review'])
+        self.assertNotEqual(another,exp)
+        self.assertEqual(self.q.occupancy()['attempts'],1)
+
+    def test_registered_fixed_policy_is_not_rewritten_by_new_scaled_defaults(self):
+        old=self.registry.register(image=IMAGE_A,name='Retained fixed policy',jar=self.jar,
+            defaults=self.defaults,policy=LEGACY_POLICY)
+        self.registry.select(old); self.restart()
+        prep=self.submit(self.preparation_review(old)); data=self.pending_dataset(prep)
+        self.publish(self.q.claim('prepare-fixed'))
+        review=self.experiment_review(data,old)
+        self.assertEqual(review.status_code,200,review.text)
+        self.assertEqual(review.json()['storage'][0]['storage_mib'],10240)
+        self.assertEqual(review.json()['storage'][0]['per_repetition_mib'],0)
+        self.registry.select(self.first); self.restart()
+        exp=self.submit(review.json()['review'])
+        self.assertEqual(self.fixture.sql('SELECT resources FROM jobs WHERE experiment_id=%s',(exp,))[0]['resources']['storage_mib'],10240)

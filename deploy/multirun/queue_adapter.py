@@ -133,15 +133,16 @@ def _equals(actual, expected):
     return actual == str(expected)
 
 
-def require_workspace_space(identity, workspace):
+def require_workspace_space(identity, workspace, *, minimum_bytes=0):
     """Allow for the private copy and the native first-run input snapshot.
 
     ExperimentManager.setupExperiment copies only top-level .xls/.xlsx/.db
     entries. MultiRun disables further snapshots after the first repetition.
-    Keep 1 GiB for database growth, CSVs, logs and temporary files. This is a
-    minimum launch check, not a general research-job storage estimate or quota.
+    The minimum includes a 1 GiB reserve. Scaled allocations also require their
+    full working allowance to be free before copying. Neither check is a physical
+    disk quota; the executor separately monitors the running workspace's size.
     """
-    required = workspace_required_bytes(identity)
+    required = max(workspace_required_bytes(identity),minimum_bytes)
     available = shutil.disk_usage(workspace).free
     if available < required:
         raise WorkspaceSpaceError(required, available)

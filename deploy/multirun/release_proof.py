@@ -22,7 +22,7 @@ def main():
         parser.error('Use JAS-mine-web/scripts/test_batch_queue.py with disposable PostgreSQL')
     if args.output.exists(): parser.error('Choose new proof evidence output')
     args.output.mkdir(mode=0o700,parents=True)
-    names=['test_releases','test_submission_adapter','test_browser_model','test_prepared_dataset',
+    names=['test_releases','test_submission_adapter','test_browser_model','test_prepared_dataset','test_storage_proof',
            'test_vm_config','test_release_runtime','test_vm_runtime']
     suite=unittest.defaultTestLoader.loadTestsFromNames(['deploy.multirun.'+name for name in names])
     result=unittest.TextTestRunner(verbosity=2).run(suite)

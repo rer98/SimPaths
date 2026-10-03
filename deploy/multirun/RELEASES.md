@@ -112,9 +112,11 @@ The immutable release manifest owns this policy; new prepared receipts carry it
 forward. Accepted configurations record calculated CPU, RAM and storage allocations
 in PostgreSQL. Waiting configurations resolve from the policy in their preparation
 definition/receipt, and retries use the accepted job allocation. Selecting a new
-default or restarting never recalculates these from the newest policy.
+default or restarting never recalculates these from the newest policy. Pending
+datasets have a provisional input-size estimate, described below.
 
-The initial policy preserves the current allowances:
+Newly registered releases start with the agreed **4 GiB fixed working allowance
+plus 512 MiB per repetition**:
 
 ```json
 {
@@ -124,17 +126,63 @@ The initial policy preserves the current allowances:
     "cpu_millis": 2000,
     "memory_mib": 4096,
     "large_memory_mib": 5120,
-    "storage": {"setup_mib": 10240, "per_repetition_mib": 0}
+    "storage": {"setup_mib": 4096, "per_repetition_mib": 512}
   }
 }
 ```
 
-Memory above 20,000 simulated people uses `large_memory_mib`. The defined storage
-formula is `setup_mib + planned_repetitions × per_repetition_mib`; its initial
-per-repetition term is zero. Calibrating nonzero storage scaling is the next
-development step, using representative simulation measurements. This change does
-not raise existing allowances or choose production storage estimates. Runtime
-continues using the separately frozen launcher formula.
+Memory above 20,000 simulated people uses `large_memory_mib`. For a ready dataset:
+
+```text
+fixed MiB = max(configured setup MiB, ceil(input-copy minimum bytes / MiB))
+working MiB = fixed MiB + planned repetitions × per-repetition MiB
+```
+
+The input-copy minimum counts one private input copy, one native first-run copy
+of top-level workbooks/databases, the model JAR and a 1 GiB reserve. Larger inputs
+raise only the fixed term, rounded up to a whole MiB. They are not multiplied by
+the repetition count. The allowance covers a complete configuration attempt:
+its sequential repetitions share the working directory.
+
+For inputs fitting the 4 GiB fixed term:
+
+| Repetitions | Working allowance per attempt |
+| ---: | ---: |
+| 1 | 4.5 GiB |
+| 3 | 5.5 GiB |
+| 12 | 10 GiB |
+| 1,000 | 504 GiB |
+
+Submission review shows the calculated allowance, with a compact per-configuration
+list when datasets require different amounts. A configuration exceeding the pool's
+configured capacity after interactive holdback is rejected before submission.
+A busy pool does not reject work that fits its capacity: it waits in the queue.
+Increasing the repetition cap alone does not increase the pool's available storage.
+The 1,000-repetition parser ceiling is not an allocation for a laptop or staging VM.
+
+**Pending datasets:** the review initially uses the configured fixed term because
+the prepared database size is not yet known. The review labels this provisional.
+Once preparation completes, the service computes the input-copy minimum using the
+same frozen release policy. If that raises the allocation beyond the pool's capacity,
+the configuration is blocked without spending an attempt or execution time; review
+replacement inputs or the operator's capacity plan. The final allocation and input
+identity are stored before admission and retained by retries.
+
+**Existing releases and jobs:** already registered policies, legacy bundles and
+prepared receipts are not rewritten. Their original fixed 10 GiB policy remains
+10 GiB where recorded. Restarting an existing service does not opt it into the new
+default. To use scaling, register/select a new release using the command above;
+the changed policy gives it a distinct ID even if the scientific JAR is identical.
+No image rebuild is required for this policy-only change. Prepare new user-input
+datasets with that release. Legacy training/input receipts without a policy use
+the explicitly selected configuration's retained release policy for new reviews;
+already accepted configurations retain their previous release selection. Standalone
+proof commands without an explicit policy keep their historical allocations.
+
+The `list` command and startup log show the default policy's fixed/per-repetition
+terms. The default is an initial operator estimate to measure on representative
+workloads, not a guarantee for every population, horizon or collector selection.
+Runtime continues using the separately frozen launcher formula.
 
 An operator policy can be supplied as a private, service-owned JSON file using
 `register --resource-policy /path/to/policy.json`. It must be mode 0600 (or stricter),
@@ -143,6 +191,52 @@ exceed integer/allocation bounds. A policy change creates a new release identity
 existing datasets must not have their policy edited. The shared pool must have
 sufficient CPU, RAM and storage for the admitted profiles. Browser requests and
 scientific YAML cannot provide these allocations.
+
+### Working copies, cleanup and physical space
+
+Large native `output/<timestamp>/input` snapshots are made for the first repetition
+only. Every repetition has its own `input/options.txt`. After a finished attempt's
+container is confirmed removed, the service reclaims its private input copy, temporary
+files and the large native snapshot, keeping each `options.txt`, verified CSVs and
+logs. This cleanup does not delete the reusable prepared dataset or job history.
+Retained datasets/results, uploads, diagnostics, aggregate caches and prepared ZIPs
+need separate disk budgets; they are not covered by a running attempt reservation.
+
+For scaled policies, admission and the last check before copying require the full
+calculated working allowance to be free on the execution filesystem. An input-size
+minimum remains an additional floor. Old fixed policies retain their previous
+physical launch checks. Low space waits without consuming an execution attempt.
+The executor monitors actual workspace growth and stops an oversized attempt.
+These are shared reservations and size checks, **not hard filesystem quotas**.
+Provision the dedicated private filesystem and reserve room for all retained data,
+images, PostgreSQL, logs and caches as described in [VM.md](VM.md).
+
+### Full-length storage measurement
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths
+~/simpaths-browser-tests/venv/bin/python deploy/multirun/storage_proof.py \
+  --frontend "$HOME/git/JAS-mine/JAS-mine-web" \
+  --prepared /tmp/codex-rer/multirun-prepared-50000-20260925 \
+  --output "$HOME/simpaths-benchmarks/multirun-storage-$(date +%Y%m%d-%H%M%S)"
+```
+
+This uses disposable PostgreSQL and the verified public 50,000-person training
+dataset. It runs 2019–2026 with one and three repetitions, one model at a time,
+using the new policy. Stop local models first; allow approximately 40 minutes,
+6 GiB available RAM and 7.5 GiB free on the temporary-work filesystem. No scientific
+JAR/image rebuild or real email delivery is needed. Source inputs are verified
+unchanged, and only this proof's stopped containers/workspaces are removed.
+
+The report records once-per-second allocated-byte peaks for the workspace, input
+copy, native snapshot and CSVs, plus per-seed output sizes and remaining headroom.
+Required annual CSVs, seed mappings and settings are checked by the normal adapter.
+It verifies that only the first repetition made a large snapshot and that production
+cleanup preserves verified CSVs and every `options.txt`. Evidence contains counts,
+hashes and private diagnostics, not copied input datasets or raw CSVs. Sampling can
+miss brief peaks; the normal running-workspace monitor stays enabled throughout.
+Measure other supported populations, longer horizons/collectors and the intended
+production VM before treating these initial settings as calibrated production limits.
 
 ## Retention, image protection and backups
 
@@ -182,7 +276,18 @@ JAR comparisons and another owner's inputs are denied. It launches no scientific
 models and sends no real emails. Separate model acceptance is required for each
 actual newly built scientific release.
 
-Validation on 3 October 2026: all 85 transition-proof cases passed without skips
+Storage-scaling checks on 3 October: 175 runnable MultiRun cases and the two
+JavaScript selection/storage-review checks pass locally. The 23 local skips
+require disposable PostgreSQL/container environments. All 99 expanded transition
+checks passed without skips in `postgres-queue-20261003-124101/model-proof/report.json`,
+including calculated storage, old signed allocations, pending-size increases,
+retries and rejection of excessive repetition counts. All 12 generic storage
+checks passed in `multirun-storage-20261003-124138/tests.log`, including per-configuration
+capacity rejection and signed allocation preservation. The full-length model
+measurement in that latter directory is running; no production calibration claim
+is made from the bookkeeping checks.
+
+Initial release-support validation on 3 October 2026: all 85 transition-proof cases passed without skips
 in `postgres-queue-20261003-112048/report.json`. The local MultiRun suite also
 passed 167 runnable cases; 17 PostgreSQL/container cases require the disposable
 database or container environment. The JavaScript dataset/model-selection check

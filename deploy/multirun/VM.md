@@ -778,6 +778,97 @@ so a schema-changing rollback needs its corresponding verified backup/restore pl
 Do not silently replace database files, reinitialise a schema or run concurrent
 application processes for one pool. Keep migration/rollout evidence with the release.
 
+## Local application update and rollback rehearsal
+
+Run from the ordinary laptop terminal after stopping local launchers:
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths &&
+PIP_DEFAULT_TIMEOUT=60 ~/simpaths-browser-tests/venv/bin/python deploy/acceptance/run_update_rehearsal.py \
+  --frontend "$HOME/git/JAS-mine/JAS-mine-web"
+```
+
+The wrapper installs isolated test dependencies and uses disposable PostgreSQL,
+tiny fictional Docker models and transient user systemd units. It installs no
+service, sends no emails and changes no checkout, Git ref, live database, secret
+or cookie configuration. Two GiB free in temporary storage is sufficient for its
+small fixture; the installed PostgreSQL/Python images are reused. Docker and user
+systemd access require the ordinary terminal. Evidence appears in
+`~/simpaths-benchmarks/application-update-*/report.json` and
+`model-proof/report.json`; both success and cleanup must be true.
+
+The initial comparison uses actual committed application trees:
+
+- Previous JAS-mine-web `e6db2a8f84b80f76f355c9b9ff15d1c69fb1507e` with
+  SimPaths `bc7e7c4651844192649160f2768ab9306862d00e`.
+- Candidate: each checkout's `HEAD`, resolved once to complete commit identifiers.
+
+Source bundles exclude checkout environment/session-key files and SimPaths model
+inputs. Each committed tree receives the same recorded fictional-model adapters;
+the report identifies those overlays separately. Loaded module hashes, process
+identities, changed page guidance and actual HTTP stylesheet bytes identify the
+selected version. The rehearsal rejects changed/unlisted code and unsafe archive
+paths, links and excessive files. It refuses a direct rollback pair with different
+migration histories or changed result/cache/recovery code. Matching SQL by itself
+does not establish compatibility for arbitrary releases; review API, artifact and
+dependency changes when choosing another pair.
+
+The native stages start the previous applications with retained downloads, active
+SingleRun/batch containers and another owner's queued configuration. Both old
+application processes must stop before the candidate starts. The candidate then
+hands over to the previous version again. The model containers continue running;
+ownership cookies, persisted credential bytes, Build state, Start/Pause controls,
+charts/logs, download hashes and owner denials must survive both transitions.
+Frozen specifications, policies, seeds, deadline, attempt and reservations must
+remain unchanged. Running and queued work then complete the original seeds once,
+and Reset/Leave release only settled capacity.
+
+A separate native recovery fixture captures a verified database/filesystem backup,
+including an empty shared SingleRun registry. A private test-only future code
+bundle appends real checksummed migrations: batch 20 → 21 and SingleRun 2 → 3.
+Older startup migration routines must refuse both schemas without changing the
+newer database. Restoration uses a separate empty database and private directory;
+normal application entry remains gated until verified activation. The previous
+code must then accept the restored schemas and serve the original owner's results,
+while denying anonymous, other-owner and provider raw downloads. Original queued
+settings/policy/seeds remain frozen and only one claim is permitted. The newer
+source database is never downgraded or overwritten. Required-image availability is
+stubbed only for this fictional backup fixture, as in the existing restore proof.
+
+All 31 local archive/import/route/handover guards pass, including loading both
+actual service templates as text before validating their restart policies.
+The local import checks serve each selected page directly through ASGI and read
+its stylesheet source; native HTTP file transport is exercised by the supervised
+stages. On 4 October, `application-update-20261004-231729` passed all six native
+stages, including both application handovers and verified schema recovery. Both
+reports confirm success and cleanup, including the separate backup fixture.
+The first native attempt (`application-update-20261004-230040`) stopped before
+either application started because the harness passed template paths instead of
+their contents. Both reports confirm cleanup; that harness call is corrected.
+This fixture covers application updates separately from SimPaths model-release
+transitions. Package changes, real-model scientific compatibility, selected-host
+deployment/boot hardening and real external side effects require their own
+acceptance. A recovery point restores its capture-time state; it cannot undo later
+user work or sent emails, and online capture omits live model output/memory.
+
+For deployment updates, retain the previous tested code, build and dependency
+versions, take a verified recovery point, and review schema and stored-format
+compatibility before the handover. Stop both application controllers, then start
+the selected tested version against the retained state. For an incompatible schema
+rollback, isolate the newer services/models and restore to a separate inactive
+target; verify and activate that target before routing users or dispatching work.
+Do not delete migration records to make older code start.
+
+The successful run updated to JAS-mine-web `5262f02294c2cc6e55a457213f79c9d900dbdc30`
+and SimPaths `032d2b4a9da6b494ca7255cb156e2385cec3ef20`, then returned to the previous
+pair above. The handovers took 2.980 and 3.484 seconds in this small fictional-model
+fixture. Running and queued configurations each retained one attempt and completed
+seeds 606/607 once; all capacity released after completion and Leave. The separate
+native restore served the original CSV bytes with the original owner cookie and
+returned 403 for anonymous, other-owner and provider raw downloads. Both older
+migration routines refused the synthetic newer schemas without changing their data.
+These timings describe the rehearsal, not a production deployment.
+
 ## Validation record
 
 The local configuration/credential/probe/measurement tests, model tests and template

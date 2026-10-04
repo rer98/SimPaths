@@ -42,7 +42,11 @@ MODEL = dict(id='fictional-recovery', name='Fictional recovery simulation', requ
 def validate(settings, dsn):
     from deploy.multirun.proxy_rehearsal import require_test_database
     from ._supervisor import safe_path
-    require_test_database(dsn)
+    if 'database_role' in settings:
+        from ._postgres_outage import restricted_connection
+        restricted_connection(settings, dsn)
+    else:
+        require_test_database(dsn)
     if not re.fullmatch(r'[a-f0-9]{32}', settings['tag']):
         raise ValueError('Invalid disposable recovery identity')
     for key in ('schema', 'batch_schema'):

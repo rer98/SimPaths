@@ -545,6 +545,101 @@ recorded. The enclosing runner explicitly skipped the unrelated broad queue suit
 the 33 focused checks ran inside this proof. This is local fictional-model
 recovery evidence, not chosen-host boot/hardening or scientific-run acceptance.
 
+### Local PostgreSQL outage and restricted-account rehearsal
+
+Run from the normal Linux terminal with Docker and a running user systemd manager:
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths &&
+PIP_DEFAULT_TIMEOUT=60 ~/simpaths-browser-tests/venv/bin/python \
+  deploy/acceptance/run_postgres_rehearsal.py \
+  --frontend "$HOME/git/JAS-mine/JAS-mine-web"
+```
+
+The runner creates an isolated Python environment and an enclosing temporary
+PostgreSQL database. The outage fixture creates a **second** randomly named
+PostgreSQL container with a labelled data volume and fixed loopback port. That
+volume preserves the test rows across both an orderly stop and `SIGKILL`. Neither
+an existing database nor an existing container/volume is used. Both PostgreSQL
+containers have 768 MiB memory limits; the fictional model containers use 256/128
+MiB. Allow 2 GiB free temporary storage and a few minutes. The installed
+`postgres:17-alpine` and `python:3.12-slim` images are resolved to immutable IDs.
+
+A new application role owns only this test database and can migrate its two
+application schemas. It has no superuser, database-creation, role-creation,
+replication or row-security-bypass privileges and no inherited role membership.
+Native SQL checks reject `SET ROLE postgres` and reads from an administrator-owned
+canary schema. Both frontends, the registry and the worker use this restricted
+account, including after restart. Separate administrator credentials are confined
+to creating and inspecting the disposable fixture. The account models the intended
+application database owner; actual installed-host grants remain a deployment check.
+
+The proof uses the real SingleRun/MultiRun HTTP routes, PostgreSQL resource ledger,
+queue worker and Docker lifecycle. It checks:
+
+- Retained result archives alongside a running SingleRun model, a running batch
+  attempt and another owner's queued work in the full shared pool.
+- Real database stop/crash: valid reads, download requests, controls, reviews and
+  a previously signed submission return controlled denials. No request replaces
+  ownership cookies, reaches model controls, leaks private data or creates another
+  model/workspace. Invalid forms or missing routes cannot count as passing denials.
+- Database restart: the original rows, owner cookies, container/attempt identity,
+  inputs, configuration, deadline, runtime policy and reservations survive without
+  extra model execution or attempts. Dead pooled connections are replaced.
+- A batch process that finishes while PostgreSQL is unavailable: recovery verifies
+  its original output and commits completion on its original attempt before
+  admitting the queued work. Both original seeds run once.
+- Unchanged saved ZIP contents and SingleRun parameters/credentials, continued
+  cross-owner/anonymous denials, working Start/Pause/Reset/Leave, and final release
+  of settled capacity.
+
+Fictional Java responses and tiny model processes replace scientific simulations;
+loopback HTTP replaces the separately tested HTTPS transport. Queue leases/backoff
+are shortened for the fixture; frozen runtime/attempt limits remain intact.
+Transient user units reuse the service templates' supervisor policy and install
+no service. Production secrets, cookies, configuration and security policy are
+unchanged. No real input data or email is used. Source hashes and adaptations are
+recorded in the private report.
+
+Evidence goes to `~/simpaths-benchmarks/postgres-recovery-*`. Require both
+`report.json` and `model-proof/report.json` to pass with cleanup confirmed. Cleanup
+stops only the owned transient units, verifies model/database identity, and removes
+the fixture's volume, private files and temporary database. Unconfirmed termination
+or changed identity retains the fixture and records a cleanup failure; it never
+prunes Docker or operates other local services. The enclosing runner separately
+removes its own PostgreSQL container. Local regression command:
+
+```bash
+python -m unittest deploy.acceptance.test_postgres_rehearsal \
+  deploy.acceptance.test_recovery_rehearsal
+```
+
+The 68 offline guard/probe/recovery checks pass without errors, failures or skips.
+The native run `postgres-recovery-20261004-213531` passed all 68 checks and five
+rehearsal stages; both reports confirm success and cleanup, and the recorded source
+hashes match the tested files. The orderly stop and crash lasted 20.472/20.636
+seconds, with recovery in 12.361/9.455 seconds respectively. Each outage's 18
+protected requests returned controlled 503 responses without cookie replacement,
+private-data exposure or additional execution. The restricted account retained
+its grants; administrator role/data access remained denied. The batch process that
+finished during the crash was completed on its original attempt; queued work then
+ran seeds 606/607 once on one attempt. Archives/settings/permissions survived and
+all capacity was released. The broken-connection discard messages are expected
+when replacing pooled connections after a deliberate database outage. No
+production code, secrets, cookies or policy changes were needed.
+
+Earlier debugging run, superseded by the successful result above:
+The first native run, `postgres-recovery-20261004-212028`, passed the restricted
+account checks and orderly stop/restart: a 16.386-second outage gave controlled
+503 responses and recovered the same ownership/attempt/reservations in 15.163
+seconds. It stopped before the crash stage because the harness used an unregistered
+Pause path. Corrected it to the existing `/pause/{sim_id}` route and added an offline
+check of every SingleRun request against registered paths/methods. Both reports
+confirm cleanup. Production code was unchanged; native completion was pending at
+that stage. Chosen-host database volumes, grants,
+network/firewall rules, installed service hardening and boot recovery remain
+separate acceptance.
+
 ### Companion SingleRun HTTPS rehearsal
 
 For interactive SingleRun, the separate companion rehearsal is:

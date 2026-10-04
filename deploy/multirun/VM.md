@@ -464,6 +464,87 @@ was omitted; the child proof itself ran all 84 requested regression cases.
 This completes the local rehearsal. Actual provider/inbox and chosen-host
 acceptance remain separate deployment checks.
 
+### Local automatic restart and crash-recovery rehearsal
+
+Run from a normal Linux login with Docker and a running user systemd manager:
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths &&
+PIP_DEFAULT_TIMEOUT=60 ~/simpaths-browser-tests/venv/bin/python \
+  deploy/acceptance/run_recovery_rehearsal.py \
+  --frontend "$HOME/git/JAS-mine/JAS-mine-web"
+```
+
+This creates three randomly named **transient user units**, disposable PostgreSQL
+and small real Docker containers using the locally installed `python:3.12-slim`
+image. It installs no service, enables no boot/lingering setting, reboots no machine
+and sends no mail. It runs fictional models through the actual SingleRun routes
+and MultiRun application/worker; model calculations are covered by separate proofs.
+The PostgreSQL container has a 768 MiB limit; model containers use 256/128 MiB.
+No large scientific output or model image rebuild is required. Allow a few minutes,
+including the real ten-second restart delays and five-start rate-limit test.
+This direct-HTTP rehearsal checks application/worker recovery. SingleRun's
+proxy-added cache headers, TLS and Secure cookies are tested by the separate
+HTTPS rehearsal; MultiRun's application-level no-store assertion remains enabled.
+
+Restart/termination settings are read from the MultiRun service template and the
+optional JAS-mine-web `deploy/simpaths/simpaths-singlerun.service` template:
+`Restart=always`, ten-second delay, five starts within 300 seconds, process-group
+termination and an unrestricted graceful-stop period. Effective systemd properties
+are checked rather than simulated by a Python restart loop. Explicitly stopping a
+service does not request another automatic start.
+
+The proof kills only its own frontend main processes and checks automatic restart,
+unchanged ownership cookies/credentials/settings, adoption of the same running
+Docker attempt, unchanged deadline/seeds/inputs/policy and retained shared
+reservations. A one-shot fatal dispatcher failure exercises the application's real
+termination request. A controlled inspection outage checks that missing Docker
+confirmation cannot release capacity or admit a replacement. A confirmed model
+failure then needs an authorised retry, preserving the spent execution budget and
+remaining attempt limit. Leave and successful completion release only their own
+capacity. Repeated failing starts must stop after five executions, with the unit
+failed, no live main process and the manager's journal confirming rejection of a
+sixth start. That state and execution count must remain unchanged beyond another
+restart interval. `Result` can retain `exit-code` on systemd 255; its literal value
+alone does not establish whether the rate limit was reached. The report records
+the actual result, start/restart counts and the scoped manager-denial event.
+
+The fixture shortens queue leases/backoff to five/one seconds and uses tiny model
+allocations and loopback HTTP. It does not change production secrets, cookies,
+budgets, scientific code or security settings. User-unit path/credential/log
+adaptations deliberately omit installed-host hardening. The pass therefore proves
+local supervisor/recovery mechanisms; actual boot/reboot, the root-installed units,
+private storage mounts, service-account permissions, hardening and host security
+still require acceptance on the chosen VM. The existing SingleRun Compose route
+continues to use its own Docker restart policy and is not exercised by this proof.
+SingleRun starts from the frontend checkout so its relative static mount resolves
+correctly. The framework's temporary key file is kept inside the private fixture;
+existing checkout keys are neither read nor changed. Startup failures identify the
+affected frontend and its private service log rather than waiting after the unit
+has reached its failure limit.
+
+Evidence goes to `~/simpaths-benchmarks/service-recovery-*`. Require both
+`report.json` and `model-proof/report.json` to pass with cleanup confirmed. Cleanup
+stops/resets only the randomly named units and verifies container identity before
+removal; it removes its schemas, private settings, sign-in codes and fixture files.
+If termination cannot be confirmed, the report records a retained private fixture
+for operator recovery. Existing user services, models and PostgreSQL volumes remain
+outside its scope. Offline checks:
+`python -m unittest deploy.acceptance.test_recovery_rehearsal`.
+The native run `service-recovery-20261004-101159` passed all 33 focused checks
+without errors, failures or skips, plus all eight end-to-end recovery stages.
+Both enclosing and model-proof reports confirm success and cleanup. SingleRun
+restarted once; MultiRun restarted once after SIGKILL and twice around the fatal
+dispatcher fault. The original running model/attempt survived those restarts.
+The authorised model retry retained approximately 39.46 seconds already spent,
+the three-attempt limit and its 24,300-second cumulative allowance.
+The rate-limit fixture executed exactly five times; the manager denied the sixth
+start, and the stopped state/counts remained stable beyond another ten-second
+restart interval. Its actual `Result=exit-code` and scoped journal evidence are
+recorded. The enclosing runner explicitly skipped the unrelated broad queue suite;
+the 33 focused checks ran inside this proof. This is local fictional-model
+recovery evidence, not chosen-host boot/hardening or scientific-run acceptance.
+
 ### Companion SingleRun HTTPS rehearsal
 
 For interactive SingleRun, the separate companion rehearsal is:

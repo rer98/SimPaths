@@ -7,6 +7,10 @@ Native SimPaths Online VM installation, private storage, recovery and capacity a
 
 # SimPaths Online: UK MultiRun on a VM
 
+Start with the [deployment readiness checklist](../DEPLOYMENT_CHECKLIST.md) for
+verified local evidence, outstanding host checks and installation order. This
+runbook supplies the detailed commands and configuration referenced there.
+
 ## What is prepared
 
 `vm_web.py` runs the same queue, worker, downloads and Visualiser workflow as the

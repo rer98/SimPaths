@@ -1,6 +1,6 @@
 <!-- (C) Copyright 2026, by Ross Richardson
 
-Maintainer guide to the draft MultiRun configuration normaliser and its tests.
+Maintainer guide to MultiRun configuration, model adapters and their tests.
 
 @author ross richardson
 -->
@@ -17,6 +17,11 @@ uses JAS-mine-web's durable PostgreSQL queue, permissions and results services:
 see [LOCAL_WEB.md](LOCAL_WEB.md) for the laptop and [VM.md](VM.md) for the supervised
 native VM setup, external privacy checks and capacity measurements. Java production
 code and existing SingleRun configurations are unchanged.
+
+For the current evidence and remaining installation order, use the
+[SimPaths Online deployment readiness checklist](../DEPLOYMENT_CHECKLIST.md).
+It distinguishes completed local workflows/rehearsals from physical storage,
+boot, external-service and privacy acceptance on the chosen host.
 
 [RELEASES.md](RELEASES.md) describes immutable model/default/adapter bundles,
 operator default selection, preservation of accepted jobs and the versioned

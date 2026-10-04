@@ -5,6 +5,12 @@ Real-model PostgreSQL VM acceptance and historical SingleRun state comparisons.
 
 # SimPaths VM acceptance
 
+The [deployment readiness checklist](../DEPLOYMENT_CHECKLIST.md) links the passing
+real-model and local service rehearsals, states their scope and lists the remaining
+host acceptance. This document describes the model/browser test commands;
+[the VM runbook](../multirun/VM.md) and [backup runbook](../multirun/BACKUP.md)
+describe the transport, mail, recovery, backup and application-update rehearsals.
+
 ## SingleRun browser acceptance
 
 `run_two_session_acceptance.py` runs the same two-browser Quick Start 20,000

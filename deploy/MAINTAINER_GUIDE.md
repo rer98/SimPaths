@@ -11,12 +11,14 @@ required**. That repository retains historical research and evidence, with
 compatibility commands for existing users.
 
 These instructions cover UK SingleRun: Quick Start 20,000/50,000, configurable
-training and user-supplied data. They do not implement MultiRun or provision a
-production VM.
+training and user-supplied data. For MultiRun, use the separate
+[configuration and hosting adapters](multirun/README.md),
+[retained model release workflow](multirun/RELEASES.md) and
+[native installation runbook](multirun/VM.md).
 
-The separate [MultiRun configuration tooling](multirun/README.md) validates draft
-settings and parameter sweeps without launching simulations. It is not yet a
-MultiRun release/deployment workflow.
+The [deployment readiness checklist](DEPLOYMENT_CHECKLIST.md) records the passing
+local evidence and remaining host-specific checks for both services. No production
+VM has been provisioned; use that checklist for installation and validation order.
 
 ## 1. Checkouts and tools
 

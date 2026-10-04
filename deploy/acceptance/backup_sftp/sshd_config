@@ -1,0 +1,26 @@
+# (C) Copyright 2026, by Ross Richardson
+# Key-only SFTP inside a container chroot; no shell or forwarded connections.
+# @author ross richardson
+Port 2222
+ListenAddress 0.0.0.0
+AddressFamily inet
+HostKey /run/keys/host_key
+PidFile /run/sshd.pid
+UsePAM no
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+AuthenticationMethods publickey
+PubkeyAuthentication yes
+AuthorizedKeysFile /run/keys/authorized_keys
+StrictModes yes
+AllowUsers simpaths_backup_test
+DisableForwarding yes
+PermitTTY no
+PermitUserRC no
+ChrootDirectory /srv
+Subsystem sftp internal-sftp
+ForceCommand internal-sftp -d /backups -u 0077
+LogLevel VERBOSE
+LoginGraceTime 10
+MaxAuthTries 2

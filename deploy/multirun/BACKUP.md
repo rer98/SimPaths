@@ -256,9 +256,15 @@ Templates in `vm/backup.toml.example`, `vm/simpaths-backup.service` and
    retry; SMTP acknowledgement loss can still produce duplicate deliveries.
 5. Manually run and inspect the configured protection before installing/enabling
    the reviewed systemd templates. The timer checks hourly, with jitter; capture
-   defaults to once per 24 hours. Retry eligibility defaults to 30 minutes and is
+defaults to once per 24 hours. Retry eligibility defaults to 30 minutes and is
    acted on at the next timer check. The service uses low CPU/I/O priority, a 512 MiB
    memory ceiling and a two-hour process timeout, without changing model policies.
+
+An interrupted upload can leave a read-only remote `.partial` file because OpenSSH
+creates it with the local ciphertext's permissions. A retry removes that incomplete
+staging file and retransmits the same verified encrypted snapshot; it does not
+recapture simulation data. Readback/checksum verification and atomic publication
+still precede success, and a conflicting completed backup is never overwritten.
 
 ```bash
 python -m deploy.multirun.backup_schedule run \
@@ -470,3 +476,148 @@ credential-rotation coverage. Transfer protocol
 faults use an isolated SFTP fake; the selected backup host, its key pin, account,
 atomic publication, independent retention and monitoring still require staging
 acceptance. No timer, backup host or real alert delivery has been enabled.
+
+### Local native scheduled-backup rehearsal
+
+Before selecting a VM or backup provider, run the isolated transport/recovery
+rehearsal from an ordinary laptop terminal with Docker and its user systemd
+manager available:
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths &&
+PIP_DEFAULT_TIMEOUT=60 ~/simpaths-browser-tests/venv/bin/python deploy/acceptance/run_backup_rehearsal.py \
+  --frontend "$HOME/git/JAS-mine/JAS-mine-web"
+```
+
+The enclosing runner creates a disposable PostgreSQL container and isolated Python
+dependencies. The rehearsal builds/reuses a small OpenSSH image, publishes only on
+IPv4 loopback, and creates transient user timer/service units. No unit is installed
+or enabled. Host SSH configuration, known-host files, keys, machine clock, operator
+configuration and real databases remain untouched. Only fictional inputs/results,
+new SSH/OpenPGP keys and a private test configuration are used; alerts are disabled.
+Eight MiB of incompressible fictional upload bytes make a partial transfer observable
+without a scientific simulation. A local relay passes encrypted SSH bytes at a
+bounded rate; it does not replace the SFTP protocol or decrypt traffic.
+
+The timer invokes the existing `backup_schedule run` command in fresh processes.
+It retains the template's oneshot execution, 512 MiB/128-task limits, low CPU/I/O
+priority, private umask, two-hour timeout and process-group termination. Test ticks
+use one second initially and five seconds after each exit, with no calendar/jitter;
+installed-host filesystem/kernel hardening is separate acceptance. The configuration
+keeps the normal 24-hour capture interval but uses the supported one-minute retry
+delay. That delay elapses normally: neither the clock nor the durable journal is
+edited to bypass it. A synthetic active attempt has a thirty-minute fixture allowance;
+no production model/runtime policy is changed.
+
+The rehearsal checks:
+
+- Real public-key authentication and host-key pinning; wrong keys/pins and reads
+  outside the container's SFTP chroot are denied. The server receives no source
+  files, DSN, client private key or OpenPGP recovery key.
+- Native online PostgreSQL capture and GnuPG encryption while the fictional model
+  continues file writes and heartbeats. Mutable output is excluded; the only remote
+  payloads are ciphertext and its fixed transfer receipt.
+- SIGKILL during a partial upload, a real SFTP outage, and later timer retries of
+  the same snapshot. Pending protection is not counted as success. Readback/hash
+  verification and atomic hard-link publication run through OpenSSH; later timer
+  checks do not capture another snapshot inside the daily interval.
+- Duplicate publication, rejection of conflicting completed bytes, independent
+  SFTP retrieval, a trusted-checksum failure, native decryption/dump restoration
+  and resumable inactive verification. Original inputs, secrets, seed/runtime/retry
+  policies and access rules survive; live model memory/output is not reconstructed.
+- Existing owner-cookie access through restored HTTP routes, anonymous/other-owner
+  denial and continued denial of raw provider downloads. Image availability checks
+  use an explicit fictional-image fixture; restored execution/mail are never started.
+
+Evidence is written under `~/simpaths-benchmarks/backup-rehearsal-*/`, including
+private scheduler/SFTP/supervisor logs and both reports. Cleanup stops/removes only
+the owned transient units/container, disposes temporary keyrings and files, and
+checks removal of the fixture schema and separate restore database. The enclosing
+runner removes its disposable PostgreSQL container. The reusable SFTP image remains
+cached. Failed cleanup leaves the fixture private and reports failure.
+
+Implementation validation on 4 October: all **50 focused local checks passed**
+without failures, errors or skips, plus all **seven native rehearsal stages** in
+`backup-rehearsal-20261004-183630`. Both reports confirm success and cleanup.
+The timer captured one 8,424,741-byte encrypted snapshot while the fictional writer
+continued. After SIGKILL at a 261,120-byte read-only partial and a real SFTP outage,
+fresh timer processes retried the same ciphertext after the configured delay.
+The restarted endpoint changed port 32908 to 32909; reconnection retained the
+original host-key pin. Readback/checksum verification and atomic publication passed,
+and later timer checks did not recapture the source. The journal recorded 15
+invocations: 12 expected unsuccessful checks during interruption/backoff and three
+successful checks, with one captured snapshot.
+
+Independent SFTP retrieval and GnuPG decryption restored and verified **20 files
+and 35 database tables**. Restore remained inactive until explicit fixture
+activation, omitted live output and preserved inputs, seeds, policy and the
+original attempt count. Resume verification passed without changing restored rows.
+The original owner cookie worked on restored HTTP routes; anonymous/other-owner
+access and raw provider downloads remained denied. The source attempt was unchanged;
+the writer recorded 580 heartbeats. Temporary units, container, keyring, files,
+schema and restore database were cleaned up; the enclosing runner removed
+PostgreSQL. The reusable SFTP image remains cached.
+
+This completes the local rehearsal. The SFTP endpoint is a separate container on
+the same machine/filesystem, and the report retains `production_acceptance=false`.
+Off-machine disaster protection, the chosen remote account/key pin, independent
+remote retention/monitoring, production hardening, load and recovery throughput
+remain deployment acceptance.
+
+#### Earlier debugging runs
+
+The first native attempt, `backup-rehearsal-20261004-121405`, passed all 36 local
+checks and confirmed cleanup, but stopped during image construction because
+Debian already provides the account name `backup`. The fixture now creates and
+allows only `simpaths_backup_test`; package installation has a separate cached
+build layer.
+
+The second attempt, `backup-rehearsal-20261004-144329`, passed real OpenSSH
+authentication, host-pin and chroot-denial checks and reached a partial encrypted
+upload, then stopped at the live-capture assertions. Both reports confirm cleanup.
+The harness had discarded one scheduling rule because `systemctl show` emits a
+separate `TimersMonotonic` line for each rule. It now preserves both lines, checks
+the exact initial/repeat intervals and retains effective properties and failure
+locations in the private report. All 39 focused checks pass, including this
+regression and rejection of relaxed resource/security limits. At that stage, the
+remaining native interruption, retry, retrieval and restore checks were pending.
+
+The next run, `backup-rehearsal-20261004-163901`, passed applied timer limits,
+live capture and SIGKILL/outage recovery of the same 8,424,778-byte ciphertext.
+It timed out reconnecting to the restarted SFTP fixture before the one-minute
+retry deadline; both reports confirm cleanup. The fixture had cached Docker's
+ephemeral host port across restart. It now rediscovers and validates the owned
+loopback port, updates the relay's destination and retains the client address,
+host-key pin and backup configuration. Separate reconnect/delay/verification
+phases and port observations are recorded. All 42 focused checks pass, including
+changed-port routing and rejection of public/privileged ports or changed mounts.
+The remaining stages were pending until the successful run recorded above.
+
+Run `backup-rehearsal-20261004-164735` confirmed that Docker changed port 32902 to
+32903 and that the relay reconnected using the original host-key pin. The scheduled
+retry then remained pending; both reports confirm cleanup. Local regressions
+reproduced a transport bug: an interrupted read-only upload could not be overwritten
+before the post-upload chmod. The SFTP copier now removes only the old staging file
+before retransmission. Regression cases cover ciphertext and receipt partials,
+denied cleanup, unchanged local ciphertext and preservation of completed bytes.
+All 45 focused checks pass. The harness also records partial modes, final scheduler
+and unit state, and remote file sizes/modes/link counts before cleanup. Native
+completion was pending until the successful run recorded above.
+
+Run `backup-rehearsal-20261004-171527` confirmed a read-only `0400` partial and
+successful retry of the same 8,424,782-byte ciphertext. Native remote readback,
+checksum verification, private `0600` final files and hard-link publication passed;
+later timer ticks retained one capture with no pending incident. The run then
+failed while stopping its transient units: the completed service had already been
+collected, and `systemctl stop` reported it as missing. The fixture now stops the
+owned timer first, accepts verified absent units and rechecks the service before
+stopping it. Failed stop commands remain fatal unless subsequent inspection proves
+the unit absent; surviving processes and unrelated/persistent units are rejected.
+The scheduler evidence is recorded before this separate shutdown phase. All 50
+focused checks pass, including collected-unit races and genuine shutdown failures.
+The original inner report records failed cleanup; its final unit inspection showed
+both units absent, the SFTP container/keyring were removed, and the enclosing runner
+removed PostgreSQL. The retained fictional work directory was subsequently removed
+after checking those reports and its owned private paths. Original evidence remains
+unchanged. The following successful run completed retrieval, native restore and
+cleanup as recorded above.

@@ -647,6 +647,25 @@ off-machine copying, retries, local retention and opt-in operator alerts. They
 are not enabled automatically. Provision a separate backup volume, keep the
 decryption key off the VM, and configure independent monitoring and remote expiry.
 
+The [local scheduled-backup rehearsal](BACKUP.md#local-native-scheduled-backup-rehearsal)
+adds real loopback OpenSSH, transient timer execution, interrupted-transfer retries,
+encrypted readback/publication, independent retrieval and native restore with
+owner/provider HTTP checks. Its 50 focused local regressions pass. Real SSH
+authentication/pinning/chroot, applied timer limits, live capture, interrupted
+upload/retry, independent retrieval, decryption/restore and HTTP permissions all
+passed in `backup-rehearsal-20261004-183630`: all seven stages and both reports
+confirm success and cleanup. The same 8,424,741-byte ciphertext survived SIGKILL,
+a read-only partial and an SFTP outage; later ticks did not recapture it. Restore
+verified 20 files and 35 tables, preserved the original cookie/settings/attempt
+count and denied anonymous/other-owner/provider raw access. The copier replaces
+only incomplete remote staging bytes before retransmitting the verified snapshot;
+completed backups remain protected. Cleanup accepts verified absent transient
+units and still rejects surviving processes or unrelated units. It uses disposable
+databases/keys and fictional files, and does not install units or contact a backup
+provider.
+Actual off-machine protection and chosen-host hardening/throughput remain
+deployment acceptance.
+
 Restore uses a new private directory and separate empty database. It verifies
 every table row and file, relocates registered input paths explicitly and stays
 inactive until verified activation with all required images installed. A matching

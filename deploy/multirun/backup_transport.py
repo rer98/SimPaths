@@ -244,7 +244,13 @@ class SFTP:
             checked.unlink(missing_ok=True)
             if not has_space(temporary,receipt['bytes']):
                 raise ArtifactError('Insufficient space for encrypted transfer verification')
-            if not self.batch(['put '+sftp_quote(source)+' '+sftp_quote(partial),'chmod 600 '+sftp_quote(partial),
+            # OpenSSH creates uploads with the source mode (our ciphertext is
+            # read-only). A killed put never reaches chmod, so replace only its
+            # unpublished staging file before retransmitting the same snapshot.
+            # Unlinking also avoids writing through a surviving publication link.
+            # The optional rm permits the normal first upload with no partial.
+            if not self.batch(['-rm '+sftp_quote(partial),
+                               'put '+sftp_quote(source)+' '+sftp_quote(partial),'chmod 600 '+sftp_quote(partial),
                                'get '+sftp_quote(partial)+' '+sftp_quote(checked)]):
                 raise ArtifactError('Encrypted backup transfer could not finish')
             if file_hash(temporary,'ciphertext')['sha256']!=receipt['sha256']:

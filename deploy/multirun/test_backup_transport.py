@@ -35,24 +35,44 @@ def fake_seal(source, destination, *, public_key, recipient):
 
 
 class MemorySFTP(transport.SFTP):
-    """Exact put/get/chmod/ln/rm semantics, including atomic no-overwrite links."""
+    """Model OpenSSH source modes, write permissions and atomic no-overwrite links."""
     def __init__(self, root):
-        self.directory='/backups'; self.remote={}; self.commands=[]; self.corrupt=False; self.lost_ack=False; self.fail=False
+        self.directory='/backups'; self.remote={}; self.modes={}; self.commands=[]
+        self.corrupt=False; self.lost_ack=False; self.fail=False
+        self.interrupt_next_put=False; self.deny_chmod=False; self.deny_remove=False
     def batch(self, commands):
         self.commands+=commands
         if self.fail: return False
         for command in commands:
-            args=shlex.split(command); operation=args[0]
+            ignore=command.startswith('-')
+            args=shlex.split(command[1:] if ignore else command); operation=args[0]
             if operation=='get':
                 if args[1] not in self.remote: return False
                 path=Path(args[2]); path.write_bytes(self.remote[args[1]]); path.chmod(0o600)
-            elif operation=='put': self.remote[args[2]]=Path(args[1]).read_bytes()+(b'corrupt' if self.corrupt else b'')
-            elif operation=='chmod': pass
+            elif operation=='put':
+                destination=args[2]; source=Path(args[1])
+                if destination in self.remote and not self.modes.get(destination,0o600)&0o200:
+                    return False
+                self.modes.setdefault(destination,source.stat().st_mode&0o700)
+                data=source.read_bytes()+(b'corrupt' if self.corrupt else b'')
+                if self.interrupt_next_put:
+                    self.interrupt_next_put=False; self.remote[destination]=data[:max(1,len(data)//2)]
+                    return False
+                self.remote[destination]=data
+            elif operation=='chmod':
+                if args[2] not in self.remote or self.deny_chmod:
+                    if not ignore: return False
+                else: self.modes[args[2]]=int(args[1],8)
             elif operation=='ln':
                 if args[2] in self.remote: return False
                 self.remote[args[2]]=self.remote[args[1]]
+                self.modes[args[2]]=self.modes.get(args[1],0o600)
                 if self.lost_ack: self.lost_ack=False; return False
-            elif operation=='rm': self.remote.pop(args[1],None)
+            elif operation=='rm':
+                if args[1] not in self.remote or self.deny_remove:
+                    if not ignore: return False
+                else:
+                    self.remote.pop(args[1]); self.modes.pop(args[1],None)
             else: raise AssertionError(command)
         return True
 
@@ -87,6 +107,48 @@ class TransportTests(unittest.TestCase):
         remote=MemorySFTP(self.root); remote.lost_ack=True
         self.assertTrue(remote.copy(self.cipher)['passed'])
         self.assertTrue(remote.copy(self.cipher)['already_copied'])
+
+    def test_interrupted_readonly_upload_retries_the_same_ciphertext_and_publishes_verified_bytes(self):
+        remote=MemorySFTP(self.root); remote.interrupt_next_put=True
+        original=transport.sealed(self.cipher)
+        with self.assertRaises(ArtifactError): remote.copy(self.cipher)
+        partial=remote.directory+'/recovery-'+original['backup_id']+'.tar.gpg.partial'
+        self.assertEqual(0o400,remote.modes[partial])
+        self.assertLess(len(remote.remote[partial]),original['bytes'])
+        self.assertFalse(any(k.endswith('.gpg') for k in remote.remote))
+        result=remote.copy(self.cipher)
+        self.assertTrue(result['passed']); self.assertEqual(original['sha256'],result['sha256'])
+        self.assertNotIn(partial,remote.remote)
+        self.assertEqual(self.cipher.read_bytes(),remote.remote[partial.removesuffix('.partial')])
+        self.assertTrue(all(mode==0o600 for mode in remote.modes.values()))
+        self.assertEqual(original,transport.sealed(self.cipher))
+        self.assertEqual(0o400,self.cipher.stat().st_mode&0o777)
+
+    def test_readonly_receipt_partial_recovers_without_changing_the_completed_ciphertext(self):
+        remote=MemorySFTP(self.root)
+        receipt=transport.sealed(self.cipher)
+        completed=remote.directory+'/recovery-'+receipt['backup_id']+'.tar.gpg'
+        remote.remote[completed]=self.cipher.read_bytes(); remote.modes[completed]=0o600
+        partial=completed+'.json.partial'
+        remote.remote[partial]=b'interrupted receipt'; remote.modes[partial]=0o400
+        self.assertTrue(remote.copy(self.cipher)['already_copied'])
+        self.assertEqual(self.cipher.read_bytes(),remote.remote[completed])
+        self.assertEqual(Path(str(self.cipher)+'.json').read_bytes(),remote.remote[completed+'.json'])
+        self.assertNotIn(partial,remote.remote)
+        self.assertFalse(any(command.startswith(('put ','chmod ','-chmod ','rm ','-rm ')) and
+                             shlex.split(command)[-1]==completed for command in remote.commands))
+
+    def test_denied_readonly_partial_removal_stays_unpublished_and_does_not_change_local_ciphertext(self):
+        remote=MemorySFTP(self.root); remote.interrupt_next_put=True
+        original=transport.sealed(self.cipher)
+        with self.assertRaises(ArtifactError): remote.copy(self.cipher)
+        partial=remote.directory+'/recovery-'+original['backup_id']+'.tar.gpg.partial'
+        interrupted=remote.remote[partial]
+        remote.deny_remove=True
+        with self.assertRaises(ArtifactError): remote.copy(self.cipher)
+        self.assertEqual(interrupted,remote.remote[partial])
+        self.assertFalse(any(k.endswith('.gpg') for k in remote.remote))
+        self.assertEqual(original,transport.sealed(self.cipher))
 
     def test_changed_local_ciphertext_and_changed_recipient_are_denied(self):
         with self.assertRaises(ArtifactError): transport.sealed(self.cipher,recipient='B'*40)

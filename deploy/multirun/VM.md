@@ -395,6 +395,36 @@ model/browser/VM proofs. This rehearsal does not test a future host's IPv6,
 firewall, filesystem quota, systemd/reboot, public certificate, SMTP or backup
 destination. Repeat the external checks below on the chosen deployment host.
 
+### Companion SingleRun HTTPS rehearsal
+
+For interactive SingleRun, the separate companion rehearsal is:
+
+```bash
+python deploy/acceptance/run_https_rehearsal.py \
+  --frontend /absolute/path/to/JAS-mine-web
+```
+
+It uses the frontend's complete `deploy/nginx.vm.https.conf`, actual SingleRun
+routes and disposable PostgreSQL. Two fictional interactive models and a fictional
+batch attempt share the real resource ledger. It checks owner cookies (SingleRun
+uses SameSite=Lax), Build/Start/Pause/Reset/Leave, private paths, frontend restart
+and shared busy/release behaviour. A slow 64 MiB ZIP must remain live past 30
+seconds, close its upstream exactly once on disconnect and pass complete checksum
+checks on fresh chunked/fixed-length retries. SingleRun retries begin at the start;
+MultiRun's cached Range resume is tested by the MultiRun rehearsal above.
+Docker provisioning and Java replies are replaced by private stand-ins, so no
+scientific models run. Reports are written under `singlerun-https-*`; require both
+reports and cleanup to pass. See JAS-mine-web
+`docs/vm-deployment.md#local-singlerun-https-rehearsal` for scope and requirements.
+
+On 4 October, `singlerun-https-20261004-071322` passed all 47 local checks and
+eight rehearsal stages with both reports confirming cleanup. All 39 private-path
+probes were denied. The 67,109,181-byte ZIP was interrupted after 4,456,448 bytes/
+34.35 seconds; upstream closure and complete retry checksums passed. A fresh
+frontend retained both owners, settings, download links and shared reservations;
+Leave released only its session's resources. This is local transport evidence
+with fictional models; deployment-host acceptance remains separate.
+
 ### Checks against the chosen deployment hostname
 
 Run the existing fictional browser/Visualiser proofs before deployment, then test

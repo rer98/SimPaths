@@ -50,20 +50,25 @@ def nginx_path(path):
     return '"'+value.replace('\\', '\\\\').replace('"', '\\"').replace('$', '\\$')+'"'
 
 
-def proxy_config(text, *, http_port, https_port, app_port, base, runtime=Path('/tmp')):
+def proxy_config(text, *, http_port, https_port, app_port, base, runtime=Path('/tmp'),
+                 domain='multirun.example.org', upstream_port=5002, timeout_seconds=300):
     """Substitute only loopback listeners, hostname, certificate and ACME paths.
 
     Stop if deployment anchors or private-file/cache protections have changed.
     The rehearsal never installs a system configuration or uses privileged ports.
     """
     ports = (http_port, https_port, app_port)
+    if (not re.fullmatch(r'[a-z0-9-]+(?:\.[a-z0-9-]+)+', domain)
+            or type(upstream_port) is not int or not 1024 <= upstream_port <= 65535
+            or type(timeout_seconds) is not int or not 1 <= timeout_seconds <= 3600):
+        raise ValueError('Invalid deployment proxy anchors')
     if any(type(port) is not int or not 1024 <= port <= 65535 for port in ports) or len(set(ports)) != 3:
         raise ValueError('Use three different unprivileged loopback ports')
     policy = re.sub(r'#.*', '', text)
     required = ['autoindex off;', 'proxy_buffering off;', 'proxy_request_buffering off;',
         'proxy_cache off;', 'proxy_max_temp_file_size 0;', 'ssl_reject_handshake on;',
         'proxy_set_header X-Forwarded-For $remote_addr;', 'proxy_set_header X-Forwarded-Proto https;',
-        'proxy_read_timeout 300s;', 'proxy_send_timeout 300s;',
+        f'proxy_read_timeout {timeout_seconds}s;', f'proxy_send_timeout {timeout_seconds}s;',
         'location ~ (^|/)\\. { return 404; }',
         'location ~ ^/(private|uploads|artifacts|execution|release|backups|diagnostics|download-cache|visualiser-cache)(/|$)']
     if (any(anchor not in policy for anchor in required)
@@ -73,11 +78,11 @@ def proxy_config(text, *, http_port, https_port, app_port, base, runtime=Path('/
     replacements = {
         'listen 80': f'listen 127.0.0.1:{http_port}',
         'listen 443': f'listen 127.0.0.1:{https_port}',
-        'proxy_pass http://127.0.0.1:5002;': f'proxy_pass http://127.0.0.1:{app_port};',
-        'proxy_set_header Host multirun.example.org;': f'proxy_set_header Host {HOST}:{https_port};',
-        'return 308 https://multirun.example.org$request_uri;': f'return 308 https://{HOST}:{https_port}$request_uri;',
-        '/etc/letsencrypt/live/multirun.example.org/fullchain.pem': nginx_path(Path(base)/'cert.pem'),
-        '/etc/letsencrypt/live/multirun.example.org/privkey.pem': nginx_path(Path(base)/'key.pem'),
+        f'proxy_pass http://127.0.0.1:{upstream_port};': f'proxy_pass http://127.0.0.1:{app_port};',
+        f'proxy_set_header Host {domain};': f'proxy_set_header Host {HOST}:{https_port};',
+        f'return 308 https://{domain}$request_uri;': f'return 308 https://{HOST}:{https_port}$request_uri;',
+        f'/etc/letsencrypt/live/{domain}/fullchain.pem': nginx_path(Path(base)/'cert.pem'),
+        f'/etc/letsencrypt/live/{domain}/privkey.pem': nginx_path(Path(base)/'key.pem'),
         'root /var/lib/letsencrypt;': 'root '+nginx_path(Path(base)/'acme')+';',
     }
     for old, new in replacements.items():
@@ -87,7 +92,7 @@ def proxy_config(text, *, http_port, https_port, app_port, base, runtime=Path('/
     text, removed = re.subn(r'^\s*listen \[::\]:(80|443)( ssl)?( default_server)?;\n', '', text, flags=re.M)
     if removed != 4:
         raise ValueError('Deployment IPv6 listener anchors changed')
-    text = text.replace('multirun.example.org', HOST)
+    text = text.replace(domain, HOST)
     return ('worker_processes 1;\npid '+nginx_path(Path(runtime)/'nginx.pid')+';\nerror_log stderr warn;\n'
             'events { worker_connections 128; }\nhttp {\naccess_log off;\n'
             'client_body_temp_path '+nginx_path(Path(runtime)/'client-body')+';\n'
@@ -197,12 +202,13 @@ class Processes:
         self.container_created = False
         self.image = None
 
-    def start_app(self, settings):
+    def start_app(self, settings, *, script=None, workdir=None):
         from jasmine_web.batch.local_executor import atomic_json
         atomic_json(self.work/'fixture.json', settings)
         log = (self.output/'application.log').open('ab'); self.logs.append(log)
-        self.app = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), '--serve-fixture',
-                                     str(self.work/'fixture.json')], stdout=log, stderr=subprocess.STDOUT)
+        self.app = subprocess.Popen([sys.executable, str(script or Path(__file__).resolve()), '--serve-fixture',
+                                     str(self.work/'fixture.json')], stdout=log, stderr=subprocess.STDOUT,
+                                     cwd=workdir)
 
     def stop_app(self):
         if self.app is None:

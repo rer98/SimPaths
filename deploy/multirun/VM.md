@@ -214,6 +214,14 @@ defaults disabled and requires notification delivery to be enabled. Configure an
 administrator recipient when enabling job notices. See [LOCAL_WEB.md](LOCAL_WEB.md)
 for notification routing/deduplication and retention behaviour.
 
+The warning interval starts when the service records the current warning, not
+when SMTP accepts it or the recipient reads it. Failed delivery is retried with
+bounded backoff and does not extend deletion deadlines. Monitor the outboxes and
+SMTP failures; an outage does not indefinitely retain users' files. Interrupted
+delivery after SMTP acceptance can cause a duplicate message with the same
+Message-ID. Sign-in codes instead return a controlled error on failed delivery;
+the user requests a new code.
+
 `preflight` checks storage, SMTP settings, database connectivity and the installed
 image without sending messages or creating jobs. It does not prove SMTP delivery,
 TLS/firewall rules, quotas or scientific compatibility. systemd runs it before serve.
@@ -394,6 +402,67 @@ Visualiser charts or the native model dispatcher. Those have their separate
 model/browser/VM proofs. This rehearsal does not test a future host's IPv6,
 firewall, filesystem quota, systemd/reboot, public certificate, SMTP or backup
 destination. Repeat the external checks below on the chosen deployment host.
+
+### Local SMTP and automatic retention rehearsal
+
+Run the guarded rehearsal from the SimPaths checkout:
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths
+~/simpaths-browser-tests/venv/bin/python deploy/multirun/mail_rehearsal.py \
+  --frontend "$HOME/git/JAS-mine/JAS-mine-web"
+```
+
+The wrapper creates disposable PostgreSQL, an isolated Python environment, a
+temporary Uvicorn application and a loopback-only SMTP capture. The SMTP capture
+requires STARTTLS and authentication, trusts a temporary certificate only within
+the fixture processes, and accepts just three fictional recipients. It has no
+relay or outbound connection. The existing production SMTP sender delivers the
+messages over actual sockets; sign-in does not use console codes or a callback.
+No host certificate store, clock, existing service or notification setting changes.
+No model image rebuild, Nginx installation, scientific run or real email recipient
+is needed. OpenSSL, Docker/PostgreSQL and loopback listeners must be available.
+
+Coverage includes actual sign-in codes and replay rejection; SMTP errors without
+credential leakage; experiment completion after all configurations settle; durable
+retry/backoff with the same Message-ID in fresh processes; preserved owner cookies
+after frontend restart; and authenticated access to the links in messages. Real
+SMTP tests reject plaintext authentication, bad credentials, an untrusted
+certificate and recipients outside the capture. Operator disk incidents and owner
+allowance notices are delivered to their separate fictional recipients.
+
+The fixture advances a PostgreSQL transaction clock to check seven-day retention,
+96-hour warnings, final 24-hour reminders, warning retries, renewed/superseded
+notices, failed-job expiry and dependency release. Normal cleanup methods remove
+real fictional files under their executor/reader locks; output history, diagnostics
+and provider datasets remain. Further cases check preview mode, fresh grace when
+cleanup is enabled late, and quota release after physical upload removal. The
+normal periods and production algorithms are unchanged.
+
+Reports/private logs go to `~/simpaths-benchmarks/mail-retention-*`; check both
+`report.json` and `model-proof/report.json`. Captured messages, codes, credentials
+and the temporary key live only in the private temporary directory and are removed
+on exit. Failed tests preserve private tracebacks, never public SMTP endpoints.
+This proves local SMTP acceptance and the application mechanisms; inbox arrival,
+spam filtering, SPF/DKIM/DMARC, provider rate limits and the chosen host's mail,
+systemd and clock configuration still require deployment acceptance. It does not
+claim exactly-once delivery or a recipient having read a warning.
+
+Implementation: `mail_rehearsal.py`, `mail_fixture.py`, `smtp_capture.py` and
+`mail_delivery_tests.py`. Offline fixture/isolation tests:
+`python -m unittest deploy.multirun.test_mail_rehearsal`.
+On 4 October 2026, `mail-retention-20261004-080335` passed all 84 regression
+checks, eight native SMTP/retention cases and five end-to-end stages, without
+failures, errors or skipped cases. Eight fresh notification/cleanup processes
+exercised durable PostgreSQL state. The capture accepted 36 messages, all with TLS
+and authentication and no attachments, and deliberately rejected four DATA
+submissions before acceptance. Both reports confirm success and cleanup. Sign-in,
+completion retry after restart, protected links, warning/final delivery and
+physical deletion passed, alongside the renewal/hold/expiry/routing edge cases.
+The enclosing runner's `queue_tests_skipped` flag means its broad default suite
+was omitted; the child proof itself ran all 84 requested regression cases.
+This completes the local rehearsal. Actual provider/inbox and chosen-host
+acceptance remain separate deployment checks.
 
 ### Companion SingleRun HTTPS rehearsal
 

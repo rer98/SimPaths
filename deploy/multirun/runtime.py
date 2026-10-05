@@ -200,9 +200,16 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
     import uvicorn
     # Explicit, reviewed local recovery from laptop suspension/reconciliation
     # delay. Hosted services keep this disabled unless their operator opts in.
+    from .resource_recovery_settings import policy as recovery_policy
+    recovery=recovery_policy(args)
+    recovery_storage_ceiling=(executor.workspace_quotas.recovery_ceiling()
+                              if recovery is not None and executor.workspace_quotas is not None else None)
     service=Submissions(access,datasets,BrowserModel(releases,max_repetitions=args.max_repetitions,
                         max_configurations=args.max_configurations),
-                        allow_deadline_credit=local_codes,runtime_allowance=configuration_runtime(args))
+                        allow_deadline_credit=local_codes,runtime_allowance=configuration_runtime(args),
+                        resource_recovery=recovery,recovery_storage_ceiling_mib=recovery_storage_ceiling)
+    print('Automatic resource recovery: '+('enabled for new reviews; frozen ceilings and original retry/time budgets apply'
+                                          if recovery else 'disabled'),flush=True)
     from .queue_adapter import result_catalogue, result_name, result_deletion_targets, result_inputs, result_settings
     from jasmine_web.batch.output_management import OutputManagement
     service.results=Results(service,executor,result_catalogue,name=result_name,

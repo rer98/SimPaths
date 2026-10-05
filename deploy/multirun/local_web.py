@@ -138,6 +138,8 @@ def parse_args(argv=None):
                         help='Cumulative execution budget as a multiple of one attempt allowance (1–3; default: %(default)s)')
     parser.add_argument('--upload-allowance-gib',type=int,default=2,
                         help='Retained upload allowance per user in whole GiB (default: %(default)s); does not allocate disk space')
+    from .resource_recovery_settings import arguments as recovery_arguments, DEFAULTS as recovery_defaults, validate as validate_recovery
+    recovery_arguments(parser)
     parser.add_argument('--download-threshold-mib',type=int,default=512,
                         help='Prepare resumable compressed ZIPs at this selected file size (default: %(default)s MiB)')
     parser.add_argument('--download-cache-gib',type=int,default=10,
@@ -178,6 +180,10 @@ def parse_args(argv=None):
         parser.error('Visualiser limits must be 512–4096 MiB and 60–3600 seconds')
     if args.command=='serve' and (not args.console_codes or not 1024<=args.port<=65535):
         parser.error('This local preview requires --console-codes and an unprivileged port')
+    try:
+        validate_recovery({key:getattr(args,'recovery_'+key) for key in recovery_defaults})
+    except ValueError as error:
+        parser.error(str(error))
     return args
 
 

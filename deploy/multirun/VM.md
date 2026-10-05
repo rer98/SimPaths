@@ -202,6 +202,79 @@ and execution concurrency of an existing pool cannot silently change: mismatched
 settings fail startup. Choose them during isolated staging; later changes need a
 reviewed pool transition that preserves accepted jobs/history.
 
+### Automatic resource recovery
+
+This is an operator opt-in for **newly reviewed simulation configurations**:
+set `[recovery] enabled = true` in the TOML configuration, or append
+`--resource-recovery` to the local launcher. Existing submissions and preparations
+keep their original behavior. Install the updated quota broker before enabling
+recovery on dedicated storage; startup checks that it supports growth and records
+its maximum byte allowance in each review. This adds queue migration 021; retain
+a matching backup before upgrading an existing installation. Older application
+code will reject the newer schema rather than silently perform a code-only rollback.
+
+Initial model allocations stay unchanged: 2 GiB heap/4 GiB container for up to
+20,000 people, 3 GiB heap/5 GiB container above that, and the retained release's
+working-storage policy. Recovery defaults are provisional operator settings:
+
+- Check pressure every 10 seconds at an 85% threshold. Linux container memory
+  readings subtract inactive file cache, so cached output alone does not grant RAM.
+- Grow working storage by 25%, up to twice its initial allowance, also bounded by
+  the pool and broker ceilings recorded at review. Production changes increase the
+  **same XFS project quota**; local preview without a broker changes its monitored
+  allowance and makes no claim of kernel enforcement.
+- Grow container RAM by 1 GiB, up to 8 GiB. Keep swap disabled. A running JVM's
+  heap maximum stays fixed; only a new attempt can receive a larger heap.
+- Confirmed byte-quota exhaustion, container OOM and JVM heap exhaustion can
+  schedule a larger attempt for the affected resource. Heap retries add 1 GiB,
+  up to 4 GiB, and preserve the original native/off-heap headroom in the container.
+  Ordinary model/input errors, uncertain exits and time limits do not receive
+  resource increases. Unavailable capacity may delay admission; it does not spend
+  another attempt or execution time. Cancellation, permissions, the automatic
+  retry switch, the original three-attempt cap and cumulative time budget still apply.
+  A running model waiting for a live increase continues under its current limit
+  and original deadline; that execution time still counts.
+
+CSV write failures can be logged without making Java exit unsuccessfully. Output
+validation still rejects missing or incomplete results. A storage retry in that
+case requires the private write-error diagnostic, kernel byte-quota exhaustion,
+available inodes and filesystem headroom; the log alone cannot grant more storage.
+A zero exit with fully verified results remains successful.
+
+The database reserves each increase before Docker/the broker applies it. A lost
+reply retains that reservation; a replacement worker reconciles the original
+container and exact increase. It does not launch another model. Job status records
+growth/waits/retries and limits reached; owner and operator notices use the existing
+opt-in sender, contain no raw output/diagnostics and are deduplicated. Disabled
+mail delivery records incidents only. Backup/restore preserves confirmed enlarged
+quotas; a live restore omits running output and aborts external changes in its
+inactive copy, while retaining confirmed allocations for permitted retries.
+
+The ceilings do not provision physical capacity. In particular, the existing
+5 GiB local pool cannot expand a 5 GiB model container. The staging template's
+6 GiB pool permits only the available increase, shared with other work. Size the
+pool and broker ceilings explicitly during staging and leave host/database/web
+headroom outside them. Representative 50,000-person and larger-population
+calibration is still needed before changing initial heap/RAM defaults.
+
+Native recovery checks use fictional models:
+
+```bash
+cd ~/git/JAS-mine/JAS-mine-web
+~/simpaths-browser-tests/venv/bin/python scripts/test_batch_queue.py \
+  --test-pattern test_resource_recovery.py test_resource_recovery_docker.py \
+  --docker-tests --docker-java-test-image simpaths-interactive:uk-user-data
+```
+
+The Java fixture triggers real heap exhaustion; the Docker fixture separately
+triggers container OOM, live growth and lost-response reconciliation. The small
+administrator-run [XFS rehearsal](WORKSPACE_QUOTAS.md) additionally verifies
+live quota growth across lost replies and broker/worker restarts, then restores
+the enlarged quota on a separate disposable filesystem. It also checks a logged
+write failure with a zero exit, invalid output and a larger-storage retry. These
+check recovery mechanics; they do not establish suitable scientific workload sizes
+for a VM.
+
 Newly registered release policies scale working storage independently of runtime:
 **4 GiB fixed + 256 MiB per repetition**, raising the fixed term for larger input
 copies. Twelve repetitions normally need 7 GiB per active configuration, plus

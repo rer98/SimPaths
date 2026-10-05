@@ -95,6 +95,38 @@ class LiveBackupTests(unittest.TestCase):
         self.restore(resume=True)
         with self.f.target_q._connection() as c: self.assertEqual(before,table_inventory(c,self.f.target_q))
 
+    def test_confirmed_growth_survives_restore_without_replaying_pending_changes(self):
+        from jasmine_web.batch.policy import Resources
+        from jasmine_web.batch.resource_recovery import RecoveryPolicy, effective
+        self.q.cancel(self.f.owner,self.f.f.job(self.f.owner,self.f.queued)['id'])
+        run=dict(id='baseline',parameters=self.f.configuration.editable_configuration())
+        self.q.submit(self.f.owner,uuid4().hex,label='Growing recovery fixture',model_digest=IMAGE,
+            dataset_id=self.f.dataset,seed_plan=['606'],run_sets=[run],resources=Resources(2000,4000,8000),
+            resource_recovery=RecoveryPolicy(),heap_limits={'baseline':2048})
+        lease=self.active()
+        changed=self.q.reserve_resources(lease,'storage')
+        lease=self.q.confirm_resources(changed,changed.pending_change['target_resources'])
+        self.assertEqual(effective(lease)['storage_mib'],10000)
+        pending=self.q.reserve_resources(lease,'memory')
+        self.assertIsNotNone(pending.pending_change)
+        source=self.f.f.sql('SELECT state,target_resources FROM resource_changes ORDER BY revision')
+        self.save(); self.restore()
+        with self.f.target_q._connection() as c:
+            self.assertEqual(['confirmed','aborted'],[r['state'] for r in c.execute(
+                'SELECT state FROM resource_changes ORDER BY revision').fetchall()])
+            job=c.execute('SELECT next_resources,next_heap_mib,attempts FROM jobs WHERE id=%s',
+                          (lease.job_id,)).fetchone()
+            self.assertEqual(job['next_resources'],effective(lease))
+            self.assertEqual(job['next_heap_mib'],2048); self.assertEqual(job['attempts'],1)
+            self.assertEqual(0,c.execute("SELECT count(*) AS n FROM resource_changes WHERE state='pending'").fetchone()['n'])
+        self.assertEqual(source,self.f.f.sql('SELECT state,target_resources FROM resource_changes ORDER BY revision'))
+        backup.activate(self.f.target_q,self.f.backup,self.f.target,image_check=lambda _:None,source_isolated=True)
+        retry=self.f.target_q.claim('restored-worker')
+        self.assertEqual(retry.job_id,lease.job_id)
+        self.assertEqual(retry.resources,effective(lease)); self.assertEqual(retry.heap_mib,lease.heap_mib)
+        self.assertEqual(retry.specification,lease.specification)
+        self.assertIsNone(retry.pending_change)
+
     def test_cancel_retry_opt_out_exhaustion_and_revocation_remain_bounded(self):
         for case,expected in [('cancel','cancelled'),('opt-out','review'),('exhausted','review'),('revoked','review')]:
             with self.subTest(case=case):

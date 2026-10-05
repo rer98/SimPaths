@@ -20,6 +20,14 @@ The reports test different recorded source revisions and images. They do not
 collectively certify an unspecified future build. Record the exact selected release
 and run the relevant checks against it when installing or changing the service.
 
+MultiRun also has operator-enabled [automatic resource recovery](multirun/VM.md#automatic-resource-recovery):
+bounded live workspace/container-RAM growth and resource-specific retries preserve
+the original model, inputs, seeds and attempt/time budgets. New reviews freeze the
+operator's ceilings; existing work keeps its original policy. Real local Docker/JVM
+and XFS fixtures verify recovery mechanics, including lost replies and restarts.
+Initial scientific heap/RAM settings remain unchanged, and the growth headroom must
+be calibrated on the selected host before enabling the option for users.
+
 The subsequent MultiRun XFS quota implementation is described in
 [WORKSPACE_QUOTAS.md](multirun/WORKSPACE_QUOTAS.md). Local ABI, launcher, journal,
 executor, configuration and file-restore checks pass. Its native loop-filesystem
@@ -69,6 +77,10 @@ The older real-model drivers use `status: "passed"` rather than that report form
 | Retained model versions preserve datasets, accepted reviews, queued jobs, resources and retries | [Release-transition report](/home/rer/simpaths-benchmarks/postgres-queue-20261003-112048/report.json) | Fictional releases; scientific compatibility is assessed separately |
 | Repetition-scaled working storage and removal of repeated run inputs while preserving options and verified output | [Storage report](/home/rer/simpaths-benchmarks/multirun-storage-20261003-124138/report.json) | Full real 50,000-person runs, including three repetitions |
 | Hard MultiRun workspace quotas, inherited ioctl denial, broker/worker restart, independent restore and saved-result preservation | [Quota report](/home/rer/simpaths-benchmarks/workspace-quota-20261005-011818/report.json) and [filesystem proof](/home/rer/simpaths-benchmarks/workspace-quota-20261005-011818/postgres-proof/model-proof/report.json) | Two disposable XFS filesystems, real kernel limits and fictional Docker models; not installed-host acceptance |
+| Live quota growth, pending-change reconciliation and independent restoration of the enlarged limit | [Resource recovery quota report](/home/rer/simpaths-benchmarks/resource-recovery-quota-20261005-233529/report.json) and [filesystem proof](/home/rer/simpaths-benchmarks/resource-recovery-quota-20261005-233529/postgres-proof/model-proof/report.json) | Two disposable XFS filesystems; same container/process/project survives growth and worker/broker restart |
+| Incomplete zero-exit output at a confirmed byte quota triggers one larger-storage retry with unchanged seeds/specification | [Storage retry report](/home/rer/simpaths-benchmarks/resource-recovery-quota-20261006-002259/report.json) and [filesystem proof](/home/rer/simpaths-benchmarks/resource-recovery-quota-20261006-002259/postgres-proof/model-proof/report.json) | 96 regressions and seven native XFS stages; fictional work, independent restoration and cleanup |
+| Live RAM growth, container OOM, real Java heap exhaustion and larger-heap retry with original seeds | [Native Docker/JVM report](/tmp/codex-rer/resource-recovery-docker-java-check-2/report.json) | Six fictional native fixtures; scientific capacity calibration remains separate |
+| Backup preservation of confirmed increases and safe abortion of pending external changes in the inactive target | [Recovery backup report](/tmp/codex-rer/resource-recovery-backup-check/report.json) | Native disposable PostgreSQL dump/restore and fictional files |
 | Full-length real-model completion under kernel quotas, frozen seeds/resources, verified output/input-copy cleanup and released capacity | [Quota storage report](/home/rer/simpaths-benchmarks/multirun-quota-storage-20261005-101156/report.json) and [model proof](/home/rer/simpaths-benchmarks/multirun-quota-storage-20261005-101156/postgres-proof/model-proof/report.json) | Real public 50,000-person runs, 2019–2026, one/three repetitions under 4.5/5.5 GiB XFS limits; disposable local filesystem |
 | Twelve repetitions under a smaller allowance, long-output lease renewal, verified publication/input cleanup and released capacity | [Trial report](/home/rer/simpaths-benchmarks/multirun-quota-256-12-20261005-135803/report.json) and [model proof](/home/rer/simpaths-benchmarks/multirun-quota-256-12-20261005-135803/postgres-proof/model-proof/report.json) | Real public 50,000-person runs, 2019–2026, 4 GiB + 256 MiB/repetition under a 7 GiB XFS limit; proof-only policy |
 | Read-only operator inventory of jobs, reservations, storage, cleanup, notices and releases | [Operator report](/home/rer/simpaths-benchmarks/postgres-queue-20261003-142214/report.json) | Disposable PostgreSQL and fictional files |
@@ -141,6 +153,12 @@ not install services, choose providers or change security settings.
   and retention from those measurements. Use isolated staging pools for calibration;
   set production capacity before admitting real users. Existing pool capacity cannot
   be silently rewritten, and accepted jobs must keep their frozen limits.
+- [ ] Before enabling automatic resource recovery, install the growth-capable
+  quota broker and compatible schema/application, then test live growth and
+  resource-specific retries on the selected host. Calibrate heap/native headroom,
+  pressure thresholds and maximum allocations with representative populations.
+  Include SingleRun, aggregation, database and backup activity in shared/physical
+  capacity tests. Confirm owner/operator notices and pending-change reconciliation.
 
 ### Database security and supervised services
 

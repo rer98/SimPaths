@@ -11,8 +11,12 @@ The native VM route with `service.dedicated_storage=true` requires an XFS privat
 volume with enforced project quotas. Every new attempt receives the working-storage
 allowance frozen in its job, before inputs are staged or its container is created.
 The current default for new releases is **4 GiB fixed + 256 MiB per repetition**.
-Existing release/dataset/job policies retain their recorded allowances. A retry gets a new
-project with the original allowance; it cannot enlarge the previous attempt's limit.
+Existing release/dataset/job policies retain their recorded allowances. Normally
+a retry gets a new project with the original allowance. With operator-enabled
+[resource recovery](VM.md#automatic-resource-recovery), newly reviewed simulations
+can grow an active project's byte limit, or receive a larger fresh attempt, within
+their frozen ceilings and unchanged attempt/time budgets. Finished project limits
+are not enlarged.
 
 The ordinary laptop launcher and `dedicated_storage=false` private diagnostics use
 the existing monitoring route. They do not prove hard filesystem enforcement. Use
@@ -46,13 +50,20 @@ Projects are never reused and finished limits are never lifted.
 
 The web service remains unprivileged with `NoNewPrivileges=true`. A separate,
 administrator-owned quota broker accepts a bounded protocol over a private Unix
-socket, authenticating the service account's Linux UID. Clients can supply only an
-opaque attempt name, frozen byte limit and one supported operation. The broker
+socket, authenticating the service account's Linux UID. Clients supply an opaque
+attempt name, byte limit and one supported operation. A growth request additionally
+supplies the exact previous limit; it cannot shrink a quota or change inode limits.
+The service admits each increase against the shared pool and frozen recovery
+policy before contacting the broker. The broker repeats physical-space admission,
+enforces its administrator-set maximum and journals the exact change before
+updating the same kernel project. Lost replies/restarts reconcile that change
+without assigning another project ID. Install the growth-capable broker before
+enabling this option. The broker
 uses directory descriptors, rejects links/replaced roots and verifies XFS quota
 accounting and enforcement. It has no commands for mounting, formatting, disabling
 quotas, executing programs or choosing arbitrary file paths.
 
-Its root-owned ledger binds the filesystem/root inodes, records original limits
+Its root-owned ledger binds the filesystem/root inodes, records assigned limits
 and reserves monotonically increasing project IDs before kernel changes. Interrupted
 assignment resumes with the same project. Its bounded write probe requires a
 quota-exhaustion error (`ENOSPC` or `EDQUOT`), matching kernel quota/accounting,
@@ -182,10 +193,10 @@ verified files/database using the inactive-target workflow. Set up a destination
 broker for the new roots with a **fresh ledger and an unused project range**.
 Use the native target TOML for activation.
 
-After file/row/image verification, activation reads each frozen attempt's byte
+After file/row/image verification, activation reads each attempt's confirmed byte
 allowance from the verified database and applies it to restored work, request and
 preparation artifact trees. It refuses links, foreign projects, excessive trees,
-mismatched limits and retained data above its original allowance. Failure leaves
+mismatched limits and retained data above its confirmed allowance. Failure leaves
 `restore-pending.json` in place. Repeating activation resumes with the same
 destination IDs, without changing file contents, seeds, attempt counts, keys or
 retention dates. Recovered projects are settled until new attempts are explicitly
@@ -222,7 +233,9 @@ The proof runs focused executor/configuration/native dump-restore regressions,
 then checks the separate post-exhaustion write and filesystem headroom, nested
 exhaustion with the broker stopped, ioctl denial, the other owner's completion
 and retained ZIP bytes, confirmed capacity release, original
-container restart adoption, and reconstruction on an independent filesystem.
+container restart adoption, live quota growth across a lost reply and worker/broker
+restarts, a zero-exit write failure followed by a bounded larger-storage retry,
+and reconstruction on an independent filesystem.
 Read the outer report and `postgres-proof/model-proof/report.json`. Until it
 passes, unit-test success alone does not establish physical enforcement. Repeat
 appropriate checks on the eventual host and approved real model.
@@ -243,6 +256,26 @@ The first two runs passed 74 regressions and cleaned up but stopped at the
 startup probe before launching models. The probe incorrectly required `EDQUOT`;
 XFS returned `ENOSPC` at the project limit. The corrected check also requires
 quota readback, filesystem headroom and a successful independent allocation.
+
+The expanded recovery run `resource-recovery-quota-20261005-233529` passed all
+**90 regressions** and six filesystem stages. A 16 MiB project grew to 20 MiB
+after the shared reservation was increased. A deliberately lost broker reply left
+the increase pending; fresh broker/worker processes adopted the same project,
+container and process. That model wrote 18 MiB and completed its original seeds
+in one attempt. Independent restoration retained the confirmed 20 MiB allowance;
+other settled output kept its original 16 MiB limit. All three reports confirm
+success and cleanup. This checks bounded recovery mechanics, not scientific
+workload sizing or the eventual production host.
+
+On 6 October, `resource-recovery-quota-20261006-002259` passed **96 regressions**
+and all seven filesystem stages. The added fixture reached its 16 MiB byte quota,
+logged a write error and exited zero without complete results. Output validation
+and kernel evidence classified that as storage exhaustion; one automatic retry
+at 20 MiB completed the same 18 MiB workload with the original seeds 606/607 and
+unchanged specification. Heap/container RAM stayed unchanged. The first attempt
+published no repetition receipts; the other owner's result and retained ZIP stayed
+intact. The grown and retried quotas survived independent filesystem restoration.
+All three reports confirm success and cleanup.
 
 ## Full-length real-model storage proof
 

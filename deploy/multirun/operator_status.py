@@ -123,6 +123,13 @@ def render(report):
             if row.get('storage_wait'):
                 wait=row['storage_wait']
                 lines.append('    Disk at last check: needs '+gib(wait['required_bytes'])+'; available '+gib(wait['available_bytes']))
+            if row.get('resource_recovery'):
+                recovery=row['resource_recovery']
+                lines.append('    Allocation: '+allocation(row['resources'])+
+                    (f"; Java heap {recovery['heap_mib']/1024:g} GiB" if recovery['heap_mib'] is not None else '')+
+                    ('; resource change pending, reservation retained' if recovery['change_pending'] else ''))
+                if recovery['wait']:
+                    lines.append('    Resource increase: '+literal(recovery['wait']['kind'])+'; '+literal(recovery['wait']['reason']))
         if db['jobs']['details_truncated']:
             lines.append(f"  Showing {len(db['jobs']['details'])} of {db['jobs']['unfinished']} unfinished jobs; increase --limit for more.")
         lines.append(f"Attempts: {db['attempts']['unfinished']} unfinished; {db['attempts']['expired_leases']} expired lease(s), reservations retained")

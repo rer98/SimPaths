@@ -97,7 +97,29 @@ def await_gate(expected):
     while Path('/request/gate').read_text().strip()!=expected:
         if time.monotonic()>deadline: raise AssertionError('fixture gate timed out')
         time.sleep(.1)
-if settings['mode']=='fill':
+if settings['mode']=='quota-retry':
+    report(dict(guard=True,ready=True))
+    await_gate('go')
+    try:
+        with (nested/'large').open('wb',buffering=0) as stream:
+            for index in range(288):
+                stream.write(b'r'*65536)
+                if (index+1)%16==0: os.fsync(stream.fileno())
+            os.fsync(stream.fileno())
+    except OSError as error:
+        assert error.errno in (errno.ENOSPC,errno.EDQUOT),error
+        # ExportCSV can log an IOException and still let Java exit zero. The
+        # validator must reject incomplete output and verify the kernel cause.
+        print('java.io.IOException: '+error.strerror,flush=True)
+        raise SystemExit(0)
+elif settings['mode']=='grow':
+    report(dict(guard=True,ready=True))
+    await_gate('fill')
+    with (nested/'large').open('wb',buffering=0) as stream:
+        for _ in range(224): stream.write(b'x'*65536)
+        os.fsync(stream.fileno())
+    report(dict(guard=True,filled=True))
+elif settings['mode']=='fill':
     report(dict(guard=True,ready=True))
     await_gate('fill')
     written=0
@@ -112,6 +134,10 @@ if settings['mode']=='fill':
         else: raise AssertionError('filesystem did not enforce quota')
 else: report(dict(guard=True,ready=True))
 await_gate('go')
+if settings['mode']=='grow':
+    with (nested/'large').open('ab',buffering=0) as stream:
+        for _ in range(64): stream.write(b'y'*65536)
+        os.fsync(stream.fileno())
 if settings['mode']=='fill': raise SystemExit(3)
 (work/'results.json').write_text(json.dumps([dict(seed=seed,fixture='original') for seed in settings['seeds']]))
 '''
@@ -175,7 +201,7 @@ def execute_proof(output):
     output.mkdir(mode=0o700,parents=True)
     evidence_notice(output,os.getuid(),os.getgid())
     names=['test_workspace_quota','test_batch_docker_executor','deploy.multirun.test_vm_config',
-           'deploy.multirun.test_workspace_quota','deploy.multirun.test_backup']
+           'deploy.multirun.test_workspace_quota','deploy.multirun.test_resource_recovery','deploy.multirun.test_backup']
     suite=unittest.defaultTestLoader.loadTestsFromNames(names)
     result=unittest.TextTestRunner(verbosity=2).run(suite)
     report['tests']=result.testsRun
@@ -226,7 +252,8 @@ def execute_proof(output):
     try:
         quotas.guard(); report['probe']=quotas.preflight()
         stage='queue-fixtures'
-        q.migrate(); q.create_pool(Resources(2000,256,64),policy=Policy(attempt_seconds=120,total_seconds=360,lease_seconds=5))
+        q.migrate(); q.create_pool(Resources(2000,256,64),policy=Policy(attempt_seconds=120,total_seconds=360,
+            lease_seconds=5,retry_delay_seconds=1))
         q.register_dataset('fictional-inputs','a'*64)
         for owner in ('alice','bob'):
             q.approve(owner); q.grant_dataset(owner,'fictional-inputs')
@@ -295,6 +322,93 @@ def execute_proof(output):
         for name in ('work','request'):
             shutil.rmtree(executor.workspace(by_mode['fill'])/name)
         assert hashlib.sha256((source/'retained.zip').read_bytes()).hexdigest()==original_zip
+        stage='live-storage-growth-and-lost-reply'
+        from jasmine_web.batch.resource_recovery import RecoveryPolicy,effective
+        recovery_exp=q.submit('alice',uuid4().hex,label='growth',model_digest=image,dataset_id='fictional-inputs',
+            seed_plan=['606','607'],run_sets=[dict(id='grow',parameters={})],resources=Resources(500,128,16),
+            resource_recovery=RecoveryPolicy(memory_step_mib=64,max_memory_mib=256,heap_step_mib=32,max_heap_mib=128),
+            heap_limits={'grow':64})
+        growth_worker=Worker(q,executor,adapter,'growth')
+        with growth_worker.open():
+            growth_worker.tick(); growing=next(iter(growth_worker.leases.values()))
+            wait(lambda:read_state(growing))
+            original_container=docker.inspect(executor._name(growing)); project=quotas.check(growing)['project_id']
+            gate(growing,'fill'); wait(lambda:(read_state(growing) or {}).get('filled'))
+            growth_worker.tick(claim_new=False)
+            pending=growth_worker.leases[growing.attempt_id]
+            assert pending.pending_change and pending.pending_change['target_resources']['storage_mib']==20
+            original_grow=quotas.grow
+            def lost_reply(*values):
+                original_grow(*values); raise WorkspaceQuotaUnavailable('fictional lost broker reply')
+            with unittest.mock.patch.object(quotas,'grow',side_effect=lost_reply): growth_worker.tick(claim_new=False)
+            with q._connection() as c:
+                assert c.execute('SELECT storage_mib FROM reservations WHERE attempt_id=%s',(growing.attempt_id,)).fetchone()['storage_mib']==20
+                assert c.execute('SELECT state FROM resource_changes WHERE attempt_id=%s',(growing.attempt_id,)).fetchone()['state']=='pending'
+                c.execute("UPDATE attempts SET lease_until=clock_timestamp()-interval '1 second' WHERE id=%s",(growing.attempt_id,))
+        control(settings,'stop-source'); control(settings,'start-source'); wait(lambda:ready(quotas))
+        growth_worker=Worker(q,executor,adapter,'growth-replacement')
+        with growth_worker.open():
+            growth_worker.tick(claim_new=False); grown=growth_worker.leases[growing.attempt_id]
+            assert effective(grown)['storage_mib']==20 and grown.heap_mib==64
+            status=quotas.check(grown); current=docker.inspect(executor._name(grown))
+            assert status['project_id']==project and status['limit_bytes']==20*MIB
+            assert current['Id']==original_container['Id'] and current['State']['Pid']==original_container['State']['Pid']
+            gate(grown,'go')
+            def growth_finished():
+                growth_worker.tick(claim_new=False)
+                return q.inspect('alice',recovery_exp)['jobs'][0]['state']=='succeeded'
+            wait(growth_finished); executor.cleanup(grown)
+        assert q.inspect('alice',recovery_exp)['jobs'][0]['attempts']==1
+        assert (executor.workspace(grown)/'work/nested/large').stat().st_size==18*MIB
+        assert quotas.ready()['remaining_reserved_bytes']==0
+        passed('live XFS growth reserves capacity first, survives a lost broker reply and both broker/worker restarts, then writes beyond the original limit in the same container and attempt')
+        stage='zero-exit-quota-failure-and-bounded-retry'
+        retry_exp=q.submit('alice',uuid4().hex,label='storage retry',model_digest=image,dataset_id='fictional-inputs',
+            seed_plan=['606','607'],run_sets=[dict(id='quota-retry',parameters={})],resources=Resources(500,128,16),
+            resource_recovery=RecoveryPolicy(memory_step_mib=64,max_memory_mib=256,heap_step_mib=32,max_heap_mib=128),
+            heap_limits={'quota-retry':64})
+        retry_worker=Worker(q,executor,adapter,'storage-retry')
+        with retry_worker.open():
+            retry_worker.tick(); first=next(iter(retry_worker.leases.values()))
+            with retry_worker._output_heartbeats():
+                wait(lambda:read_state(first)); gate(first,'go')
+                wait(lambda:not docker.inspect(executor._name(first))['State']['Running'])
+            # A burst crosses the quota before a pressure tick; no live increase
+            # has occurred. The model swallowed its write error and exited zero.
+            assert docker.inspect(executor._name(first))['State']['ExitCode']==0
+            assert executor.inspect(first)['outcome']=='success'
+            assert not (executor.workspace(first)/'work/results.json').exists()
+            retry_worker.tick(claim_new=False)
+            failed=q.inspect('alice',retry_exp)['jobs'][0]
+            assert failed['state']=='retry_wait' and failed['attempts']==1
+            assert failed['history'][0]['outcome']=='storage_limit'
+            executor.cleanup(first)
+            def claimed_retry():
+                retry_worker.tick()
+                return next(iter(retry_worker.leases.values()),None)
+            retry=wait(claimed_retry)
+            assert retry.attempt_id!=first.attempt_id and retry.specification==first.specification
+            assert effective(retry)['storage_mib']==20 and retry.heap_mib==first.heap_mib
+            assert effective(retry)['memory_mib']==effective(first)['memory_mib']
+            with retry_worker._output_heartbeats():
+                wait(lambda:read_state(retry)); gate(retry,'go')
+                wait(lambda:not docker.inspect(executor._name(retry))['State']['Running'])
+            retry_worker.tick(claim_new=False); executor.cleanup(retry)
+        finished=q.inspect('alice',retry_exp)['jobs'][0]
+        assert finished['state']=='succeeded' and finished['attempts']==2
+        assert [entry['outcome'] for entry in finished['history']]==['storage_limit','success']
+        assert (executor.workspace(retry)/'work/nested/large').stat().st_size==18*MIB
+        with q._connection() as c:
+            rows=list(c.execute('SELECT actual_seed FROM repetitions WHERE attempt_id=%s ORDER BY ordinal',(retry.attempt_id,)))
+            assert [row['actual_seed'] for row in rows]==['606','607']
+            assert c.execute('SELECT count(*) AS n FROM repetitions WHERE attempt_id=%s AND actual_seed IS NOT NULL',
+                (first.attempt_id,)).fetchone()['n']==0
+        assert quotas.ready()['remaining_reserved_bytes']==0
+        assert q.inspect('bob',experiments['bob'])['jobs'][0]['state']=='succeeded'
+        assert hashlib.sha256((source/'retained.zip').read_bytes()).hexdigest()==original_zip
+        report['storage_retry']=dict(first_exit_code=0,outcomes=['storage_limit','success'],attempts=2,
+            initial_storage_mib=16,retry_storage_mib=20,seeds=['606','607'],specification_unchanged=True)
+        passed('a zero-exit model with incomplete output and kernel byte-quota exhaustion retries automatically at 20 MiB, completes its original seeds once and preserves the other owner result and original ZIP')
         good=by_mode['good']; saved=source/'execution'/good.execution_key/'work/results.json'
         saved_hash=hashlib.sha256(saved.read_bytes()).hexdigest()
         # Filesystem metadata is reconstructed on an independent destination;
@@ -309,6 +423,8 @@ def execute_proof(output):
         with q._connection() as c: restore_workspace_quotas(c,q,target,target_quotas)
         assert target_quotas.check(good)['limit_bytes']==16*1024**2
         assert target_quotas.check(good)['project_id']!=quotas.check(good)['project_id']
+        assert target_quotas.check(grown)['limit_bytes']==20*MIB
+        assert target_quotas.check(retry)['limit_bytes']==20*MIB
         assert hashlib.sha256((target/'execution'/good.execution_key/'work/results.json').read_bytes()).hexdigest()==saved_hash
         assert target_quotas.ready()['remaining_reserved_bytes']==0
         control(settings,'restart-target'); wait(lambda:ready(target_quotas))

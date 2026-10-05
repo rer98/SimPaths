@@ -56,6 +56,13 @@ class WorkspaceIntegrationTests(unittest.TestCase):
             restore_workspace_quotas(self.connection,self.queue,self.state,self.quotas)
         self.quotas.restore.assert_not_called(); self.connection.execute.assert_not_called()
 
+    def test_restore_uses_confirmed_growth_instead_of_the_original_job_limit(self):
+        (self.state/'execution'/KEY).mkdir(parents=True,mode=0o700)
+        self.connection.execute.return_value.fetchall.return_value=[dict(execution_key=KEY,
+            resources=dict(storage_mib=5632),current_resources=dict(storage_mib=7040))]
+        restore_workspace_quotas(self.connection,self.queue,self.state,self.quotas)
+        self.assertEqual(self.quotas.restore.call_args.args[0].current_resources['storage_mib'],7040)
+
     def test_restore_rejects_linked_or_orphan_prepared_artifact(self):
         target=self.state/'artifacts'/KEY; target.mkdir(parents=True,mode=0o700)
         with self.assertRaises(ArtifactError): restore_workspace_quotas(self.connection,self.queue,self.state,self.quotas)

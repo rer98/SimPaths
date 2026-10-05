@@ -12,9 +12,11 @@ import tomllib
 from urllib.parse import urlsplit
 
 from .schema import deployment_configuration_limit, deployment_repetition_limit
+from .resource_recovery_settings import DEFAULTS as RECOVERY_DEFAULTS, validate as validate_recovery
 
 
 DEFAULTS = {
+    'recovery': RECOVERY_DEFAULTS,
     'service': {'origin': None, 'port': 5002, 'pool_id': 'simpaths-online',
                 'dedicated_storage': True},
     'paths': {'frontend': None, 'private_root': None, 'state': None,
@@ -105,6 +107,7 @@ def load_config(path):
     if any(p == root or not p.is_relative_to(root) or p.is_relative_to(state) for p in paths['prepared']):
         raise ValueError('Training imports must be under private_root, outside the service state')
     limits = sections['limits']
+    validate_recovery(sections['recovery'])
     deployment_configuration_limit(limits['max_configurations'])
     deployment_repetition_limit(limits['max_repetitions'])
     for key, low, high in (('max_unfinished_jobs', 1, 10000), ('pool_unfinished_jobs', 1, 10000),
@@ -148,6 +151,7 @@ def load_config(path):
     if len(os.fsencode(quota_socket))>100:
         raise ValueError('workspaces.quota_socket exceeds the Unix socket path bound')
     options = SimpleNamespace(**limits, **paths, **service, image=image,
+        **{'recovery_'+key:value for key,value in sections['recovery'].items()},
         workspace_quota_socket=quota_socket,
         workspace_guard=absolute(sections['workspaces']['guard'],'workspaces.guard'),
         download_threshold_mib=downloads['threshold_mib'], download_cache_gib=downloads['cache_gib'],

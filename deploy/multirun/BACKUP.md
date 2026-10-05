@@ -392,7 +392,8 @@ For native `dedicated_storage=true` targets, install the
 [workspace quota broker and static launcher](WORKSPACE_QUOTAS.md) for the new
 execution/artifact roots before activation. Use a fresh destination ledger and
 unused project-ID range. Activation with the target `--config` rebuilds quotas
-from verified frozen attempt allowances after file/row/image checks. A quota
+from verified confirmed attempt allowances after file/row/image checks, including
+any completed resource-recovery increases. A quota
 failure leaves the inactive marker in place; repeating activation resumes the
 same allocations. Portable backups do not copy filesystem project IDs. The
 initial inactive copy still requires a correctly sized finite destination volume.

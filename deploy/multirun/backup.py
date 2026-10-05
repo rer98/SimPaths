@@ -441,7 +441,7 @@ def restore_workspace_quotas(c, queue, target, quotas):
     from psycopg import sql
     from types import SimpleNamespace
     quotas.guard(); quotas.preflight()
-    rows=c.execute(sql.SQL('''SELECT a.execution_key,j.resources FROM {} a
+    rows=c.execute(sql.SQL('''SELECT a.execution_key,j.resources,a.current_resources FROM {} a
         JOIN {} j ON j.id=a.job_id WHERE a.pool_id=%s ORDER BY a.execution_key''').format(
         sql.Identifier(queue.schema,'attempts'),sql.Identifier(queue.schema,'jobs')),(queue.pool_id,)).fetchall()
     for row in rows:
@@ -450,7 +450,8 @@ def restore_workspace_quotas(c, queue, target, quotas):
         if root.is_symlink() or artifact.is_symlink():
             raise ArtifactError('Linked restored workspace')
         if root.exists():
-            quotas.restore(SimpleNamespace(execution_key=row['execution_key'],resources=row['resources']))
+            quotas.restore(SimpleNamespace(execution_key=row['execution_key'],resources=row['resources'],
+                                          current_resources=row.get('current_resources')))
         elif artifact.exists():
             raise ArtifactError('Restored prepared artifact has no attempt identity directory')
 

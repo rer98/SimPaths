@@ -59,6 +59,11 @@ class SubmissionModel:
         return dict(image=image, parameters=dict(release=identity, selection=request),
                     resources=Resources(**policy['preparation']))
 
+    def heap_limits(self, spec):
+        """Freeze the launcher's existing initial heaps, independently of browsers."""
+        return {run['id']:3072 if normalise(run['parameters']).as_dict()['common']['population']>20000
+                else 2048 for run in spec['run_sets']}
+
     def experiment(self, resolved, request):
         from jasmine_web.batch.policy import Resources
         if not isinstance(request, dict) or set(request) - {'configuration','baseline','auto_retry'} or 'configuration' not in request:

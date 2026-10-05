@@ -80,6 +80,14 @@ class SimPathsContainerAdapter(SimPathsLocalAdapter):
         (request / "inputs.sha256").write_text("\n".join(manifest) + "\n")
         (request / "input-files.txt").write_text("".join(name + "\n" for name in sorted(identity["prepared"])))
         heap = "3g" if config.as_dict()['common']['population'] > 20000 else "2g"
+        if getattr(lease,'heap_mib',None) is not None:
+            from jasmine_web.batch.resource_recovery import configuration
+            recovery=configuration(lease.specification,lease.configuration_id)
+            if (recovery is None or type(lease.heap_mib) is not int
+                    or not recovery[1]['heap_mib']<=lease.heap_mib<=recovery[0].max_heap_mib
+                    or lease.heap_mib+recovery[1]['native_headroom_mib']>lease.resources['memory_mib']):
+                raise ArtifactError('Heap allocation differs from the frozen recovery policy')
+            heap=str(lease.heap_mib)+'m'
         return ContainerExecution(self.image, ("/bin/sh", "/request/run.sh", heap), str(self.prepared))
 
 

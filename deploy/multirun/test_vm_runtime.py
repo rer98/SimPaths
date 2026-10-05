@@ -46,6 +46,16 @@ def until(function):
     raise AssertionError('VM proof timed out')
 
 
+class FixtureExecutor(LocalExecutor):
+    """A stopped-process cleanup contract for the fictional VM assembly."""
+    workspace_quotas=None
+
+    def cleanup(self,lease):
+        self._require_guard()
+        if self.inspect(lease)['state']!='stopped':
+            raise Conflict('Fixture process termination is unconfirmed')
+
+
 @unittest.skipUnless(DSN, 'Use vm_proof.py with disposable PostgreSQL')
 class VMRuntimeTests(unittest.TestCase):
     def setUp(self):
@@ -71,7 +81,7 @@ class VMRuntimeTests(unittest.TestCase):
         self.patches = ExitStack(); self.addCleanup(self.patches.close)
         self.patches.enter_context(patch.object(runtime, 'frozen_release', return_value=self.release))
         self.patches.enter_context(patch.object(runtime, 'BrowserModel', side_effect=lambda *a, **kw: BrowserModel(self.state)))
-        self.patches.enter_context(patch.object(runtime, 'DockerExecutor', side_effect=lambda root, **kw: LocalExecutor(root)))
+        self.patches.enter_context(patch.object(runtime, 'DockerExecutor', side_effect=lambda root, **kw: FixtureExecutor(root)))
         adapter = DummyAdapter(delay=.1)
         adapter.preparation = SimpleNamespace(retire_failed=lambda *a, **kw: None)
         self.patches.enter_context(patch.object(runtime, 'DispatchAdapter', return_value=adapter))
@@ -166,9 +176,37 @@ class VMRuntimeTests(unittest.TestCase):
                 policy = c.execute('SELECT policy FROM experiments WHERE id=%s', (experiment,)).fetchone()['policy']
             self.assertEqual(policy['attempt_seconds'], 8100)
             self.assertEqual(policy['total_seconds'], 24300)
+            until(lambda:client.get('/healthz').status_code==200)
             job = client.get('/api/results/'+experiment).json()['configurations'][0]['id']
             for headers in ({}, {'Range':'bytes=0-10'}):
                 self.assertEqual(client.get('/downloads/'+job, headers=headers).status_code, 403)
+
+    def test_recovery_opt_in_reaches_review_and_dispatch_without_changing_initial_resources(self):
+        self.args.recovery_enabled=True
+        def model(*args,**kwargs):
+            value=BrowserModel(self.state)
+            value.heap_limits=lambda spec:{r['id']:2048 for r in spec['run_sets']}
+            return value
+        dataset=self.dataset()
+        with patch.object(runtime,'BrowserModel',side_effect=model),TestClient(self.app(),base_url=self.origin) as client:
+            self.sign_in(client)
+            form=dict(name='Recovery review',common=dict(population=20,start_year=2019,end_year=2020),
+                repetitions=1,baseline='first',auto_retry=True,run_sets=[dict(id='first',name='Baseline',model_args={})])
+            response=client.post('/api/review-experiment',json=dict(dataset=dataset,form=form))
+            self.assertEqual(response.status_code,200,response.text)
+            reviewed=response.json()
+            self.assertEqual(reviewed['resource_recovery']['policy']['max_heap_mib'],4096)
+            result=client.post('/api/submit',json=dict(key='recovery-vm-proof',review=reviewed['review']))
+            self.assertEqual(result.status_code,201,result.text)
+            exp=result.json()['id']
+            until(lambda:all(j['state']=='succeeded' for j in client.get('/api/experiments/'+exp).json()['jobs']))
+            with self.q._connection() as c:
+                row=c.execute('SELECT initial_resources,current_resources,heap_mib FROM attempts WHERE job_id IN '
+                    '(SELECT id FROM jobs WHERE experiment_id=%s)',(exp,)).fetchone()
+                self.assertEqual(row['initial_resources'],reviewed['resources'])
+                self.assertEqual(row['current_resources'],reviewed['resources'])
+                self.assertEqual(row['heap_mib'],2048)
+            until(lambda:client.get('/healthz').status_code==200)
 
     def test_restart_preserves_session_secret_and_existing_access(self):
         with TestClient(self.app(), base_url=self.origin) as client:

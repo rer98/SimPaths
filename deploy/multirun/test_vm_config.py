@@ -10,6 +10,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import tempfile
 import unittest
@@ -45,6 +46,16 @@ class VMConfigTests(unittest.TestCase):
         with patch('socket.socket', side_effect=AssertionError('No network')), redirect_stdout(io.StringIO()):
             self.assertEqual(main(['check', '--config', str(self.path)]), 0)
         self.assertEqual(sorted(p.name for p in self.root.iterdir()), ['settings.toml'])
+
+    def test_recovery_is_operator_opt_in_and_unknown_or_invalid_settings_fail(self):
+        self.assertFalse(self.config().recovery_enabled)
+        legacy=re.sub(r'(?ms)^\[recovery\]\n.*?(?=^\[|\Z)','',self.text)
+        self.assertFalse(self.config(legacy).recovery_enabled)
+        configured=self.config(legacy+'\n[recovery]\nenabled = true\nmax_memory_mib = 8192\n')
+        self.assertTrue(configured.recovery_enabled)
+        self.assertEqual(configured.recovery_max_heap_mib,4096)
+        for setting in ('pressure_percent = 99','storage_multiplier = 0','max_heap_mib = true','unlimited = true'):
+            with self.assertRaises(ValueError): self.config(legacy+'\n[recovery]\n'+setting+'\n')
 
     def test_untrusted_or_accidentally_incompatible_configuration_is_rejected(self):
         replacements = [('https://multirun.example.org', 'http://multirun.example.org'),

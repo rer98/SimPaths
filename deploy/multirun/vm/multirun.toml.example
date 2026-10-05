@@ -57,6 +57,20 @@ threshold_mib = 512
 cache_gib = 10
 cache_hours = 24
 
+[recovery]
+# Applies only to newly reviewed simulation configurations; see VM.md.
+# Capacity remains reserved before any live limit change. These are ceilings,
+# not a promise of available RAM/disk. Leave host/database/web headroom outside.
+enabled = false
+pressure_percent = 85
+memory_step_mib = 1024
+max_memory_mib = 8192
+heap_step_mib = 1024
+max_heap_mib = 4096
+storage_step_percent = 25
+storage_multiplier = 2
+check_seconds = 10
+
 [notifications]
 # Email sign-in is always required on the VM. These switches control job notices/expiry.
 enabled = false

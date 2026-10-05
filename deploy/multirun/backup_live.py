@@ -196,7 +196,7 @@ def create(queue, state, destination, tools, *, after_snapshot=None, single_capt
 def recover_database(c, queue, manifest, target):
     """One deterministic, transactional conversion, only in an inactive target."""
     from psycopg import sql
-    from jasmine_web.batch.policy import Policy, next_state
+    from jasmine_web.batch.policy import Policy, canonical, next_state
     from .backup_single import recover
     captured=datetime.fromisoformat(manifest['recovery']['captured_at'])
     c.execute(sql.SQL('SET LOCAL search_path TO {},pg_catalog').format(sql.Identifier(queue.schema)))
@@ -221,6 +221,13 @@ def recover_database(c, queue, manifest, target):
             sql.Identifier(queue.schema,'attempts')),(at,outcome,evidence,row['id']))
         c.execute(sql.SQL('UPDATE {} SET state=%s,spent_seconds=%s,eligible_at=%s WHERE id=%s').format(
             sql.Identifier(queue.schema,'jobs')),(state,spent,at+timedelta(seconds=policy.retry_delay_seconds),row['job_id']))
+        # Live output is intentionally omitted. Keep confirmed growth for the
+        # next attempt, but never replay an external change in the inactive copy.
+        c.execute(sql.SQL("UPDATE {} SET state='aborted',finished_at=%s WHERE attempt_id=%s AND state='pending'").format(
+            sql.Identifier(queue.schema,'resource_changes')),(at,row['id']))
+        if row['current_resources']:
+            c.execute(sql.SQL('UPDATE {} SET next_resources=%s::jsonb,next_heap_mib=%s,resource_wait=NULL WHERE id=%s').format(
+                sql.Identifier(queue.schema,'jobs')),(canonical(row['current_resources']),row['heap_mib'],row['job_id']))
         # Partial scientific receipts cannot expose output omitted from this backup.
         c.execute(sql.SQL('UPDATE {} SET actual_seed=NULL,output_fingerprint=NULL WHERE attempt_id=%s').format(
             sql.Identifier(queue.schema,'repetitions')),(row['id'],))

@@ -116,7 +116,7 @@ default or restarting never recalculates these from the newest policy. Pending
 datasets have a provisional input-size estimate, described below.
 
 Newly registered releases start with the agreed **4 GiB fixed working allowance
-plus 512 MiB per repetition**:
+plus 256 MiB per repetition**:
 
 ```json
 {
@@ -126,7 +126,7 @@ plus 512 MiB per repetition**:
     "cpu_millis": 2000,
     "memory_mib": 4096,
     "large_memory_mib": 5120,
-    "storage": {"setup_mib": 4096, "per_repetition_mib": 512}
+    "storage": {"setup_mib": 4096, "per_repetition_mib": 256}
   }
 }
 ```
@@ -148,10 +148,10 @@ For inputs fitting the 4 GiB fixed term:
 
 | Repetitions | Working allowance per attempt |
 | ---: | ---: |
-| 1 | 4.5 GiB |
-| 3 | 5.5 GiB |
-| 12 | 10 GiB |
-| 1,000 | 504 GiB |
+| 1 | 4.25 GiB |
+| 3 | 4.75 GiB |
+| 12 | 7 GiB |
+| 1,000 | 254 GiB |
 
 Submission review shows the calculated allowance, with a compact per-configuration
 list when datasets require different amounts. A configuration exceeding the pool's
@@ -170,8 +170,9 @@ identity are stored before admission and retained by retries.
 
 **Existing releases and jobs:** already registered policies, legacy bundles and
 prepared receipts are not rewritten. Their original fixed 10 GiB policy remains
-10 GiB where recorded. Restarting an existing service does not opt it into the new
-default. To use scaling, register/select a new release using the command above;
+10 GiB where recorded, and earlier 512 MiB-per-repetition policies keep that term.
+Restarting an existing service does not opt it into the new default. To adopt the
+256 MiB term, register/select a new release using the command above;
 the changed policy gives it a distinct ID even if the scientific JAR is identical.
 No image rebuild is required for this policy-only change. Prepare new user-input
 datasets with that release. Legacy training/input receipts without a policy use
@@ -183,6 +184,14 @@ The `list` command and startup log show the default policy's fixed/per-repetitio
 terms. The default is an initial operator estimate to measure on representative
 workloads, not a guarantee for every population, horizon or collector selection.
 Runtime continues using the separately frozen launcher formula.
+
+**Population-size follow-up before deployment:** confirm with the SimPaths team
+which initial population size should be the browser default and which sizes
+researchers typically use. Measure working storage for those populations with
+representative horizons and collector settings, then review the allowance and
+pool capacity. The adopted 4 GiB + 256 MiB-per-repetition standard is supported by
+the twelve-run 50,000-person, 2019–2026 test; it does not establish capacity for
+larger or longer runs. Track this in the [deployment checklist](../DEPLOYMENT_CHECKLIST.md#host-storage-and-capacity).
 
 An operator policy can be supplied as a private, service-owned JSON file using
 `register --resource-policy /path/to/policy.json`. It must be mode 0600 (or stricter),
@@ -208,6 +217,8 @@ minimum remains an additional floor. Old fixed policies retain their previous
 physical launch checks. Low space waits without consuming an execution attempt.
 The executor monitors actual workspace growth and stops an oversized attempt.
 These are shared reservations and size checks, **not hard filesystem quotas**.
+Native dedicated-storage execution additionally requires the administrator's
+[XFS project quota broker and guarded launcher](WORKSPACE_QUOTAS.md).
 Provision the dedicated private filesystem and reserve room for all retained data,
 images, PostgreSQL, logs and caches as described in [VM.md](VM.md).
 
@@ -230,6 +241,16 @@ unchanged, and only this proof's stopped containers/workspaces are removed.
 
 The report records once-per-second allocated-byte peaks for the workspace, input
 copy, native snapshot and CSVs, plus per-seed output sizes and remaining headroom.
+For the same real-model cases with physical enforcement, use the
+[native XFS storage proof](WORKSPACE_QUOTAS.md#full-length-real-model-storage-proof).
+It adds kernel usage/limit readback and checks the retained limit after cleanup;
+the ordinary command above measures sizes with application monitoring.
+The [256 MiB/twelve-repetition trial](WORKSPACE_QUOTAS.md#trial-256-mib-per-repetition-twelve-repetitions)
+passed with a 5.16 GiB sampled kernel peak under its 7 GiB hard limit. All twelve
+seeds and annual output verified in one attempt, with input cleanup and released
+capacity. Following this trial, 256 MiB per repetition was adopted for newly
+registered releases and the proof commands; existing recorded policies remain
+unchanged.
 Required annual CSVs, seed mappings and settings are checked by the normal adapter.
 It verifies that only the first repetition made a large snapshot and that production
 cleanup preserves verified CSVs and every `options.txt`. Evidence contains counts,

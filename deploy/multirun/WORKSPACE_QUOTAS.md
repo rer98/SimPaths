@@ -10,7 +10,8 @@ MultiRun filesystem limits, privileged quota service and native local acceptance
 The native VM route with `service.dedicated_storage=true` requires an XFS private
 volume with enforced project quotas. Every new attempt receives the working-storage
 allowance frozen in its job, before inputs are staged or its container is created.
-The current policy is **4 GiB fixed + 512 MiB per repetition**. A retry gets a new
+The current default for new releases is **4 GiB fixed + 256 MiB per repetition**.
+Existing release/dataset/job policies retain their recorded allowances. A retry gets a new
 project with the original allowance; it cannot enlarge the previous attempt's limit.
 
 The ordinary laptop launcher and `dedicated_storage=false` private diagnostics use
@@ -242,6 +243,150 @@ The first two runs passed 74 regressions and cleaned up but stopped at the
 startup probe before launching models. The probe incorrectly required `EDQUOT`;
 XFS returned `ENOSPC` at the project limit. The corrected check also requires
 quota readback, filesystem headroom and a successful independent allocation.
+
+## Full-length real-model storage proof
+
+The same mount/broker wrapper can run the existing storage proof with verified
+public 50,000-person inputs. Stop local models first. This mode needs **6 GiB
+available RAM** and **10 GiB free on `/tmp/codex-rer`'s filesystem**. It creates
+one new 8 GiB regular loop-image file. The installed scientific image and prepared
+inputs are reused without rebuilding or modifying them. The model and disposable
+PostgreSQL run as the ordinary account; no service is installed and no mail is sent.
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths &&
+sudo -- /usr/bin/python3 deploy/multirun/quota_rehearsal.py \
+  --frontend "$HOME/git/JAS-mine/JAS-mine-web" \
+  --python "$HOME/simpaths-browser-tests/venv/bin/python" \
+  --prepared /tmp/codex-rer/multirun-prepared-50000-20260925 \
+  --output "$HOME/simpaths-benchmarks/multirun-quota-storage-$(date +%Y%m%d-%H%M%S)"
+```
+
+It runs one and three repetitions sequentially for 2019–2026, under the current
+**4.25 GiB and 4.75 GiB hard limits**. Use `--storage-per-repetition-mib 512`
+to repeat the earlier 4.5/5.5 GiB calibration explicitly. The startup probe must demonstrate physical
+enforcement before either model launches. Each case checks the original project
+ID and kernel allowance, frozen Docker policy/guard, complete annual CSVs,
+expected seeds and stored output hashes. Normal successful-attempt cleanup must
+remove the redundant inputs, preserve options/CSV hashes, remove the exact stopped
+container and release both queue capacity and unused physical reservations.
+The retained output must still report its original hard limit after staging
+directories have been removed. Only then is this proof's output deleted to make
+room for the next case.
+
+Read all three reports: `report.json`, `postgres-proof/report.json` and
+`postgres-proof/model-proof/report.json`. Kernel usage and file size/allocation
+estimates are sampled separately once per second; neither is an exact
+instantaneous peak or a RAM measurement. Source, image and prepared-receipt
+identities are recorded. This checks compatibility of the selected public model
+with the new local boundary, rather than establishing limits for every horizon,
+collector setting or dataset. The fictional exhaustion/restore evidence above
+remains separate. Repeat appropriate tests on the selected deployment host.
+
+Using the original 512 MiB term on 5 October 2026,
+`multirun-quota-storage-20261005-101156` passed all **12 storage
+backend checks** and both real-model cases. All three reports confirm success
+and cleanup; recorded source hashes match the tested code.
+
+| Repetitions | Hard limit | Sampled kernel peak | Headroom at sampled peak | Retained allocation after input cleanup |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 4.50 GiB | 2.91 GiB | 1.59 GiB | 230.72 MiB |
+| 3 | 5.50 GiB | 3.11 GiB | 2.39 GiB | 691.94 MiB |
+
+Both configurations completed in one attempt with their original seeds and all
+eight years present in the required CSVs. Redundant inputs were removed
+while options and verified output hashes survived. The original stopped containers
+were removed, queue/unused physical capacity released and the retained files still
+reported their original hard limits. The prepared source remained unchanged.
+See the [outer report](/home/rer/simpaths-benchmarks/multirun-quota-storage-20261005-101156/report.json),
+[PostgreSQL wrapper report](/home/rer/simpaths-benchmarks/multirun-quota-storage-20261005-101156/postgres-proof/report.json)
+and [real-model report](/home/rer/simpaths-benchmarks/multirun-quota-storage-20261005-101156/postgres-proof/model-proof/report.json).
+
+### Trial: 256 MiB per repetition, twelve repetitions
+
+This calibration uses **4 GiB + 12 × 256 MiB = 7 GiB** as the hard working
+limit for a single 50,000-person configuration, 2019–2026, seeds 606–617.
+It needs **12 GiB free on the filesystem containing `/tmp/codex-rer`** and
+**6 GiB available RAM**. The wrapper creates one new 10 GiB XFS loop-image file
+there; home holds only the small protected reports and logs. The extra space
+allows filesystem metadata, free-space reserve and temporary test dependencies.
+Stop local models first and allow roughly three to four hours.
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths &&
+sudo -- /usr/bin/python3 deploy/multirun/quota_rehearsal.py \
+  --frontend "$HOME/git/JAS-mine/JAS-mine-web" \
+  --python "$HOME/simpaths-browser-tests/venv/bin/python" \
+  --prepared /tmp/codex-rer/multirun-prepared-50000-20260925 \
+  --repetitions 12 \
+  --storage-per-repetition-mib 256 \
+  --output "$HOME/simpaths-benchmarks/multirun-quota-256-12-$(date +%Y%m%d-%H%M%S)"
+```
+
+These options affect only this disposable proof. The resource policy is copied
+and recorded separately; registered releases, prepared receipts and accepted
+jobs retain their policies. Preflight rejects a prepared receipt with a different
+frozen allowance. Cases must be ordered and unique, with at most 24 runs total
+and a bounded 1–1024 MiB term. The filesystem is sized from the selected maximum
+allowance before mounting. The proof timeout scales with the planned runs;
+other proof callers keep their default two-hour timeout.
+
+The trial runs the storage backend and worker checks before kernel/output/cleanup
+verification. All 42 focused local calibration, adapter, allocation and timeout
+checks passed before the initial native run. During that calibration the deployment
+default remained 512 MiB per repetition.
+
+The first twelve-run trial, `multirun-quota-256-12-20261005-113925`, passed the
+12 storage backend cases. The model exited successfully after all twelve
+repetitions. The sampled kernel peak was **5.22 GiB**, leaving **1.78 GiB** under
+the 7 GiB limit. Its output validator returned, but recording the first verified
+repetition failed because validation had outlasted the worker's 60-second lease.
+This is failed end-to-end evidence, despite successful execution and cleanup;
+it does not approve the candidate policy. All three reports confirm cleanup.
+See the [failed model report](/home/rer/simpaths-benchmarks/multirun-quota-256-12-20261005-113925/postgres-proof/model-proof/report.json).
+
+The worker now renews every lease it owns while the adapter verifies output and
+prepares publication. It rechecks cancellation, permissions and the original
+deadline before recording receipts and completing the attempt. A renewal or
+ownership failure preserves the unfinished attempt/reservation for recovery;
+renewal does not increase its deadline or retry budget. The renewal thread is
+joined before completion and before releasing the dispatcher lock. The native
+driver now runs the storage and worker suites first and records the worker code
+hash. After the fix, all 30 focused local checks pass (eight slow-output/fencing,
+13 native-proof and nine test-driver cases); the slow-output regression also
+reproduces lease expiry with the previous worker. The corrected native command
+runs 32 storage/worker cases, including real PostgreSQL checks, before the
+model.
+
+The corrected trial, `multirun-quota-256-12-20261005-135803`, passed all **32
+storage/worker checks** and the complete real-model workflow. All three reports
+confirm success and cleanup; recorded source hashes match the tested files.
+
+| Repetitions | Hard limit | Sampled kernel peak | Headroom at sampled peak | Retained allocation after input cleanup |
+| ---: | ---: | ---: | ---: | ---: |
+| 12 | 7.00 GiB | 5.16 GiB | 1.84 GiB (26.2%) | 2.71 GiB |
+
+The configuration completed in **one attempt** in about 119 minutes, including
+verification and cleanup. All original seeds 606–617, required annual output for
+2019–2026, stored output fingerprints and each run's `options.txt` were verified.
+Repeated input copies were reclaimed, the model container removed, and queue
+capacity released. Retained output kept its hard limit; source inputs were
+unchanged. The successful verification/publication also exercises the lease
+renewal fix after the long simulation.
+
+Retained CSV allocations ranged from **230.18 to 231.93 MiB per repetition**,
+averaging **230.91 MiB**. The result supports the candidate **4 GiB + 256 MiB per
+repetition** allowance for this tested 50,000-person, 2019–2026 profile. At twelve
+repetitions it reduces the reservation from 10 GiB to 7 GiB compared with the
+512 MiB term; the actual output size is unchanged. It does not calibrate other
+populations, longer horizons or collector settings. Following the successful trial,
+the operator adopted this standard for newly registered releases and the proof
+commands. Existing recorded policies are preserved. Before deployment, confirm the
+default and typical initial population sizes used by researchers and measure those
+workloads, as recorded in the [deployment checklist](../DEPLOYMENT_CHECKLIST.md#host-storage-and-capacity).
+See the [outer report](/home/rer/simpaths-benchmarks/multirun-quota-256-12-20261005-135803/report.json),
+[PostgreSQL wrapper report](/home/rer/simpaths-benchmarks/multirun-quota-256-12-20261005-135803/postgres-proof/report.json)
+and [real-model report](/home/rer/simpaths-benchmarks/multirun-quota-256-12-20261005-135803/postgres-proof/model-proof/report.json).
 
 SingleRun keeps its separate Docker writable-layer quota verifier, described in
 JAS-mine-web's `deploy/SESSION_SECURITY.md`. This bind-mount implementation does

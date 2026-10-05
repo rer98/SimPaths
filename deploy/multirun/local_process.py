@@ -26,14 +26,16 @@ def require_local_runtime():
                            "Run this proof in a laptop terminal or permitted test environment.") from error
 
 
-def java_command(jar, main_class, *arguments, heap="2g"):
+def java_command(jar, main_class, *arguments, heap="2g", monitor_memory=False):
+    """Keep native proofs unmonitored unless a hosted queue launcher opts in."""
     java = shutil.which("java")
     if java is None:
         raise RuntimeError("Java is required")
-    return [str(Path(java).resolve()), "-Xmx" + heap, "-XX:ActiveProcessorCount=2",
-            "-XX:+ExitOnOutOfMemoryError", "-Djava.awt.headless=true",
-            "-Djava.io.tmpdir=tmp", "-cp", str(Path(jar).resolve()), main_class,
-            *arguments]
+    command = [str(Path(java).resolve()), "-Xmx" + heap, "-XX:ActiveProcessorCount=2",
+               "-XX:+ExitOnOutOfMemoryError", "-Djava.awt.headless=true", "-Djava.io.tmpdir=tmp"]
+    if monitor_memory:
+        command.append("-Djasmine.memory.monitor.enabled=true")
+    return [*command, "-cp", str(Path(jar).resolve()), main_class, *arguments]
 
 
 def run_java(command, workspace, log, timeout_seconds, max_log_bytes=16 * 1024 * 1024):

@@ -16,7 +16,7 @@ from deploy.multirun.artifacts import ArtifactError, digest, fingerprint, write_
 from deploy.multirun.compare_native import proof_configuration
 from deploy.multirun.prepare_training import RECEIPT_VERSION
 from deploy.multirun.queue_adapter import (OPTIONS_NOT_EXPORTED, SimPathsLocalAdapter,
-    read_prepared, require_workspace_space, submission_arguments, validate_outputs,
+    execute, read_prepared, require_workspace_space, submission_arguments, validate_outputs,
     result_catalogue, result_name, result_settings)
 
 
@@ -67,6 +67,32 @@ class QueueAdapterTests(unittest.TestCase):
         self.assertEqual(set(command.env), {"PYTHONPATH"})
         request = json.loads((self.work / "request.json").read_text())
         self.assertEqual(request["run_set_id"], "savings-0001")
+
+    def test_local_queue_execution_opts_in_before_the_java_main_class(self):
+        (self.prepared / "model.jar").write_bytes(b"fictional model jar")
+        (self.prepared / "input").mkdir()
+        identity = read_prepared(self.prepared)["identity"]
+        identity["model"] = fingerprint(self.prepared / "model.jar")
+        (self.prepared / "receipt.json").unlink()
+        write_json(self.prepared / "receipt.json", {"identity": identity, "sha256": digest(identity)})
+        arguments = submission_arguments(self.configuration.editable_configuration(), self.prepared)
+        lease = SimpleNamespace(specification={**arguments, "seeds": arguments["seed_plan"],
+                                "prepared_fingerprint": digest(identity)}, configuration_id="savings-0001")
+        SimPathsLocalAdapter(self.prepared).command(lease, self.work)
+        with patch("deploy.multirun.queue_adapter.require_local_runtime"), \
+             patch("deploy.multirun.queue_adapter.Path.cwd", return_value=self.work), \
+             patch("deploy.multirun.queue_adapter.shutil.disk_usage", return_value=SimpleNamespace(free=1 << 40)), \
+             patch("deploy.multirun.local_process.shutil.which", return_value="/usr/bin/java"), \
+             patch("deploy.multirun.queue_adapter.os.execv") as launched:
+            execute()
+        executable, command = launched.call_args.args
+        self.assertEqual(executable, command[0])
+        option = "-Djasmine.memory.monitor.enabled=true"
+        self.assertEqual(command.count(option), 1)
+        self.assertLess(command.index(option), command.index("-cp"))
+        self.assertEqual(command[-5:], ["simpaths.experiment.SimPathsMultiRun", "-config", "run.yml", "-P", "root"])
+        self.assertEqual((self.work / "config/run.yml").read_text(),
+                         self.configuration.native_yaml("savings-0001"))
 
     def test_wrong_dataset_model_seed_or_run_identity_rejected(self):
         adapter = SimPathsLocalAdapter(self.prepared)

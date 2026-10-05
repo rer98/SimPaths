@@ -188,6 +188,49 @@ local execution comparison below is a separate check; neither enables web submis
 
 ## Local preparation and native execution proof
 
+The hosted container runner and supervised local queue launcher explicitly enable
+the shared JAS-mine-core memory monitor with
+`-Djasmine.memory.monitor.enabled=true`. Ordinary desktop MultiRun and native
+comparison/preparation proofs leave it disabled by default. The dedicated
+SingleRun web server starts the same monitor from its own entry point. This only
+observes memory and reports warnings; it does not grow limits or alter retries.
+New model artifacts must include the updated core. Existing registered releases
+retain their verified JAR and launch-script bytes; register a new compatible
+release to include the monitor and its launcher opt-in together.
+
+For a focused check of a rebuilt or imported model JAR, run:
+
+```bash
+python3 deploy/acceptance/run_memory_monitor_acceptance.py \
+  --jar /path/to/prepared/model.jar \
+  --output /path/to/new/memory-monitor-evidence
+```
+
+This uses the packaged core `MultiRun` thread with a fictional model. Separate
+local JVMs check desktop/default-off, explicit false, and actual heap warnings
+with the web launcher's opt-in. A disposable Docker container then raises live
+heap and direct-buffer allocations above the warning thresholds, checks real
+cgroup/cache readings and warning delivery/throttling, and increases only that
+test container's memory limit from 256 to 320 MiB. The monitor must see the new
+limit while the JVM and maximum heap remain unchanged. The container is removed
+and the model JAR hash is rechecked. A Java compiler and the already-installed
+`simpaths-interactive:uk-user-data` runtime image are required; no image pull,
+database, input preparation or full simulation is needed. Allow about a minute.
+
+The fixture uses a 64 MiB Java heap and the serial collector for predictable
+test allocations. Its size is not a proposed scientific-model resource policy.
+It tests warning-level pressure, not intentional out-of-memory termination or
+automatic service allocation/retry behaviour. `--local-only` records that native
+container validation has not run. Reports contain numeric observations and
+fictional probe logs; the source scientific model and service state are unused.
+
+Native checkpoint (5 October 2026): `memory-monitor-20261005-222523/report.json`
+passed all three local JVM cases and the disposable-container check against the
+imported monitoring JAR. Real warnings, cache-adjusted container pressure, the
+256-to-320 MiB limit change with a fixed JVM/maximum heap, and normal exit/cleanup
+were verified. This establishes monitoring behaviour; scientific-model resource
+calibration and automatic service growth/retry remain separate work.
+
 Run from this repository with the Python dependencies above and Java available.
 Build `multirun.jar` using the normal SimPaths build first. Choose new, private
 directories outside the checkout (the tools refuse existing destinations).
@@ -409,7 +452,7 @@ scientific equivalence to rebuilding a population or a fix for the reported RNG 
 For initial validation, the 20,000-person profile uses a 2 GiB heap/4 GiB container;
 50,000 uses a 3 GiB heap/5 GiB container. Both have two CPUs. Historical standalone
 proofs retain their fixed 10 GiB scratch allowance; newly registered service releases
-default to 4 GiB plus 512 MiB per repetition, with a larger fixed term for larger
+default to 4 GiB plus 256 MiB per repetition, with a larger fixed term for larger
 input copies. See [RELEASES.md](RELEASES.md#resource-policy-interface) for frozen
 policies, submission review and the full-length storage proof. These initial
 allocations need measurement for representative research workloads.

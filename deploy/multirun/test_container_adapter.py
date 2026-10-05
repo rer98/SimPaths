@@ -6,6 +6,7 @@ Model-owned container adapter checks for image/JAR binding and prepared requests
 """
 from types import SimpleNamespace
 import json
+import shlex
 import sys
 import unittest
 from unittest.mock import Mock, patch
@@ -46,7 +47,13 @@ class ContainerAdapterTests(unittest.TestCase):
         self.assertEqual((self.fixture.work / 'input-files.txt').read_text(), '')
         self.assertEqual((self.fixture.work / 'run.yml').read_text(),
                          self.fixture.configuration.native_yaml('savings-0001'))
-        self.assertNotIn(str(self.fixture.prepared), (self.fixture.work / 'run.sh').read_text())
+        script = (self.fixture.work / 'run.sh').read_text()
+        self.assertNotIn(str(self.fixture.prepared), script)
+        java = next(line for line in script.replace('\\\n', ' ').splitlines() if line.startswith('exec '))
+        arguments = shlex.split(java)
+        option = '-Djasmine.memory.monitor.enabled=true'
+        self.assertEqual(arguments.count(option), 1)
+        self.assertLess(arguments.index(option), arguments.index('-cp'))
 
     def test_changed_image_or_insufficient_resources_rejected(self):
         self.spec['model_digest'] = 'sha256:' + 'c' * 64

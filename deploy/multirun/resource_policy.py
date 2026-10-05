@@ -15,7 +15,7 @@ LEGACY_POLICY = dict(format=FORMAT,
     simulation=dict(cpu_millis=2000, memory_mib=4096, large_memory_mib=5120,
                     storage=dict(setup_mib=10240, per_repetition_mib=0)))
 DEFAULT_POLICY = deepcopy(LEGACY_POLICY)
-DEFAULT_POLICY['simulation']['storage'] = dict(setup_mib=4096, per_repetition_mib=512)
+DEFAULT_POLICY['simulation']['storage'] = dict(setup_mib=4096, per_repetition_mib=256)
 
 
 def check_policy(policy):

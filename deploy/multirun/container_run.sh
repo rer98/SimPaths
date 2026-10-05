@@ -21,5 +21,6 @@ sed 's@  /inputs/input/@  /work/input/@' /request/inputs.sha256 | sha256sum --ch
 chmod -R u+rwX input
 cp /request/run.yml config/run.yml
 exec /opt/java/openjdk/bin/java -Xmx"${1:-2g}" -XX:ActiveProcessorCount=2 \
+  -Djasmine.memory.monitor.enabled=true \
   -XX:+ExitOnOutOfMemoryError -Djava.awt.headless=true -Djava.io.tmpdir=/work/tmp \
   -cp /inputs/model.jar simpaths.experiment.SimPathsMultiRun -config run.yml -P root

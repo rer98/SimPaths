@@ -540,16 +540,17 @@ requires no image rebuild.
 
 ### Configure configuration working-storage allowances
 
-Newly registered releases default to **4 GiB fixed + 512 MiB per repetition**,
+Newly registered releases default to **4 GiB fixed + 256 MiB per repetition**,
 with a larger fixed term when the selected input dataset's working copies need it.
-Three repetitions normally reserve 5.5 GiB; twelve reserve 10 GiB. The review page
+Three repetitions normally reserve 4.75 GiB; twelve reserve 7 GiB. The review page
 shows the calculated per-attempt allowance and flags pending inputs as provisional
 until their prepared database size is known. A configuration exceeding the service's
 configured pool capacity fails review; fitting jobs wait while capacity is busy.
 
 Storage settings belong to the immutable release's resource policy. Restarting
 an existing service keeps its retained policies, including historical fixed 10 GiB
-allocations. Register/select a compatible new release to opt new inputs into scaling;
+allocations and 512 MiB-per-repetition allowances. Register/select a compatible new
+release to opt new inputs into the 256 MiB term;
 policy-only changes require no image rebuild. See [RELEASES.md](RELEASES.md#resource-policy-interface)
 for policy JSON, old-job protection, pending-size adjustments and the full 50,000-person
 2019–2026 measurement command. Retained datasets/results and download caches need

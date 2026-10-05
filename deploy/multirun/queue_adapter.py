@@ -327,7 +327,8 @@ def execute():
     (work / "config/run.yml").write_text(config.native_yaml(request["run_set_id"]))
     command = java_command(work / "model.jar", "simpaths.experiment.SimPathsMultiRun",
                            "-config", "run.yml", "-P", "root",
-                           heap="3g" if identity.get("population") == 50000 else "2g")
+                           heap="3g" if identity.get("population") == 50000 else "2g",
+                           monitor_memory=True)
     # Keep the supervised PID and its parent-death guard when replacing Python.
     os.execv(command[0], command)
 

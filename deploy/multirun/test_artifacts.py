@@ -17,7 +17,7 @@ from deploy.multirun.compare_native import (
     check_results, csv_summary, differing_columns, inspect_outputs, keyed_rows,
     same_scientific_outputs, scenario_income_changes,
 )
-from deploy.multirun.local_process import require_local_runtime, run_java
+from deploy.multirun.local_process import java_command, require_local_runtime, run_java
 from deploy.multirun.prepare_training import prepare, training_sources
 from deploy.multirun.run_local_proof import run
 
@@ -120,6 +120,17 @@ class ArtifactTests(unittest.TestCase):
             run_java(["/bin/sleep", "10"], self.root, self.root / "timeout.log", 0.05)
         with self.assertRaisesRegex(RuntimeError, "status 1"):
             run_java(["/bin/false"], self.root, self.root / "failure.log", 2)
+
+    def test_native_java_command_requires_explicit_memory_monitor_opt_in(self):
+        with patch("deploy.multirun.local_process.shutil.which", return_value="/usr/bin/java"):
+            plain = java_command(self.source, "simpaths.experiment.SimPathsMultiRun", "-config", "run.yml")
+            hosted = java_command(self.source, "simpaths.experiment.SimPathsMultiRun", "-config", "run.yml",
+                                  monitor_memory=True)
+        option = "-Djasmine.memory.monitor.enabled=true"
+        self.assertNotIn(option, plain)
+        self.assertEqual(hosted.count(option), 1)
+        self.assertLess(hosted.index(option), hosted.index("-cp"))
+        self.assertEqual([arg for arg in hosted if arg != option], plain)
 
     def test_socket_preflight_fails_before_copying(self):
         with patch("deploy.multirun.local_process.socket.socket", side_effect=PermissionError):

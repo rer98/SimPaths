@@ -343,7 +343,7 @@ class BrowserModelTests(unittest.TestCase):
             p=root/name
             p.parent.mkdir(parents=True,exist_ok=True)
             p.write_text('retained evidence' if name.endswith(('Person.csv','options.txt','execution.log')) else 'temporary')
-        queue=Mock()
+        queue=Mock(spec=['_connection','_lease','pool_id','backup_state'],backup_state=self.fixture.root)
         queue._connection.return_value.__enter__=Mock(return_value=Mock())
         queue._connection.return_value.__exit__=Mock(return_value=False)
         queue._connection.return_value.__enter__.return_value.execute.return_value.fetchall.return_value=[{'outcome':'success'}]
@@ -381,7 +381,7 @@ class BrowserModelTests(unittest.TestCase):
         retained=self.fixture.root/'retained-artifact'
         retained.write_text('published dataset and original uploads are outside the attempt')
         row={'specification':{'operation':'prepare'},'outcome':'model'}
-        queue=Mock()
+        queue=Mock(spec=['_connection','_lease','pool_id','backup_state'],backup_state=self.fixture.root)
         connection=Mock()
         queue._connection.return_value.__enter__=Mock(return_value=connection)
         queue._connection.return_value.__exit__=Mock(return_value=False)

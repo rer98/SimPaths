@@ -59,13 +59,17 @@ class ReleaseTests(unittest.TestCase):
         self.assertNotIn('DatabaseCountryYear.xlsx',inventory(loaded[first]['defaults']))
 
     def test_policy_or_workbook_change_is_a_distinct_release_even_with_identical_jar(self):
-        first=self.register()
-        policy=deepcopy(DEFAULT_POLICY); policy['simulation']['storage']['setup_mib']=11264
-        second=self.register(policy=policy)
+        retained_policy=deepcopy(DEFAULT_POLICY)
+        retained_policy['simulation']['storage']['per_repetition_mib']=512
+        first=self.register(policy=retained_policy)
+        second=self.register()
         (self.defaults/'scenario_CPI.xlsx').write_bytes(b'changed defaults')
         third=self.register()
         self.assertEqual(len({first,second,third}),3)
-        self.assertEqual(self.registry.load()[first]['resource_policy'],DEFAULT_POLICY)
+        loaded=ReleaseRegistry(self.state).load()
+        self.assertEqual(loaded[first]['resource_policy'],retained_policy)
+        self.assertEqual(simulation_storage(loaded[first]['resource_policy'],repetitions=12)['storage_mib'],10240)
+        self.assertEqual(simulation_storage(loaded[second]['resource_policy'],repetitions=12)['storage_mib'],7168)
 
     def test_registration_is_idempotent_and_never_relabels_an_existing_version(self):
         first=self.register()
@@ -189,7 +193,7 @@ class ReleaseTests(unittest.TestCase):
     def test_legacy_policy_preserves_allocations_and_new_releases_scale_with_repetitions(self):
         self.assertEqual(simulation_resources(LEGACY_POLICY,population=20000,repetitions=1000),
                          dict(cpu_millis=2000,memory_mib=4096,storage_mib=10240))
-        for count,total in ((1,4608),(3,5632),(12,10240),(1000,516096)):
+        for count,total in ((1,4352),(3,4864),(12,7168),(1000,260096)):
             with self.subTest(count=count):
                 self.assertEqual(simulation_resources(DEFAULT_POLICY,population=20000,repetitions=count),
                     dict(cpu_millis=2000,memory_mib=4096,storage_mib=total))
@@ -205,9 +209,9 @@ class ReleaseTests(unittest.TestCase):
         many=simulation_storage(DEFAULT_POLICY,repetitions=1000,minimum_setup_bytes=minimum)
         self.assertEqual(first['setup_mib'],6145)
         self.assertEqual(first['configured_setup_mib'],4096)
-        self.assertEqual(first['storage_mib'],6657)
+        self.assertEqual(first['storage_mib'],6401)
         self.assertEqual(many['setup_mib'],first['setup_mib'])
-        self.assertEqual(many['storage_mib']-first['storage_mib'],999*512)
+        self.assertEqual(many['storage_mib']-first['storage_mib'],999*256)
         self.assertEqual(DEFAULT_POLICY['simulation']['storage']['setup_mib'],4096)
 
     def test_invalid_counts_sizes_and_storage_policies_are_rejected(self):

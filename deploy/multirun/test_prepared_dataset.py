@@ -81,7 +81,7 @@ class PreparedDatasetTests(unittest.TestCase):
         path,receipt=self.dataset(50000)
         original=(path/'receipt.json').read_bytes()
         self.assertEqual(allocation(receipt,repetitions=12)['storage_mib'],10240)
-        self.assertEqual(allocation(receipt,repetitions=3,resource_policy=DEFAULT_POLICY)['storage_mib'],5632)
+        self.assertEqual(allocation(receipt,repetitions=3,resource_policy=DEFAULT_POLICY)['storage_mib'],4864)
         releases={'scaled':dict(jar=path/'model.jar',resource_policy=DEFAULT_POLICY),
                   'original':dict(jar=path/'model.jar',resource_policy=LEGACY_POLICY)}
         model=SubmissionModel(releases)
@@ -92,7 +92,7 @@ class PreparedDatasetTests(unittest.TestCase):
         config.pop('sweep',None)
         config['model_release']='scaled'
         scaled=model.experiment(resolved,dict(configuration=config))
-        self.assertEqual(scaled['resources'].storage_mib,5632)
+        self.assertEqual(scaled['resources'].storage_mib,4864)
         config['model_release']='original'
         old=model.experiment(resolved,dict(configuration=config))
         self.assertEqual(old['resources'].storage_mib,10240)
@@ -100,8 +100,8 @@ class PreparedDatasetTests(unittest.TestCase):
         verify_snapshot(path,receipt)
         adapter=SimPathsContainerAdapter(path,IMAGE,resource_policy=DEFAULT_POLICY)
         candidate=SimpleNamespace(resources=scaled['resources'].__dict__)
-        self.assertEqual(adapter.required_space(candidate),5632*1024**2)
-        self.assertLess(SimPathsContainerAdapter(path,IMAGE).required_space(candidate),5632*1024**2)
+        self.assertEqual(adapter.required_space(candidate),4864*1024**2)
+        self.assertLess(SimPathsContainerAdapter(path,IMAGE).required_space(candidate),4864*1024**2)
 
     def test_scaled_launch_waits_for_whole_allowance_even_when_input_copy_minimum_fits(self):
         from .resource_policy import DEFAULT_POLICY
@@ -116,11 +116,11 @@ class PreparedDatasetTests(unittest.TestCase):
         with patch('deploy.multirun.queue_adapter.shutil.disk_usage',return_value=SimpleNamespace(free=2*1024**3)):
             with self.assertRaises(InsufficientWorkspaceSpace) as error:
                 adapter.container_command(lease,request)
-        self.assertEqual(error.exception.required_bytes,5632*1024**2)
+        self.assertEqual(error.exception.required_bytes,4864*1024**2)
         self.assertFalse((request/'run.yml').exists())
         self.assertFalse((request/'run.sh').exists())
         with patch('deploy.multirun.queue_adapter.shutil.disk_usage',
-                   return_value=SimpleNamespace(free=5632*1024**2)):
+                   return_value=SimpleNamespace(free=4864*1024**2)):
             adapter.container_command(lease,request)
         self.assertTrue((request/'run.yml').is_file())
 

@@ -31,7 +31,26 @@ XFS returned `ENOSPC` at 16 MiB. The corrected probe verifies kernel accounting,
 free capacity and a separate successful allocation; all 71 local checks pass.
 The corrected native workflow passed all 80 regressions and five filesystem
 stages; all three reports confirm success and cleanup. Installation-specific
-enforcement, the approved real model and reboot acceptance remain required.
+enforcement, model/profile capacity and reboot acceptance remain required.
+The same disposable wrapper now supports a
+[full-length real-model proof](multirun/WORKSPACE_QUOTAS.md#full-length-real-model-storage-proof)
+for 50,000 people, 2019–2026, one and three repetitions under 4.5/5.5 GiB hard
+limits. `multirun-quota-storage-20261005-101156` passed both cases and all 12 storage
+backend checks. The sampled kernel peaks were 2.91/3.11 GiB; all three reports
+confirm success and cleanup, and the model report confirms source preservation. Older storage measurements
+predate enforcement.
+A [256 MiB/twelve-repetition trial](multirun/WORKSPACE_QUOTAS.md#trial-256-mib-per-repetition-twelve-repetitions)
+uses a 7 GiB limit. The first native run completed all twelve repetitions with a
+5.22 GiB sampled kernel peak, but failed when output verification outlasted the
+worker lease; all three reports confirm cleanup. Output verification now renews
+owned leases with the original deadlines and fencing. The corrected native run
+`multirun-quota-256-12-20261005-135803` passed all 32 storage/worker checks and the
+complete twelve-run workflow. Its sampled kernel peak was 5.16 GiB with 1.84 GiB
+headroom; one attempt completed and verified all original seeds/eight annual
+years, removed repeated inputs and released capacity. All three reports confirm
+success and cleanup. The tested **4 GiB + 256 MiB per repetition** is now the
+default for newly registered releases; existing recorded policies are preserved.
+Its measured evidence covers this 50,000-person, 2019–2026 profile.
 
 ## Verified local evidence
 
@@ -50,6 +69,8 @@ The older real-model drivers use `status: "passed"` rather than that report form
 | Retained model versions preserve datasets, accepted reviews, queued jobs, resources and retries | [Release-transition report](/home/rer/simpaths-benchmarks/postgres-queue-20261003-112048/report.json) | Fictional releases; scientific compatibility is assessed separately |
 | Repetition-scaled working storage and removal of repeated run inputs while preserving options and verified output | [Storage report](/home/rer/simpaths-benchmarks/multirun-storage-20261003-124138/report.json) | Full real 50,000-person runs, including three repetitions |
 | Hard MultiRun workspace quotas, inherited ioctl denial, broker/worker restart, independent restore and saved-result preservation | [Quota report](/home/rer/simpaths-benchmarks/workspace-quota-20261005-011818/report.json) and [filesystem proof](/home/rer/simpaths-benchmarks/workspace-quota-20261005-011818/postgres-proof/model-proof/report.json) | Two disposable XFS filesystems, real kernel limits and fictional Docker models; not installed-host acceptance |
+| Full-length real-model completion under kernel quotas, frozen seeds/resources, verified output/input-copy cleanup and released capacity | [Quota storage report](/home/rer/simpaths-benchmarks/multirun-quota-storage-20261005-101156/report.json) and [model proof](/home/rer/simpaths-benchmarks/multirun-quota-storage-20261005-101156/postgres-proof/model-proof/report.json) | Real public 50,000-person runs, 2019–2026, one/three repetitions under 4.5/5.5 GiB XFS limits; disposable local filesystem |
+| Twelve repetitions under a smaller allowance, long-output lease renewal, verified publication/input cleanup and released capacity | [Trial report](/home/rer/simpaths-benchmarks/multirun-quota-256-12-20261005-135803/report.json) and [model proof](/home/rer/simpaths-benchmarks/multirun-quota-256-12-20261005-135803/postgres-proof/model-proof/report.json) | Real public 50,000-person runs, 2019–2026, 4 GiB + 256 MiB/repetition under a 7 GiB XFS limit; proof-only policy |
 | Read-only operator inventory of jobs, reservations, storage, cleanup, notices and releases | [Operator report](/home/rer/simpaths-benchmarks/postgres-queue-20261003-142214/report.json) | Disposable PostgreSQL and fictional files |
 | Maintained Visualiser page, configuration names, separate alternatives, comparison ZIPs, aggregate-only VM responses and owner/source guards | [Visualiser report](/home/rer/simpaths-benchmarks/vm-visualiser-20261003-220301/report.json) | Real browser and aggregation code with fictional CSVs |
 | MultiRun TLS/cookies, private-file denial, large ZIP preparation, slow transfer, restart/resume, deletion and revocation | [MultiRun HTTPS report](/home/rer/simpaths-benchmarks/https-rehearsal-20261004-003741/report.json) | Real local Nginx/TLS and fictional output |
@@ -107,6 +128,11 @@ not install services, choose providers or change security settings.
   neighbouring work. Queue reservations and polling do not establish those limits.
 - [ ] Verify storage-pressure behaviour, confirmed cleanup and administrator alerts
   on the actual volumes without sacrificing retained inputs, results or history.
+- [ ] Confirm with the SimPaths team the initial population size to use as the
+  browser default and the sizes researchers typically choose. Check storage growth
+  for those populations, representative horizons and collector settings against
+  the 4 GiB + 256 MiB-per-repetition standard before opening the service. The current
+  twelve-run evidence covers 50,000 people and 2019–2026.
 - [ ] Measure the intended 50,000-person horizon, repetitions, preparation,
   aggregation and retained-data growth. Increase concurrency only within measured
   CPU/RAM/disk headroom; include interactive slots and backup activity. Laptop

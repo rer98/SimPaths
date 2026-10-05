@@ -67,6 +67,9 @@ Upstream baseline used to identify new files: `b223738b9cdf1d814cc3c6f09b04bc493
 - `deploy/acceptance/run_browser_acceptance.py`
 - `deploy/acceptance/test_user_data_browser_acceptance.py`
 - `deploy/acceptance/run_two_session_acceptance.py`
+- `deploy/acceptance/MemoryMonitorProbe.java`
+- `deploy/acceptance/run_memory_monitor_acceptance.py`
+- `deploy/acceptance/test_memory_monitor_acceptance.py`
 - `deploy/acceptance/run_vm_acceptance.py`
 - `deploy/acceptance/run_user_data_browser_acceptance.py`
 - `deploy/acceptance/test_vm_acceptance.py`
@@ -119,3 +122,7 @@ Generated MultiRun `releases/catalogue.json`, versioned release manifests and
 resource-policy records have the same attribution, also recorded in each new
 release bundle's `COPYRIGHT.md`. Copied JARs, workbooks and adapter sources retain
 their existing attribution and licences; metadata attribution does not relicense them.
+
+Generated memory-monitor acceptance reports and fictional allocation logs are
+attributed by the `COPYRIGHT.md` saved alongside each evidence set. Tested JARs
+and runtime images retain their existing attribution and licences.

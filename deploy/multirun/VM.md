@@ -203,8 +203,8 @@ settings fail startup. Choose them during isolated staging; later changes need a
 reviewed pool transition that preserves accepted jobs/history.
 
 Newly registered release policies scale working storage independently of runtime:
-**4 GiB fixed + 512 MiB per repetition**, raising the fixed term for larger input
-copies. Twelve repetitions normally need 10 GiB per active configuration, plus
+**4 GiB fixed + 256 MiB per repetition**, raising the fixed term for larger input
+copies. Twelve repetitions normally need 7 GiB per active configuration, plus
 separate retained-data/cache budgets. Submission review checks the capacity after
 interactive holdback. Pending datasets have provisional allowances until their
 prepared size is known. Already registered fixed policies and accepted jobs are
@@ -212,6 +212,12 @@ preserved. See [RELEASES.md](RELEASES.md#resource-policy-interface) for configur
 and the full-length storage measurement command. Measure the largest intended
 repetition/horizon/collector workload before raising repetition/concurrency limits;
 these estimates and workspace monitoring do not replace physical disk quotas.
+Confirm the default and typical initial population sizes with the SimPaths team,
+then measure representative populations/horizons/collectors before opening the
+service. The twelve-run 256 MiB calibration covers 50,000 people over 2019–2026.
+The [full-length XFS storage proof](WORKSPACE_QUOTAS.md#full-length-real-model-storage-proof)
+reuses the same public model under enforced limits and verifies settled containers,
+capacity, original seeds and output after input-copy reclamation.
 
 Install the SMTP environment from `vm/smtp.env.example` as a root-readable **0600**
 file. Use STARTTLS and the real sending address/credentials; implicit TLS on port

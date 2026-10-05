@@ -218,7 +218,7 @@ class ReleaseRuntimeTests(unittest.TestCase):
         self.upgrade(same_model=True)
         original=self.submit(reviewed)
         old_job=self.fixture.sql('SELECT * FROM jobs WHERE experiment_id=%s',(original,))[0]
-        self.assertEqual(old_job['resources']['storage_mib'],5632)
+        self.assertEqual(old_job['resources']['storage_mib'],4864)
         new_prep=self.submit(self.preparation_review(self.second)); new_data=self.pending_dataset(new_prep)
         # Finish the already accepted old run synthetically so preparation can
         # claim this owner's slot, without modifying its policy or history.
@@ -228,7 +228,7 @@ class ReleaseRuntimeTests(unittest.TestCase):
         self.assertEqual(response.status_code,200,response.text)
         newer=self.submit(response.json()['review'])
         new_job=self.fixture.sql('SELECT * FROM jobs WHERE experiment_id=%s',(newer,))[0]
-        self.assertEqual(new_job['resources']['storage_mib'],12800)
+        self.assertEqual(new_job['resources']['storage_mib'],12032)
         self.assertEqual(old_job['model_digest'],IMAGE_A)
         self.assertEqual(new_job['model_digest'],IMAGE_B)
 
@@ -236,13 +236,13 @@ class ReleaseRuntimeTests(unittest.TestCase):
         prep=self.submit(self.preparation_review(self.first)); data=self.pending_dataset(prep)
         pending=self.experiment_review(data,self.first)
         self.assertEqual(pending.status_code,200,pending.text)
-        self.assertEqual(pending.json()['storage'][0]['storage_mib'],5632)
+        self.assertEqual(pending.json()['storage'][0]['storage_mib'],4864)
         self.assertTrue(pending.json()['storage'][0]['provisional'])
         self.publish(self.q.claim('prepare'))
         reviewed=self.experiment_review(data,self.first)
         self.assertEqual(reviewed.status_code,200,reviewed.text)
         item=reviewed.json()['storage'][0]
-        self.assertEqual((item['setup_mib'],item['per_repetition_mib'],item['repetitions']),(4096,512,3))
+        self.assertEqual((item['setup_mib'],item['per_repetition_mib'],item['repetitions']),(4096,256,3))
         self.assertFalse(item['provisional'])
         self.assertNotIn(str(self.root),reviewed.text)
         self.assertEqual(self.client.post('/api/review-experiment',json=dict(dataset=data,form=self.form(self.first)),
@@ -259,7 +259,7 @@ class ReleaseRuntimeTests(unittest.TestCase):
         before=self.fixture.sql('SELECT count(*) AS n FROM jobs')[0]['n']
         response=self.client.post('/api/review-experiment',json=dict(dataset=data,form=form))
         self.assertEqual(response.status_code,400,response.text)
-        self.assertIn('504.00 GiB',response.json()['error'])
+        self.assertIn('254.00 GiB',response.json()['error'])
         self.assertIn('Reduce the number of repetitions',response.json()['error'])
         self.assertEqual(self.fixture.sql('SELECT count(*) AS n FROM jobs')[0]['n'],before)
         self.assertEqual(self.q.occupancy()['attempts'],0)
@@ -282,7 +282,7 @@ class ReleaseRuntimeTests(unittest.TestCase):
         with patch('deploy.multirun.queue_adapter.workspace_required_bytes',return_value=6*1024**3+1):
             self.service.lifecycle.reconcile()
         lease=self.q.claim('larger-inputs')
-        self.assertEqual(lease.resources['storage_mib'],7681)
+        self.assertEqual(lease.resources['storage_mib'],6913)
         self.q.started(lease)
         self.assertEqual(self.q.finish(lease,outcome='transient',stop_evidence='a'*64),'retry_wait')
         self.upgrade(same_model=True); self.fixture.ready_retries()

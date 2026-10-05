@@ -3,7 +3,8 @@
 
 Disposable native XFS quota rehearsal: two small loop files, private brokers and
 unprivileged fictional Docker/PostgreSQL work. Installs no service and formats
-only newly created regular image files. Administrator access is needed to mount.
+only newly created regular image files. With --prepared, delegates the real-model
+cases to storage_proof.py on one larger filesystem. Administrator access mounts.
 @author ross richardson
 """
 import argparse
@@ -25,6 +26,49 @@ from uuid import uuid4
 import zipfile
 
 ROOT=Path(__file__).resolve().parents[2]
+MIB=1024**2
+
+
+def fixture_plan(prepared_check=None):
+    """Keep both proofs on the same reviewed mount/broker implementation."""
+    if prepared_check is None:
+        return dict(roles=('source','target'),loop_image_mib=512,temporary_required_bytes=2*1024**3,
+            max_bytes=128*MIB,reserve_bytes=32*MIB,proof_script=Path(__file__).resolve(),
+            backend_pattern=None,image='python:3.12-slim')
+    if (type(prepared_check) is not dict or set(prepared_check)!= {'image','calibration','prepared_sha256'}
+            or not isinstance(prepared_check['image'],str) or not isinstance(prepared_check['prepared_sha256'],str)):
+        raise ValueError('Use the verified 50,000-person storage calibration')
+    import re
+    if not re.fullmatch(r'sha256:[a-f0-9]{64}',prepared_check['image']) or not re.fullmatch(r'[a-f0-9]{64}',prepared_check['prepared_sha256']):
+        raise ValueError('Invalid verified model/input identity')
+    # Validate the unprivileged preflight response using standard-library code
+    # before using it to size any privileged disposable filesystem.
+    profile=prepared_check['calibration']
+    if type(profile) is not dict or set(profile)!={'repetitions','setup_mib','per_repetition_mib','maximum_storage_mib','proof_timeout_seconds'}:
+        raise ValueError('Invalid storage calibration')
+    counts=profile['repetitions']; term=profile['per_repetition_mib']
+    if (type(counts) is not list or not counts or any(type(n) is not int or not 1<=n<=24 for n in counts)
+            or counts!=sorted(set(counts)) or sum(counts)>24 or type(term) is not int or not 1<=term<=1024):
+        raise ValueError('Storage calibration exceeds the bounded local proof profile')
+    maximum=4096+max(counts)*term
+    timeout=max(7200,sum(900+3600*n for n in counts)+3600)
+    if (any(type(profile[key]) is not int for key in ('setup_mib','maximum_storage_mib','proof_timeout_seconds'))
+            or profile['setup_mib']!=4096 or profile['maximum_storage_mib']!=maximum or profile['proof_timeout_seconds']!=timeout):
+        raise ValueError('Storage calibration has inconsistent limits or timeout')
+    image_mib=max(8192,((maximum+2048+2047)//2048)*2048)
+    return dict(roles=('source',),loop_image_mib=image_mib,temporary_required_bytes=(image_mib+2048)*MIB,
+        max_bytes=maximum*MIB,reserve_bytes=512*MIB,proof_script=Path(__file__).with_name('storage_proof.py'),
+        backend_pattern='test_storage.py',image=prepared_check['image'],calibration=profile,
+        proof_timeout_seconds=timeout)
+
+
+def proof_command(python,frontend,output,plan):
+    command=[str(python),str(frontend/'scripts/test_batch_queue.py')]
+    # Include slow-output lease renewal/fencing before the long native model run.
+    command+=['--test-pattern',plan['backend_pattern'],'test_worker.py'] if plan['backend_pattern'] else ['--proof-only']
+    if plan.get('proof_timeout_seconds'):command+=['--proof-timeout-seconds',str(plan['proof_timeout_seconds'])]
+    return command+['--proof-script',str(plan['proof_script']),
+        '--proof-requirements',str(ROOT/'deploy/multirun/requirements.txt'),'--output',str(output/'postgres-proof')]
 
 MODEL = r'''
 # (C) Copyright 2026, by Ross Richardson
@@ -116,7 +160,7 @@ def filesystem_control(root):
 def evidence_notice(output,uid,gid):
     path=output/'COPYRIGHT.md'
     path.write_text('<!-- (C) Copyright 2026, by Ross Richardson\n'
-        'Attribution for generated fictional quota-rehearsal evidence.\n'
+        'Attribution for generated native quota-rehearsal evidence.\n'
         '@author ross richardson\n-->\n\n'
         'Generated fixture settings and reports are attributed here. Third-party\n'
         'logs and binaries retain their existing attribution and licences.\n')
@@ -323,21 +367,38 @@ def rehearsal(args):
         raise ValueError('Evidence parent must already exist and belong to the ordinary account')
     for tool in ('mkfs.xfs','mount','umount','cc','docker'):
         if not shutil.which(tool): raise ValueError('Install '+tool+' before the rehearsal')
+    env=dict(os.environ,JASMINE_WEB_REPO=str(frontend),PIP_DEFAULT_TIMEOUT='60',
+        DOCKER_CONFIG=str(Path(account.pw_dir)/'.docker'))
+    groups=os.getgrouplist(account.pw_name,gid)
+    def user_run(command,**options):
+        return subprocess.run(command,user=uid,group=gid,extra_groups=groups,umask=0o077,env=env,**options)
+    prepared=getattr(args,'prepared',None)
+    checked=None
+    if prepared is not None:
+        prepared=prepared.expanduser().resolve(strict=True)
+        # Parse and hash model inputs only as the ordinary account. The root
+        # wrapper imports only standard-library code and fixed mount helpers.
+        result=user_run([str(python),str(ROOT/'deploy/multirun/storage_proof.py'),
+            '--check-prepared','--prepared',str(prepared),
+            '--storage-per-repetition-mib',str(args.storage_per_repetition_mib),
+            '--repetitions',*[str(n) for n in args.repetitions]],cwd=ROOT,check=True,capture_output=True,text=True,timeout=180)
+        checked=json.loads(result.stdout)
+        env['SIMPATHS_STORAGE_PREPARED']=str(prepared)
+    plan=fixture_plan(checked)
     temporary_root=args.temporary_root.resolve(strict=True)
-    if shutil.disk_usage(temporary_root).free<2*1024**3: raise ValueError('Need 2 GiB free on the temporary-files filesystem')
+    if shutil.disk_usage(temporary_root).free<plan['temporary_required_bytes']:
+        raise ValueError(f"Need {plan['temporary_required_bytes']/1024**3:.0f} GiB free on the temporary-files filesystem")
     output.mkdir(mode=0o700,parents=True); os.chown(output,uid,gid)
     evidence_notice(output,uid,gid)
-    report=dict(passed=False,cleanup=False,production_acceptance=False,loop_images=2,loop_image_mib=512)
+    report=dict(passed=False,cleanup=False,production_acceptance=False,loop_images=len(plan['roles']),
+        loop_image_mib=plan['loop_image_mib'],real_model=prepared is not None)
+    if prepared is not None:report['calibration']=plan['calibration']
     tag=uuid4().hex
     runtime=Path('/var/lib')/('jasmine-quota-rehearsal-'+tag)
     sockets=Path('/run')/('jasmine-quota-'+tag)
     base=Path(tempfile.mkdtemp(prefix='simpaths-quota-',dir=temporary_root))
     mounted=[]; processes={}; logs=[]; lock=threading.RLock(); stopping=threading.Event(); control_thread=None
-    env=dict(os.environ,JASMINE_WEB_REPO=str(frontend),TMPDIR=str(temporary_root),PIP_DEFAULT_TIMEOUT='60',
-        DOCKER_CONFIG=str(Path(account.pw_dir)/'.docker'))
-    groups=os.getgrouplist(account.pw_name,gid)
-    def user_run(command,**options):
-        return subprocess.run(command,user=uid,group=gid,extra_groups=groups,umask=0o077,env=env,**options)
+    env['TMPDIR']=str(temporary_root)
     configs={}
     def start(role):
         log=(output/('broker-'+role+'.log')).open('ab'); os.chown(log.name,uid,gid); logs.append(log)
@@ -353,15 +414,26 @@ def rehearsal(args):
     try:
         base.chmod(0o711); runtime.mkdir(mode=0o711); runtime.chmod(0o711)
         sockets.mkdir(mode=0o711); sockets.chmod(0o711)
-        image=user_run(['docker','image','inspect','python:3.12-slim','--format','{{.Id}}'],check=True,capture_output=True,text=True).stdout.strip()
+        image=user_run(['docker','--host','unix:///var/run/docker.sock','image','inspect',plan['image'],
+            '--format','{{.Id}}'],check=True,capture_output=True,text=True).stdout.strip()
+        if prepared is not None and image!=plan['image']: raise ValueError('Prepared runtime image changed')
         shutil.copyfile(frontend/'deploy/workspace_quota_broker.py',runtime/'broker.py'); (runtime/'broker.py').chmod(0o500)
         subprocess.run(['cc','-static','-O2','-Wall','-Wextra','-Werror',str(frontend/'deploy/workspace_guard.c'),'-o',str(runtime/'guard')],
             check=True,capture_output=True,timeout=60)
         (runtime/'guard').chmod(0o555)
-        settings=dict(frontend=str(frontend),guard=str(runtime/'guard'),image=image,control=str(sockets/'control.sock'))
-        for index,role in enumerate(('source','target')):
+        settings=dict(frontend=str(frontend),guard=str(runtime/'guard'),image=image,control=str(sockets/'control.sock'),
+            proof_mode='real-model-storage' if prepared is not None else 'fictional-quota')
+        if prepared is not None: settings.update(prepared=str(prepared),prepared_sha256=checked['prepared_sha256'],
+            calibration=plan['calibration'])
+        report['runtime_image_id']=image
+        report['source_sha256']={str(path.relative_to(ROOT)):hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in (Path(__file__).resolve(),plan['proof_script'])}
+        report['frontend_sha256']={name:hashlib.sha256((frontend/name).read_bytes()).hexdigest() for name in
+            ('deploy/workspace_quota_broker.py','deploy/workspace_guard.c','jasmine_web/batch/workspace_quota.py',
+             'jasmine_web/batch/docker_executor.py','jasmine_web/batch/worker.py')}
+        for index,role in enumerate(plan['roles']):
             image_file=base/(role+'.img')
-            with image_file.open('xb') as stream: stream.truncate(512*1024**2)
+            with image_file.open('xb') as stream: stream.truncate(plan['loop_image_mib']*MIB)
             mountpoint=base/role; mountpoint.mkdir(mode=0o700)
             with (output/(role+'-filesystem.log')).open('wb') as log:
                 os.chown(log.name,uid,gid); Path(log.name).chmod(0o600)
@@ -378,7 +450,7 @@ def rehearsal(args):
             config=dict(execution_root=str(state/'execution'),artifact_root=str(state/'artifacts'),
                 ledger_root=str(ledger),socket_path=str(socket_dir/'broker.sock'),service_uid=uid,service_gid=gid,
                 project_first=1000000+index*1000000,project_last=1000999+index*1000000,
-                max_bytes=128*1024**2,inode_limit=100000,reserve_bytes=32*1024**2)
+                max_bytes=plan['max_bytes'],inode_limit=100000,reserve_bytes=plan['reserve_bytes'])
             private_json(configs[role],config,0,0)
             settings[role]=str(state); settings[role+'_socket']=config['socket_path']
             start(role)
@@ -400,7 +472,8 @@ def rehearsal(args):
                     try:
                         _,peer,_=struct.unpack('3i',connection.getsockopt(socket.SOL_SOCKET,socket.SO_PEERCRED,12))
                         action=connection.recv(128).decode().strip()
-                        if peer!=uid or action not in ('stop-source','start-source','restart-target'): raise ValueError()
+                        allowed=('stop-source','start-source','restart-target') if 'target' in plan['roles'] else ('stop-source','start-source')
+                        if peer!=uid or action not in allowed: raise ValueError()
                         with lock:
                             if action=='stop-source':stop('source')
                             elif action=='start-source':start('source')
@@ -410,10 +483,11 @@ def rehearsal(args):
                         try:connection.sendall(b'{"ok":false}')
                         except OSError:pass
         control_thread=threading.Thread(target=controls,daemon=True); control_thread.start()
-        print('Running fictional models unprivileged on two disposable 512 MiB XFS loop files',flush=True)
-        command=[str(python),str(frontend/'scripts/test_batch_queue.py'),'--proof-only','--proof-script',str(Path(__file__).resolve()),
-                 '--proof-requirements',str(ROOT/'deploy/multirun/requirements.txt'),'--output',str(output/'postgres-proof')]
-        result=user_run(command,cwd=frontend)
+        if prepared is None:
+            print('Running fictional models unprivileged on two disposable 512 MiB XFS loop files',flush=True)
+        else:
+            print(f"Running full 50,000-person storage proof unprivileged on one disposable {plan['loop_image_mib']/1024:g} GiB XFS loop file",flush=True)
+        result=user_run(proof_command(python,frontend,output,plan),cwd=frontend)
         report['passed']=result.returncode==0
     except (Exception,KeyboardInterrupt) as error:
         report['error_type']=type(error).__name__
@@ -452,12 +526,20 @@ def main():
     parser.add_argument('--execute-proof',action='store_true')
     parser.add_argument('--frontend',type=Path)
     parser.add_argument('--python',type=Path)
+    parser.add_argument('--prepared',type=Path,
+        help='Use the existing storage proof with verified public 50,000-person inputs')
+    parser.add_argument('--repetitions',type=int,nargs='+',default=[1,3],
+        help='Ordered real-model calibration cases; at most 24 runs total')
+    parser.add_argument('--storage-per-repetition-mib',type=int,default=256,
+        help='Proof-only working allowance with 4 GiB setup')
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--temporary-root',type=Path,default=Path('/tmp/codex-rer'))
     args=parser.parse_args()
     if args.execute_proof:
         if os.geteuid()==0: parser.error('The database/model proof must run as the ordinary user')
         execute_proof(args.output);return 0
+    if not args.prepared and (args.repetitions!=[1,3] or args.storage_per_repetition_mib!=256):
+        parser.error('Real-model calibration settings require --prepared')
     if not args.frontend or not args.python:parser.error('--frontend and --python are required for the administrator fixture')
     return rehearsal(args)
 

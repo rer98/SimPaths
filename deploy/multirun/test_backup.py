@@ -16,7 +16,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock,patch
 from uuid import uuid4
 
 from deploy._workflow import frontend_path
@@ -367,6 +367,21 @@ class BackupRestoreTests(unittest.TestCase):
         with self.target_q._connection() as c:c.execute("UPDATE jobs SET auto_retry=false WHERE state='queued'")
         with self.assertRaises(ArtifactError):self.activate()
         self.assertTrue((self.target/GATE).exists())
+
+    def test_activation_requires_restored_quotas_before_removing_the_inactive_gate(self):
+        from jasmine_web.batch.workspace_quota import WorkspaceQuotaUnavailable
+        self.save(); self.restore()
+        quotas=Mock()
+        quotas.preflight.side_effect=WorkspaceQuotaUnavailable('offline')
+        with self.assertRaises(WorkspaceQuotaUnavailable):
+            backup.activate(self.target_q,self.backup,self.target,image_check=lambda _:None,workspace_quotas=quotas)
+        self.assertTrue((self.target/GATE).exists())
+        quotas.restore.assert_not_called()
+        quotas.preflight.side_effect=None
+        result=backup.activate(self.target_q,self.backup,self.target,image_check=lambda _:None,workspace_quotas=quotas)
+        self.assertFalse(result['inactive']); self.assertFalse((self.target/GATE).exists())
+        self.assertEqual(quotas.restore.call_count,2)
+        self.assertEqual({call.args[0].resources['storage_mib'] for call in quotas.restore.call_args_list},{8000})
 
     def test_queued_configuration_claims_once_after_activation_with_original_frozen_specification_and_seed(self):
         self.save(); self.restore(); self.activate()

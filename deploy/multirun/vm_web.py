@@ -87,6 +87,16 @@ def database_dsn(options):
     return dsn
 
 
+def workspace_quotas(options):
+    if not options.dedicated_storage:
+        return None  # Explicit private staging diagnostic; not public readiness.
+    from jasmine_web.batch.local_database import private_directory
+    from jasmine_web.batch.workspace_quota import WorkspaceQuotas
+    execution=private_directory(options.state/'execution')
+    private_directory(options.state/'artifacts')
+    return WorkspaceQuotas(execution,options.workspace_quota_socket,options.workspace_guard)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=('check', 'preflight', 'serve', 'approve', 'revoke', 'status'))
@@ -111,6 +121,9 @@ def main(argv=None):
         q = Queue(database_dsn(options), options.pool_id)
         if args.command == 'preflight':
             check_smtp(os.environ)
+            quotas=workspace_quotas(options)
+            if quotas is not None:
+                quotas.guard(); quotas.preflight()
             from jasmine_web.batch.docker_executor import DockerCLI
             import json
             from .releases import ReleaseRegistry
@@ -124,7 +137,7 @@ def main(argv=None):
                     raise ValueError('Install all retained pinned model images without implicit volumes')
             with q._connection() as connection:
                 connection.execute('SELECT 1')
-            print('Storage, SMTP settings, pinned image and PostgreSQL connection checked. No mail was sent or jobs created.')
+            print('Storage, workspace enforcement, SMTP settings, pinned image and PostgreSQL connection checked. No mail was sent or jobs created.')
             return 0
         options.command, options.email = args.command, args.email
         if args.command == 'serve':

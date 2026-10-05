@@ -40,6 +40,8 @@ class VMConfigTests(unittest.TestCase):
         options = self.config()
         self.assertEqual(options.capacity, dict(cpu_millis=3000, memory_mib=6144, storage_mib=13312))
         self.assertEqual(options.runtime_per_repetition_minutes, 60)
+        self.assertEqual(options.workspace_quota_socket,Path('/run/jasmine-workspace-quotas/broker.sock'))
+        self.assertEqual(options.workspace_guard,Path('/usr/local/libexec/jasmine-workspace-guard'))
         with patch('socket.socket', side_effect=AssertionError('No network')), redirect_stdout(io.StringIO()):
             self.assertEqual(main(['check', '--config', str(self.path)]), 0)
         self.assertEqual(sorted(p.name for p in self.root.iterdir()), ['settings.toml'])
@@ -61,7 +63,10 @@ class VMConfigTests(unittest.TestCase):
             ('preview = false', 'preview = true'),
             ('prepared = []', 'prepared = ["/tmp/inputs"]'),
             ('prepared = []', 'prepared = [{id="bad"}]'),
-            ('cache_gib = 10', 'cache_gib = 0')]
+            ('cache_gib = 10', 'cache_gib = 0'),
+            ('quota_socket = "/run/jasmine-workspace-quotas/broker.sock"', 'quota_socket = "relative/socket"'),
+            ('quota_socket = "/run/jasmine-workspace-quotas/broker.sock"', 'quota_socket = "/run/'+('a'*101)+'"'),
+            ('guard = "/usr/local/libexec/jasmine-workspace-guard"', 'guard = "../guard"')]
         for old, new in replacements:
             with self.subTest(new=new), self.assertRaises(ValueError):
                 self.config(self.text.replace(old, new))

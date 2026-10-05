@@ -7,7 +7,7 @@ SimPaths Online deployment readiness, verified local evidence and installation o
 
 # SimPaths Online deployment readiness
 
-**Reviewed:** 4 October 2026. **Deployment status:** local implementation and
+**Reviewed:** 5 October 2026. **Deployment status:** local implementation and
 rehearsals are recorded below; no production VM or domain has been selected.
 
 Use this checklist to prepare and validate the first SimPaths Online installation,
@@ -19,6 +19,19 @@ retain the development history; this checklist supplies the current deployment o
 The reports test different recorded source revisions and images. They do not
 collectively certify an unspecified future build. Record the exact selected release
 and run the relevant checks against it when installing or changing the service.
+
+The subsequent MultiRun XFS quota implementation is described in
+[WORKSPACE_QUOTAS.md](multirun/WORKSPACE_QUOTAS.md). Local ABI, launcher, journal,
+executor, configuration and file-restore checks pass. Its native loop-filesystem
+rehearsal passed in `workspace-quota-20261005-011818`; the earlier evidence below
+does not certify this new boundary.
+The first two native attempts passed 74 regressions and confirmed cleanup, then
+stopped at the probe's incorrect `EDQUOT` expectation before launching models.
+XFS returned `ENOSPC` at 16 MiB. The corrected probe verifies kernel accounting,
+free capacity and a separate successful allocation; all 71 local checks pass.
+The corrected native workflow passed all 80 regressions and five filesystem
+stages; all three reports confirm success and cleanup. Installation-specific
+enforcement, the approved real model and reboot acceptance remain required.
 
 ## Verified local evidence
 
@@ -36,6 +49,7 @@ The older real-model drivers use `status: "passed"` rather than that report form
 | Shared SingleRun/MultiRun admission, polling under load, restart adoption and original-seed completion | [Mixed-load report](/home/rer/simpaths-benchmarks/mixed-load-20261003-000304/report.json) | One real 20,000-person and one real 50,000-person model |
 | Retained model versions preserve datasets, accepted reviews, queued jobs, resources and retries | [Release-transition report](/home/rer/simpaths-benchmarks/postgres-queue-20261003-112048/report.json) | Fictional releases; scientific compatibility is assessed separately |
 | Repetition-scaled working storage and removal of repeated run inputs while preserving options and verified output | [Storage report](/home/rer/simpaths-benchmarks/multirun-storage-20261003-124138/report.json) | Full real 50,000-person runs, including three repetitions |
+| Hard MultiRun workspace quotas, inherited ioctl denial, broker/worker restart, independent restore and saved-result preservation | [Quota report](/home/rer/simpaths-benchmarks/workspace-quota-20261005-011818/report.json) and [filesystem proof](/home/rer/simpaths-benchmarks/workspace-quota-20261005-011818/postgres-proof/model-proof/report.json) | Two disposable XFS filesystems, real kernel limits and fictional Docker models; not installed-host acceptance |
 | Read-only operator inventory of jobs, reservations, storage, cleanup, notices and releases | [Operator report](/home/rer/simpaths-benchmarks/postgres-queue-20261003-142214/report.json) | Disposable PostgreSQL and fictional files |
 | Maintained Visualiser page, configuration names, separate alternatives, comparison ZIPs, aggregate-only VM responses and owner/source guards | [Visualiser report](/home/rer/simpaths-benchmarks/vm-visualiser-20261003-220301/report.json) | Real browser and aggregation code with fictional CSVs |
 | MultiRun TLS/cookies, private-file denial, large ZIP preparation, slow transfer, restart/resume, deletion and revocation | [MultiRun HTTPS report](/home/rer/simpaths-benchmarks/https-rehearsal-20261004-003741/report.json) | Real local Nginx/TLS and fictional output |
@@ -87,9 +101,10 @@ not install services, choose providers or change security settings.
 - [ ] Mount and verify persistent private storage outside all static roots. Budget
   the OS, Docker/PostgreSQL data, retained results, caches, logs and separate backup
   storage independently, including temporary copies and free-space reserves.
-- [ ] Implement and test physical workspace limits on the selected filesystem and
-  executor, including SingleRun container writes and MultiRun workspaces. This host
-  integration remains open: queue reservations and polling are not hard disk quotas.
+- [ ] Install and test physical workspace limits on the selected filesystem and
+  executor: SingleRun's Docker writable-layer verifier and MultiRun's XFS project
+  broker/static launcher. Check excess writes, restart, restore and unaffected
+  neighbouring work. Queue reservations and polling do not establish those limits.
 - [ ] Verify storage-pressure behaviour, confirmed cleanup and administrator alerts
   on the actual volumes without sacrificing retained inputs, results or history.
 - [ ] Measure the intended 50,000-person horizon, repetitions, preparation,

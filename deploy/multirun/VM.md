@@ -104,14 +104,18 @@ Distinguish these controls:
 | Dedicated private volume | Physical space the service can consume without filling the OS volume |
 | `upload_allowance_gib` | Retained uploads per owner; excludes prepared datasets and outputs |
 | Queue `storage_mib` | Admission reservations for active work; not retained-data accounting |
+| XFS workspace project quota | Frozen per-attempt hard limit across staged request, work and published preparation files |
 | Workspace monitoring | Detects oversized working files and stops the model; not a hard per-attempt quota |
 | Download/Visualiser cache caps | Temporary processed-copy budgets with expiration |
 | Retention | Release of eligible old files after their warnings and dependency holds |
 
 Before public launch, verify the chosen host's actual filesystem limits and reserve
-enough space for all retained data and temporary peaks. Per-workspace hard quota
-enforcement is still a host/executor integration requirement; polling alone is not
-a substitute. PostgreSQL's named volume and Docker image/log storage are on Docker's
+enough space for all retained data and temporary peaks. Native MultiRun now requires
+the administrator quota broker and static model launcher on an XFS `prjquota`
+volume. Follow [workspace quota installation and rehearsal](WORKSPACE_QUOTAS.md)
+before the normal application preflight; selected-host physical enforcement still
+requires acceptance. Polling alone is not a substitute.
+PostgreSQL's named volume and Docker image/log storage are on Docker's
 data filesystem, so monitor and budget that filesystem separately. Keep backups on
 separate protected storage. A storage outage must leave queue/history intact and
 send shared-service alerts only to the configured administrator.

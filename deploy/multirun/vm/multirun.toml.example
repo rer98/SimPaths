@@ -15,6 +15,12 @@ dsn_file = "/etc/simpaths-online/postgres.dsn"
 # Copy verified public training snapshots here; do not use temporary directories.
 prepared = []
 
+[workspaces]
+# Administrator-owned broker on the private XFS filesystem; see WORKSPACE_QUOTAS.md.
+# Required whenever service.dedicated_storage is true.
+quota_socket = "/run/jasmine-workspace-quotas/broker.sock"
+guard = "/usr/local/libexec/jasmine-workspace-guard"
+
 [model]
 # Replace with the reviewed, already installed model image's immutable ID.
 image = "sha256:REPLACE_WITH_64_HEXADECIMAL_DIGITS"

@@ -5,6 +5,7 @@ Configuration checks have no database, Docker, SMTP or filesystem side effects.
 @author ross richardson
 """
 from pathlib import Path
+import os
 import re
 from types import SimpleNamespace
 import tomllib
@@ -28,6 +29,8 @@ DEFAULTS = {
     'downloads': {'threshold_mib': 512, 'cache_gib': 10, 'cache_hours': 24},
     'notifications': {'enabled': False, 'retention_cleanup': False, 'admin_email': ''},
     'visualiser': {'build': '', 'preview': False, 'memory_mib': 1024, 'timeout_seconds': 600},
+    'workspaces': {'quota_socket': '/run/jasmine-workspace-quotas/broker.sock',
+                   'guard': '/usr/local/libexec/jasmine-workspace-guard'},
 }
 
 
@@ -141,7 +144,12 @@ def load_config(path):
     attempt = 60*(limits['runtime_setup_minutes'] + limits['max_repetitions']*limits['runtime_per_repetition_minutes'])
     if attempt > 90*86400 or attempt*limits['runtime_budget_multiplier'] > 270*86400:
         raise ValueError('Calculated runtime exceeds the technical execution ceiling')
+    quota_socket=absolute(sections['workspaces']['quota_socket'],'workspaces.quota_socket')
+    if len(os.fsencode(quota_socket))>100:
+        raise ValueError('workspaces.quota_socket exceeds the Unix socket path bound')
     options = SimpleNamespace(**limits, **paths, **service, image=image,
+        workspace_quota_socket=quota_socket,
+        workspace_guard=absolute(sections['workspaces']['guard'],'workspaces.guard'),
         download_threshold_mib=downloads['threshold_mib'], download_cache_gib=downloads['cache_gib'],
         download_cache_hours=downloads['cache_hours'], notification_emails=notifications['enabled'],
         retention_cleanup=notifications['retention_cleanup'], admin_email=notifications['admin_email'] or None,

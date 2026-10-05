@@ -432,7 +432,30 @@ def restore(queue, backup, target, tools, *, resume=False, after_database=None):
     return summary(manifest,'restore',inactive=True)
 
 
-def activate(queue, backup, target, *, image_check=installed_image, source_isolated=False):
+def restore_workspace_quotas(c, queue, target, quotas):
+    """Rebuild target filesystem metadata after content verification, while inactive.
+
+    Project IDs/inodes belong to the destination filesystem, not to the archive.
+    Frozen per-attempt allowances come from the already verified database.
+    """
+    from psycopg import sql
+    from types import SimpleNamespace
+    quotas.guard(); quotas.preflight()
+    rows=c.execute(sql.SQL('''SELECT a.execution_key,j.resources FROM {} a
+        JOIN {} j ON j.id=a.job_id WHERE a.pool_id=%s ORDER BY a.execution_key''').format(
+        sql.Identifier(queue.schema,'attempts'),sql.Identifier(queue.schema,'jobs')),(queue.pool_id,)).fetchall()
+    for row in rows:
+        root=target/'execution'/row['execution_key']
+        artifact=target/'artifacts'/row['execution_key']
+        if root.is_symlink() or artifact.is_symlink():
+            raise ArtifactError('Linked restored workspace')
+        if root.exists():
+            quotas.restore(SimpleNamespace(execution_key=row['execution_key'],resources=row['resources']))
+        elif artifact.exists():
+            raise ArtifactError('Restored prepared artifact has no attempt identity directory')
+
+
+def activate(queue, backup, target, *, image_check=installed_image, source_isolated=False, workspace_quotas=None):
     from jasmine_web.batch.backup import frozen_database
     target=existing_directory(target); backup=existing_directory(backup)
     manifest=verify(backup)
@@ -457,6 +480,8 @@ def activate(queue, backup, target, *, image_check=installed_image, source_isola
         check_restored_files(backup,manifest,target)
         restored_database(c,queue,manifest,target)
         for image in manifest['images']: image_check(image)
+        if workspace_quotas is not None:
+            restore_workspace_quotas(c,queue,target,workspace_quotas)
         (target/GATE).unlink()
         sync_tree(target)
     return summary(manifest,'activate',inactive=False)
@@ -518,7 +543,12 @@ def main(argv=None):
                         args.client_container='jasmine-multirun-local-'+hashlib.sha256(str(state).encode()).hexdigest()[:12]
             from jasmine_web.batch.store import Queue
             queue=Queue(dsn,pool,schema=schema)
-            if args.command=='activate': result=activate(queue,args.backup,state,source_isolated=args.source_isolated)
+            if args.command=='activate':
+                quotas=None
+                if args.config:
+                    from .vm_web import workspace_quotas
+                    quotas=workspace_quotas(options)
+                result=activate(queue,args.backup,state,source_isolated=args.source_isolated,workspace_quotas=quotas)
             else:
                 tools=PostgresTools(dsn,container=args.client_container)
                 creator=create

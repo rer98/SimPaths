@@ -3,8 +3,8 @@
 # @author ross richardson
 [Unit]
 Description=SimPaths Online UK MultiRun
-Requires=docker.service
-After=network-online.target docker.service
+Requires=docker.service jasmine-workspace-quotas.service
+After=network-online.target docker.service jasmine-workspace-quotas.service
 Wants=network-online.target
 RequiresMountsFor=/srv/simpaths-online/private
 StartLimitIntervalSec=300

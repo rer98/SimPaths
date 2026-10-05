@@ -113,7 +113,13 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
     with q._connection() as c:
         locations=c.execute('SELECT location,model_digest FROM prepared_locations WHERE pool_id=%s',(q.pool_id,)).fetchall()
     images={r['image'] for r in releases.values()}|{r['model_digest'] for r in locations}
-    executor=DockerExecutor(execution,approved_images=images,input_roots=[execution,state/'artifacts',*[Path(p['location']) for p in locations]])
+    quotas=None
+    if getattr(args,'dedicated_storage',False):
+        from .vm_web import workspace_quotas
+        quotas=workspace_quotas(args)
+        quotas.guard(); quotas.preflight()
+    executor=DockerExecutor(execution,approved_images=images,workspace_quotas=quotas,
+        input_roots=[execution,state/'artifacts',*[Path(p['location']) for p in locations]])
     stop=threading.Event()
     health={'message':'Dispatcher is starting.'}
     fatal=threading.Event()

@@ -70,6 +70,9 @@ Upstream baseline used to identify new files: `b223738b9cdf1d814cc3c6f09b04bc493
 - `deploy/acceptance/MemoryMonitorProbe.java`
 - `deploy/acceptance/run_memory_monitor_acceptance.py`
 - `deploy/acceptance/test_memory_monitor_acceptance.py`
+- `deploy/acceptance/SimPathsResourceProbe.java`
+- `deploy/multirun/resource_recovery_proof.py`
+- `deploy/multirun/test_resource_recovery_proof.py`
 - `deploy/acceptance/run_vm_acceptance.py`
 - `deploy/acceptance/run_user_data_browser_acceptance.py`
 - `deploy/acceptance/test_vm_acceptance.py`

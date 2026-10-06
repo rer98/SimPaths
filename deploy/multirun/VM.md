@@ -275,6 +275,126 @@ write failure with a zero exit, invalid output and a larger-storage retry. These
 check recovery mechanics; they do not establish suitable scientific workload sizes
 for a VM.
 
+#### Real-model resource calibration and recovery rehearsal
+
+Use the prepared public 50,000-person dataset containing shared memory monitoring.
+This runs one model at a time in a disposable database and private execution root;
+existing launchers, releases, datasets, secrets and cookies are not changed:
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths
+~/simpaths-browser-tests/venv/bin/python deploy/multirun/resource_recovery_proof.py \
+  --frontend "$HOME/git/JAS-mine/JAS-mine-web" \
+  --prepared /tmp/codex-rer/multirun-prepared-50000-monitoring-20261005-190619
+```
+
+Stop other simulations first. The preflight requires 8 GiB available RAM and
+11 GiB free on the temporary-work filesystem; evidence is small and normally goes
+to `~/simpaths-benchmarks/resource-model-*`. No new model image or prepared data is
+built. Four cases use 2019–2026, one repetition and seed 606:
+
+- `control`: current 3 GiB heap / 5 GiB container.
+- `heap-trial`: proposed 4 GiB heap / 5 GiB container, with container growth
+  disabled for an interpretable measurement of this starting size.
+- `heap-retry`: a deliberately small 512 MiB heap, increased only through automatic
+  resource recovery and the original three-attempt/time budget.
+- `live-growth`: current 3 GiB heap / 5 GiB container, with a **test-only 50%**
+  pressure threshold and 7 GiB RAM ceiling so normal scientific work exercises
+  live memory/storage increases. This does not change the 85% service default.
+
+Select a subset with `--cases control heap-trial`, or `--cases heap-retry
+live-growth`. Each completed case verifies the original settings and seed, both
+required annual outputs for all eight years, durable output hashes, released
+reservations and preserved input-copy cleanup. Real browser authentication and
+My Jobs notices are checked against the production routes; another owner cannot
+read those statuses. Earlier completed output is revalidated after subsequent
+recovery. No email is sent.
+
+A private test entry wrapper calls the unchanged MultiRun main method. It samples
+the packaged shared monitor and JVM counters every two seconds, without forced
+garbage collection, scientific controls or additional memory load. Reports separate
+heap used/committed/maximum, non-heap use, garbage-collection time, raw cgroup use,
+inactive file cache and working memory. Cgroup peak is recorded where available;
+the JVM and working-memory peaks remain sampled observations. Each attempt must
+retain its container/PID, and observed heap/container limits must match its
+recorded allocations. The compiled probe and runner overlay are test artifacts,
+not modifications to the model JAR or a registered release.
+
+The first calibration on 6 October 2026 completed and verified both starting
+allocations, each with one full 50,000-person run, seed 606 and all eight annual
+years. Each used a 5 GiB container and the standard 4.25 GiB working-storage
+allowance. This first run sampled every second; later runs use two seconds:
+
+| Maximum heap | Sampled heap-used peak | Sampled working-RAM peak | Sampled workspace peak | Recorded GC time |
+| ---: | ---: | ---: | ---: | ---: |
+| 3 GiB | 2.66 GiB | 3.33 GiB | 2.90 GiB | 32.2 seconds |
+| 4 GiB | 2.97 GiB | 3.61 GiB | 2.90 GiB | 28.3 seconds |
+
+The raw cgroup peak reached 5 GiB in both cases, including reclaimable file cache.
+It does not mean the model required 5 GiB of working RAM. These are single trials,
+not evidence of a general speed improvement or a guarantee for other workloads.
+Initial service heaps remain unchanged. The private
+[calibration report](/tmp/codex-rer/resource-model-20261006-a/model-proof/report.json)
+records both verified cases and confirmed cleanup. Its enclosing run is marked
+failed because the harness attempted to recreate its progress file after the
+second case; progress updates now replace that file atomically. Two transient
+HTTP database-connection timeouts were logged during the first case's final
+verification, so this run does not establish error-free polling under validation
+load. Browser authentication, owned status, output verification and cleanup passed.
+
+The deliberately small-heap case confirmed a real `Java heap space` exhaustion
+at 512 MiB. Automatic recovery completed the next attempt with a 1.5 GiB heap
+and 6 GiB container, retaining seed 606, the frozen settings and original budgets.
+Its [private report](/tmp/codex-rer/resource-model-20261006-c/model-proof/report.json)
+records both outcomes and verified annual output. The enclosing run failed after
+verification because the harness omitted the failed-attempt diagnostic retirement
+step. It now runs both production retirement steps. A separate
+[native cleanup regression](/tmp/codex-rer/resource-retirement-20261006-a/model-proof/report.json)
+passed: failed/successful containers are removed, bounded diagnostics and completed
+output survive, repeated retirement is safe and progress updates replace the file.
+One transient HTTP database-connection timeout also occurred during this small-heap
+case's final verification. This fixture demonstrates recovery; it does not recommend
+1.5 GiB as the normal scientific heap or certify validation-time responsiveness.
+
+The corrected [live-growth run](/tmp/codex-rer/resource-model-20261006-d/report.json)
+and [model report](/tmp/codex-rer/resource-model-20261006-d/model-proof/report.json)
+both passed with confirmed cleanup and unchanged prepared inputs/model. The same
+container and JVM PID completed in one attempt as container RAM increased from
+5 to 6 to 7 GiB; the heap maximum stayed at 3 GiB. Application-monitored storage
+increased from 4.25 to 5.3125 to 6.640625 GiB. Sampled working-RAM/workspace peaks
+were 3.28/2.90 GiB. Original seed/settings, all eight annual years, durable hashes,
+browser notices, other-owner denial, input-copy reclamation and settled capacity
+were verified. The test-only 50% threshold exercises growth before the normal
+85% threshold is reached; it does not establish that this workload needs 7 GiB RAM.
+Physical XFS growth under this real workload is a separate stage below and remains
+pending until its native reports pass.
+
+The ordinary command checks application-monitored storage growth. For physical
+XFS growth with the same real workload, use the existing administrator fixture:
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths
+sudo -- /usr/bin/python3 deploy/multirun/quota_rehearsal.py \
+  --frontend "$HOME/git/JAS-mine/JAS-mine-web" \
+  --python "$HOME/simpaths-browser-tests/venv/bin/python" \
+  --prepared /tmp/codex-rer/multirun-prepared-50000-monitoring-20261005-190619 \
+  --repetitions 1 --resource-recovery \
+  --output "$HOME/simpaths-benchmarks/resource-model-xfs-$(date +%Y%m%d-%H%M%S)"
+```
+
+This uses one newly created 12 GiB regular loop-image file, requiring 14 GiB
+temporary free space. It mounts/formats only that disposable image and runs the
+model unprivileged. The initial limit is 4.25 GiB, with an 8.5 GiB frozen storage
+ceiling; kernel readback must confirm growth of the same project. It installs no
+service and cleans up its own broker, mount and models. Existing small native
+fixtures separately test actual storage/container exhaustion, lost replies and
+restart reconciliation; this real-model stage tests growth under scientific load.
+
+Require success and confirmed cleanup in the wrapper and model reports. These
+local public-data measurements do not cover other populations, collector settings,
+concurrent users or an eventual VM. Calibrate those before changing service
+allocations or enabling recovery for users.
+
 Newly registered release policies scale working storage independently of runtime:
 **4 GiB fixed + 256 MiB per repetition**, raising the fixed term for larger input
 copies. Twelve repetitions normally need 7 GiB per active configuration, plus

@@ -7,7 +7,7 @@ SimPaths Online deployment readiness, verified local evidence and installation o
 
 # SimPaths Online deployment readiness
 
-**Reviewed:** 5 October 2026. **Deployment status:** local implementation and
+**Reviewed:** 6 October 2026. **Deployment status:** local implementation and
 rehearsals are recorded below; no production VM or domain has been selected.
 
 Use this checklist to prepare and validate the first SimPaths Online installation,
@@ -27,6 +27,12 @@ operator's ceilings; existing work keeps its original policy. Real local Docker/
 and XFS fixtures verify recovery mechanics, including lost replies and restarts.
 Initial scientific heap/RAM settings remain unchanged, and the growth headroom must
 be calibrated on the selected host before enabling the option for users.
+The [real-model resource rehearsal](multirun/VM.md#real-model-resource-calibration-and-recovery-rehearsal)
+now records full 50,000-person trials with 3/4 GiB heaps in 5 GiB containers,
+confirmed Java heap exhaustion followed by a larger-heap retry, and a passing
+same-process live RAM/application-storage growth run. Service defaults are
+unchanged. Physical XFS growth under that real scientific workload remains a
+separate pending stage; the existing small native fixtures test its mechanics.
 
 The subsequent MultiRun XFS quota implementation is described in
 [WORKSPACE_QUOTAS.md](multirun/WORKSPACE_QUOTAS.md). Local ABI, launcher, journal,
@@ -63,9 +69,10 @@ Its measured evidence covers this 50,000-person, 2019–2026 profile.
 ## Verified local evidence
 
 All linked reports were read for this review. Links refer to the original files on
-Ross's laptop under `/home/rer/simpaths-benchmarks`; archive protected copies before
-retiring that storage. For wrappers, inspect both `report.json` and the adjacent
-`model-proof/report.json`: the listed wrapper runs confirm success and cleanup.
+Ross's laptop under `/home/rer/simpaths-benchmarks` or `/tmp/codex-rer`; archive
+protected copies before retiring that storage. For wrappers, inspect both
+`report.json` and the adjacent `model-proof/report.json`: the listed wrapper runs
+confirm success and cleanup.
 The older real-model drivers use `status: "passed"` rather than that report format.
 
 | What passed | Evidence | Scope |
@@ -80,6 +87,8 @@ The older real-model drivers use `status: "passed"` rather than that report form
 | Live quota growth, pending-change reconciliation and independent restoration of the enlarged limit | [Resource recovery quota report](/home/rer/simpaths-benchmarks/resource-recovery-quota-20261005-233529/report.json) and [filesystem proof](/home/rer/simpaths-benchmarks/resource-recovery-quota-20261005-233529/postgres-proof/model-proof/report.json) | Two disposable XFS filesystems; same container/process/project survives growth and worker/broker restart |
 | Incomplete zero-exit output at a confirmed byte quota triggers one larger-storage retry with unchanged seeds/specification | [Storage retry report](/home/rer/simpaths-benchmarks/resource-recovery-quota-20261006-002259/report.json) and [filesystem proof](/home/rer/simpaths-benchmarks/resource-recovery-quota-20261006-002259/postgres-proof/model-proof/report.json) | 96 regressions and seven native XFS stages; fictional work, independent restoration and cleanup |
 | Live RAM growth, container OOM, real Java heap exhaustion and larger-heap retry with original seeds | [Native Docker/JVM report](/tmp/codex-rer/resource-recovery-docker-java-check-2/report.json) | Six fictional native fixtures; scientific capacity calibration remains separate |
+| Real scientific work survives live RAM/application-storage increases with the same JVM and fixed heap | [Growth report](/tmp/codex-rer/resource-model-20261006-d/report.json) and [model proof](/tmp/codex-rer/resource-model-20261006-d/model-proof/report.json) | Public 50,000-person run, 2019–2026, one attempt, seed 606; test-only 50% pressure threshold; physical XFS growth pending |
+| Both production retirement steps remove settled failed/successful containers while preserving diagnostics and completed output | [Retirement report](/tmp/codex-rer/resource-retirement-20261006-a/report.json) and [native check](/tmp/codex-rer/resource-retirement-20261006-a/model-proof/report.json) | Small real Docker workloads and disposable PostgreSQL; repeated cleanup and atomic progress replacement |
 | Backup preservation of confirmed increases and safe abortion of pending external changes in the inactive target | [Recovery backup report](/tmp/codex-rer/resource-recovery-backup-check/report.json) | Native disposable PostgreSQL dump/restore and fictional files |
 | Full-length real-model completion under kernel quotas, frozen seeds/resources, verified output/input-copy cleanup and released capacity | [Quota storage report](/home/rer/simpaths-benchmarks/multirun-quota-storage-20261005-101156/report.json) and [model proof](/home/rer/simpaths-benchmarks/multirun-quota-storage-20261005-101156/postgres-proof/model-proof/report.json) | Real public 50,000-person runs, 2019–2026, one/three repetitions under 4.5/5.5 GiB XFS limits; disposable local filesystem |
 | Twelve repetitions under a smaller allowance, long-output lease renewal, verified publication/input cleanup and released capacity | [Trial report](/home/rer/simpaths-benchmarks/multirun-quota-256-12-20261005-135803/report.json) and [model proof](/home/rer/simpaths-benchmarks/multirun-quota-256-12-20261005-135803/postgres-proof/model-proof/report.json) | Real public 50,000-person runs, 2019–2026, 4 GiB + 256 MiB/repetition under a 7 GiB XFS limit; proof-only policy |
@@ -93,6 +102,22 @@ The older real-model drivers use `status: "passed"` rather than that report form
 | Automatic application restart, original-container adoption, retained retry budgets and bounded restart attempts | [Service recovery report](/home/rer/simpaths-benchmarks/service-recovery-20261004-101159/report.json) | Real transient user systemd units and fictional Docker models |
 | Restricted database-role permissions, orderly PostgreSQL stop and crash, safe denials and reconciliation | [Database recovery report](/home/rer/simpaths-benchmarks/postgres-recovery-20261004-213531/report.json) | Real disposable PostgreSQL and fictional models |
 | Compatible application update/rollback, retained ownership/work/results, rejection of newer schemas and verified recovery | [Application update report](/home/rer/simpaths-benchmarks/application-update-20261004-231729/report.json) | Real committed code, native services/restore and fictional models |
+
+### Real-model calibration observations
+
+The [starting-allocation report](/tmp/codex-rer/resource-model-20261006-a/model-proof/report.json)
+verified complete 50,000-person output at both 3 GiB and 4 GiB maximum heap with a
+5 GiB container. Sampled working-RAM peaks were 3.33/3.61 GiB and workspace peaks
+were 2.90 GiB. The [heap-retry report](/tmp/codex-rer/resource-model-20261006-c/model-proof/report.json)
+verified a real 512 MiB heap exhaustion followed by successful automatic recovery
+at 1.5 GiB heap / 6 GiB container, keeping the original settings, seed and budgets.
+These two enclosing reports are **failed**: their post-verification progress-file
+and retirement assertions exposed harness defects, now corrected and covered by
+the passing native retirement check above. They are observations, not additional
+passing wrapper runs. Their transient final-verification database-connection
+timeouts still require investigation; they do not certify error-free polling.
+Single trials do not establish general performance or suitable sizes for other
+populations/horizons/collectors. No default heap/container setting was changed.
 
 The current hosted Visualiser integration is a pinned **development levels
 preview** for owner-supplied inputs and explicitly verified public training data.
@@ -159,6 +184,9 @@ not install services, choose providers or change security settings.
   pressure thresholds and maximum allocations with representative populations.
   Include SingleRun, aggregation, database and backup activity in shared/physical
   capacity tests. Confirm owner/operator notices and pending-change reconciliation.
+- [ ] Complete the real-model native XFS growth stage and investigate transient
+  database-connection timeouts during long output verification. Then check polling
+  and validation under the selected host's intended scientific/concurrent load.
 
 ### Database security and supervised services
 

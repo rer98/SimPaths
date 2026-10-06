@@ -29,9 +29,11 @@ ROOT=Path(__file__).resolve().parents[2]
 MIB=1024**2
 
 
-def fixture_plan(prepared_check=None):
+def fixture_plan(prepared_check=None, *, resource_recovery=False):
     """Keep both proofs on the same reviewed mount/broker implementation."""
     if prepared_check is None:
+        if resource_recovery:
+            raise ValueError('Real resource recovery requires verified prepared inputs')
         return dict(roles=('source','target'),loop_image_mib=512,temporary_required_bytes=2*1024**3,
             max_bytes=128*MIB,reserve_bytes=32*MIB,proof_script=Path(__file__).resolve(),
             backend_pattern=None,image='python:3.12-slim')
@@ -55,11 +57,16 @@ def fixture_plan(prepared_check=None):
     if (any(type(profile[key]) is not int for key in ('setup_mib','maximum_storage_mib','proof_timeout_seconds'))
             or profile['setup_mib']!=4096 or profile['maximum_storage_mib']!=maximum or profile['proof_timeout_seconds']!=timeout):
         raise ValueError('Storage calibration has inconsistent limits or timeout')
+    if resource_recovery:
+        if counts!=[1] or term!=256:
+            raise ValueError('The native recovery fixture uses one full-length repetition at 256 MiB')
+        maximum*=2  # The frozen recovery ceiling, not another initial allowance.
     image_mib=max(8192,((maximum+2048+2047)//2048)*2048)
     return dict(roles=('source',),loop_image_mib=image_mib,temporary_required_bytes=(image_mib+2048)*MIB,
-        max_bytes=maximum*MIB,reserve_bytes=512*MIB,proof_script=Path(__file__).with_name('storage_proof.py'),
+        max_bytes=maximum*MIB,reserve_bytes=512*MIB,proof_script=Path(__file__).with_name(
+            'resource_recovery_proof.py' if resource_recovery else 'storage_proof.py'),
         backend_pattern='test_storage.py',image=prepared_check['image'],calibration=profile,
-        proof_timeout_seconds=timeout)
+        proof_timeout_seconds=9600 if resource_recovery else timeout,resource_recovery=resource_recovery)
 
 
 def proof_command(python,frontend,output,plan):
@@ -67,8 +74,11 @@ def proof_command(python,frontend,output,plan):
     # Include slow-output lease renewal/fencing before the long native model run.
     command+=['--test-pattern',plan['backend_pattern'],'test_worker.py'] if plan['backend_pattern'] else ['--proof-only']
     if plan.get('proof_timeout_seconds'):command+=['--proof-timeout-seconds',str(plan['proof_timeout_seconds'])]
+    requirements=[str(ROOT/'deploy/multirun/requirements.txt')]
+    if plan.get('resource_recovery'):
+        requirements.append(str(ROOT/'deploy/acceptance/requirements.txt'))
     return command+['--proof-script',str(plan['proof_script']),
-        '--proof-requirements',str(ROOT/'deploy/multirun/requirements.txt'),'--output',str(output/'postgres-proof')]
+        '--proof-requirements',*requirements,'--output',str(output/'postgres-proof')]
 
 MODEL = r'''
 # (C) Copyright 2026, by Ross Richardson
@@ -500,7 +510,13 @@ def rehearsal(args):
             '--repetitions',*[str(n) for n in args.repetitions]],cwd=ROOT,check=True,capture_output=True,text=True,timeout=180)
         checked=json.loads(result.stdout)
         env['SIMPATHS_STORAGE_PREPARED']=str(prepared)
-    plan=fixture_plan(checked)
+    recovery=getattr(args,'resource_recovery',False)
+    plan=fixture_plan(checked,resource_recovery=recovery)
+    if recovery:
+        env.update(SIMPATHS_RESOURCE_PREPARED=str(prepared),SIMPATHS_RESOURCE_CASES=json.dumps(['live-growth']))
+        # sudo's environment may still point browser discovery at root's cache;
+        # the dropped-privilege proof must use the ordinary account's Chromium.
+        env.setdefault('PLAYWRIGHT_BROWSERS_PATH',str(Path(account.pw_dir)/'.cache/ms-playwright'))
     temporary_root=args.temporary_root.resolve(strict=True)
     if shutil.disk_usage(temporary_root).free<plan['temporary_required_bytes']:
         raise ValueError(f"Need {plan['temporary_required_bytes']/1024**3:.0f} GiB free on the temporary-files filesystem")
@@ -538,7 +554,8 @@ def rehearsal(args):
             check=True,capture_output=True,timeout=60)
         (runtime/'guard').chmod(0o555)
         settings=dict(frontend=str(frontend),guard=str(runtime/'guard'),image=image,control=str(sockets/'control.sock'),
-            proof_mode='real-model-storage' if prepared is not None else 'fictional-quota')
+            proof_mode=('real-model-resource-recovery' if recovery else 'real-model-storage')
+                if prepared is not None else 'fictional-quota')
         if prepared is not None: settings.update(prepared=str(prepared),prepared_sha256=checked['prepared_sha256'],
             calibration=plan['calibration'])
         report['runtime_image_id']=image
@@ -602,7 +619,8 @@ def rehearsal(args):
         if prepared is None:
             print('Running fictional models unprivileged on two disposable 512 MiB XFS loop files',flush=True)
         else:
-            print(f"Running full 50,000-person storage proof unprivileged on one disposable {plan['loop_image_mib']/1024:g} GiB XFS loop file",flush=True)
+            purpose='resource-growth' if recovery else 'storage'
+            print(f"Running full 50,000-person {purpose} proof unprivileged on one disposable {plan['loop_image_mib']/1024:g} GiB XFS loop file",flush=True)
         result=user_run(proof_command(python,frontend,output,plan),cwd=frontend)
         report['passed']=result.returncode==0
     except (Exception,KeyboardInterrupt) as error:
@@ -644,6 +662,8 @@ def main():
     parser.add_argument('--python',type=Path)
     parser.add_argument('--prepared',type=Path,
         help='Use the existing storage proof with verified public 50,000-person inputs')
+    parser.add_argument('--resource-recovery',action='store_true',
+        help='With --prepared --repetitions 1, exercise live growth with the real workload')
     parser.add_argument('--repetitions',type=int,nargs='+',default=[1,3],
         help='Ordered real-model calibration cases; at most 24 runs total')
     parser.add_argument('--storage-per-repetition-mib',type=int,default=256,
@@ -651,6 +671,8 @@ def main():
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--temporary-root',type=Path,default=Path('/tmp/codex-rer'))
     args=parser.parse_args()
+    if args.resource_recovery and (not args.prepared or args.repetitions!=[1] or args.storage_per_repetition_mib!=256):
+        parser.error('Native resource recovery requires --prepared --repetitions 1 and 256 MiB per repetition')
     if args.execute_proof:
         if os.geteuid()==0: parser.error('The database/model proof must run as the ordinary user')
         execute_proof(args.output);return 0

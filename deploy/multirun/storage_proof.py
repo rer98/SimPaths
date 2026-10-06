@@ -80,14 +80,15 @@ def check_prepared(path,profile=None):
     return dict(image=image,calibration=profile,prepared_sha256=receipt['sha256'])
 
 
-def native_fixture(prepared,receipt):
+def native_fixture(prepared,receipt, *, proof_mode='real-model-storage'):
     """An explicit native fixture must match the inputs; never fall back."""
     path=os.environ.get('JASMINE_QUOTA_FIXTURE')
     if path is None: return None
     from jasmine_web.batch.local_executor import read_json
     settings=read_json(Path(path))
     checked_calibration(settings.get('calibration'))
-    if (settings.get('proof_mode')!='real-model-storage'
+    if (proof_mode not in ('real-model-storage','real-model-resource-recovery')
+            or settings.get('proof_mode')!=proof_mode
             or settings.get('image')!=receipt['identity']['source_image']
             or settings.get('prepared_sha256')!=receipt['sha256']
             or settings.get('prepared')!=str(prepared)

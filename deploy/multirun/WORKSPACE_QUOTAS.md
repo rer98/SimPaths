@@ -23,6 +23,13 @@ the existing monitoring route. They do not prove hard filesystem enforcement. Us
 the native rehearsal below to test the new route locally; actual-host acceptance
 remains required before deployment.
 
+The [real-model resource rehearsal](VM.md#real-model-resource-calibration-and-recovery-rehearsal)
+also measures heap/container memory and automatic heap retries. Its optional
+`quota_rehearsal.py --prepared ... --repetitions 1 --resource-recovery` stage
+checks real scientific work while the same XFS project's storage limit grows.
+That stage uses a deliberately lower test pressure threshold; the service
+defaults and previously registered model policies stay unchanged.
+
 ## What the limit covers
 
 `execution/batch-<attempt UUID>/work` and `request` share one XFS project and one

@@ -238,7 +238,7 @@ def validate_outputs(output, configuration, run_set_id, *, include_files=False):
     This checks completion against the submission, not equality between repeated
     scientific executions; it does not waive the known receipt-flag RNG issue.
     """
-    import csv
+    from .csv_validation import validate_annual_csv
     data = configuration.as_dict()
     seeds = data["seed_plan"]["seeds"]
     native = configuration.native_configuration(run_set_id)
@@ -265,33 +265,11 @@ def validate_outputs(output, configuration, run_set_id, *, include_files=False):
             raise ArtifactError("Actual model settings differ from the submitted configuration")
         csv_dir = path.parent.parent / "csv"
         manifest = inventory(csv_dir)
-        run_id = None
         years_expected = set(range(native["startYear"], native["endYear"] + 1))
         for name in ("Person.csv", "BenefitUnit.csv"):
             if name not in manifest:
                 raise ArtifactError("Required scientific output missing")
-            years, count = set(), 0
-            with (csv_dir / name).open(newline="", encoding="utf-8") as source:
-                reader = csv.DictReader(source)
-                columns = reader.fieldnames or []
-                if len(set(columns)) != len(columns) or not {"run", "time"} <= set(columns):
-                    raise ArtifactError("Invalid scientific CSV header")
-                for row in reader:
-                    if None in row or None in row.values():
-                        raise ArtifactError("Truncated scientific CSV")
-                    try:
-                        year = Decimal(row["time"])
-                    except InvalidOperation as error:
-                        raise ArtifactError("Invalid scientific output year") from error
-                    if not year.is_finite() or year != int(year) or int(year) not in years_expected:
-                        raise ArtifactError("Unexpected scientific output year")
-                    years.add(int(year))
-                    run_id = run_id or row["run"]
-                    if not row["run"] or run_id != row["run"]:
-                        raise ArtifactError("CSV mixes native runs")
-                    count += 1
-            if not count or years != years_expected:
-                raise ArtifactError("Scientific output has missing years or no records")
+        validate_annual_csv([csv_dir/name for name in ("Person.csv","BenefitUnit.csv")],years_expected)
         results[seed] = {"seed": seed, "fingerprint": digest({"options": fingerprint(path), "csv": manifest})}
         if include_files:
             # options.txt is already included in the recorded repetition hash.

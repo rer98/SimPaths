@@ -99,6 +99,16 @@ class VisualiserBackendTests(unittest.TestCase):
             self.assertNotIn(private,text)
         self.assertFalse(result['comparison_available'])
 
+    def test_platform_interface_stages_rows_without_parsing_them_in_the_server(self):
+        from unittest.mock import patch
+        from jasmine_web.batch.aggregate_io import AggregateFiles
+        selected=sources(self.root)
+        with patch('jasmine_web.batch.visualiser.artifact',side_effect=AssertionError('Server must not parse aggregate rows')):
+            staged=self.backend.process_files(selected,self.work,self.command,lambda _:None)
+        self.assertIsInstance(staged,AggregateFiles)
+        self.assertEqual(staged.paths,(self.work/'aggregate.json',))
+        self.assertGreater(staged.paths[0].stat().st_size,0)
+
     def test_multiple_alternatives_use_independent_unchanged_calculations_and_one_baseline(self):
         from jasmine_web.batch.visualiser import validate_publication
         self.assertTrue(self.backend.supports_comparison_sets)

@@ -138,10 +138,11 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                 while not stop.is_set():
                     try:
                         worker.tick(claim_new=False)
-                        service.attempt_cleanup.retire()
-                        retire_finished(q,executor)
-                        service.lifecycle.retire(state/'artifacts')
-                        service.outputs.retire()
+                        with worker.maintenance():
+                            service.attempt_cleanup.retire()
+                            retire_finished(q,executor)
+                            service.lifecycle.retire(state/'artifacts')
+                            service.outputs.retire()
                         worker.tick()
                         health['message']=''
                     except Exception as error:

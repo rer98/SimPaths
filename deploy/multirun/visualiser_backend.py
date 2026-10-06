@@ -78,6 +78,20 @@ class VisualiserBackend:
                 pass
 
     def process(self,sources,work,command,progress,*,comparison_set=False):
+        """Dictionary compatibility for calculation tests and trusted tooling."""
+        from jasmine_web.batch.visualiser import artifact
+        files=self.process_files(sources,work,command,progress,comparison_set=comparison_set)
+        result=dict(comparison_available=files.comparison_available,notice=files.notice)
+        if comparison_set:
+            result['series']=[dict(configuration=c['configuration']['id'],rows=artifact(path))
+                              for c,path in zip(sources,files.paths)]
+        else:
+            result['rows']=artifact(files.paths[0])
+        return result
+
+    def process_files(self,sources,work,command,progress,*,comparison_set=False):
+        """Leave bounded JSON rows private for the platform's aggregate helper."""
+        from jasmine_web.batch.aggregate_io import AggregateFiles
         from jasmine_web.batch.local_executor import atomic_json
         from jasmine_web.batch.results import verified_file, OutputUnavailable
         if comparison_set and not self.supports_comparison_sets:
@@ -121,17 +135,15 @@ class VisualiserBackend:
                 atomic_json(work/'request.json',dict(operation='aggregate',metrics=configuration_metrics,output=str(output)))
                 command([self.node,'--max-old-space-size='+str(max(128,self.memory-256)),
                          str(self.build/'runner.cjs'),str(work/'request.json')])
-                from jasmine_web.batch.visualiser import artifact
-                series.append(dict(configuration=config['id'],rows=artifact(output)))
+                series.append(output)
             else:
                 metrics.extend(configuration_metrics)
         notice='Development preview using Visualiser revision '+self.manifest['revision'][:12]+\
             '. Baseline and scenario levels are shown. Paired impact calculations will use the updated Visualiser release.'
         if comparison_set:
-            return dict(series=series,comparison_available=False,notice=notice)
+            return AggregateFiles(tuple(series),notice)
         output=work/'aggregate.json'
         atomic_json(work/'request.json',dict(operation='aggregate',metrics=metrics,output=str(output)))
         command([self.node,'--max-old-space-size='+str(max(128,self.memory-256)),
                  str(self.build/'runner.cjs'),str(work/'request.json')])
-        from jasmine_web.batch.visualiser import artifact
-        return dict(rows=artifact(output),comparison_available=False,notice=notice)
+        return AggregateFiles((output,),notice)

@@ -48,6 +48,10 @@ Upstream baseline used to identify new files: `b223738b9cdf1d814cc3c6f09b04bc493
 - `deploy/multirun/queue_adapter.py`
 - `deploy/multirun/run_queue_proof.py`
 - `deploy/multirun/test_queue_adapter.py`
+- `deploy/multirun/csv_validation.py`
+- `deploy/multirun/test_csv_validation.py`
+- `deploy/multirun/database_response_proof.py`
+- `deploy/multirun/background_response_proof.py`
 - `deploy/multirun/container_adapter.py`
 - `deploy/multirun/container_run.sh`
 - `deploy/multirun/test_container_adapter.py`

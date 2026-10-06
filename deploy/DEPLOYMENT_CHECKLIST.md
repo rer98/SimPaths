@@ -31,8 +31,9 @@ The [real-model resource rehearsal](multirun/VM.md#real-model-resource-calibrati
 now records full 50,000-person trials with 3/4 GiB heaps in 5 GiB containers,
 confirmed Java heap exhaustion followed by a larger-heap retry, and a passing
 same-process live RAM/application-storage growth run. Service defaults are
-unchanged. Physical XFS growth under that real scientific workload remains a
-separate pending stage; the existing small native fixtures test its mechanics.
+unchanged. The subsequent native XFS run also passed with the real scientific
+workload, kernel readback and confirmed cleanup. These local tests complement
+the small exhaustion/restart fixtures; selected-host acceptance is still required.
 
 The subsequent MultiRun XFS quota implementation is described in
 [WORKSPACE_QUOTAS.md](multirun/WORKSPACE_QUOTAS.md). Local ABI, launcher, journal,
@@ -87,13 +88,16 @@ The older real-model drivers use `status: "passed"` rather than that report form
 | Live quota growth, pending-change reconciliation and independent restoration of the enlarged limit | [Resource recovery quota report](/home/rer/simpaths-benchmarks/resource-recovery-quota-20261005-233529/report.json) and [filesystem proof](/home/rer/simpaths-benchmarks/resource-recovery-quota-20261005-233529/postgres-proof/model-proof/report.json) | Two disposable XFS filesystems; same container/process/project survives growth and worker/broker restart |
 | Incomplete zero-exit output at a confirmed byte quota triggers one larger-storage retry with unchanged seeds/specification | [Storage retry report](/home/rer/simpaths-benchmarks/resource-recovery-quota-20261006-002259/report.json) and [filesystem proof](/home/rer/simpaths-benchmarks/resource-recovery-quota-20261006-002259/postgres-proof/model-proof/report.json) | 96 regressions and seven native XFS stages; fictional work, independent restoration and cleanup |
 | Live RAM growth, container OOM, real Java heap exhaustion and larger-heap retry with original seeds | [Native Docker/JVM report](/tmp/codex-rer/resource-recovery-docker-java-check-2/report.json) | Six fictional native fixtures; scientific capacity calibration remains separate |
-| Real scientific work survives live RAM/application-storage increases with the same JVM and fixed heap | [Growth report](/tmp/codex-rer/resource-model-20261006-d/report.json) and [model proof](/tmp/codex-rer/resource-model-20261006-d/model-proof/report.json) | Public 50,000-person run, 2019–2026, one attempt, seed 606; test-only 50% pressure threshold; physical XFS growth pending |
+| Real scientific work survives live RAM/application-storage increases with the same JVM and fixed heap | [Growth report](/tmp/codex-rer/resource-model-20261006-d/report.json) and [model proof](/tmp/codex-rer/resource-model-20261006-d/model-proof/report.json) | Public 50,000-person run, 2019–2026, one attempt, seed 606; test-only 50% pressure threshold; application monitoring |
+| Real scientific work survives live kernel quota/RAM increases without restarting its JVM or changing its heap | [XFS growth report](/home/rer/simpaths-benchmarks/resource-model-xfs-20261006-104316/report.json) and [model proof](/home/rer/simpaths-benchmarks/resource-model-xfs-20261006-104316/postgres-proof/model-proof/report.json) | 32 storage/worker checks; public 50,000-person run, 2019–2026, one attempt; same XFS project, 4.25-to-6.640625 GiB storage and 5-to-6 GiB RAM; test-only 50% threshold; cleanup confirmed |
+| Large CSV verification preserves status polling and the original worker lease | [Validation driver](/tmp/codex-rer/connection-investigation-20261006/run-e/report.json) and [proof](/tmp/codex-rer/connection-investigation-20261006/run-e/model-proof/report.json) | 280 MiB fictional output; three validations; four polling clients; five-second lease; original attempt/settings/seeds/hashes and owner denials; no connection/HTTP/renewal errors; cleanup confirmed |
+| Large aggregates, ZIP hashing/downloads and slow file maintenance preserve protected polling and owned leases | [Background driver](/tmp/codex-rer/background-response-20261006-proof-c/report.json) and [proof](/tmp/codex-rer/background-response-20261006-proof-c/model-proof/report.json) | One real HTTP event loop; 120,000 aggregate rows; 128 MiB fictional output; physical cleanup beyond five-second lease; 1,092 expected replies; no connection/HTTP/renewal errors; original attempt/settings/policy and hashes; capacity release and cleanup confirmed |
 | Both production retirement steps remove settled failed/successful containers while preserving diagnostics and completed output | [Retirement report](/tmp/codex-rer/resource-retirement-20261006-a/report.json) and [native check](/tmp/codex-rer/resource-retirement-20261006-a/model-proof/report.json) | Small real Docker workloads and disposable PostgreSQL; repeated cleanup and atomic progress replacement |
 | Backup preservation of confirmed increases and safe abortion of pending external changes in the inactive target | [Recovery backup report](/tmp/codex-rer/resource-recovery-backup-check/report.json) | Native disposable PostgreSQL dump/restore and fictional files |
 | Full-length real-model completion under kernel quotas, frozen seeds/resources, verified output/input-copy cleanup and released capacity | [Quota storage report](/home/rer/simpaths-benchmarks/multirun-quota-storage-20261005-101156/report.json) and [model proof](/home/rer/simpaths-benchmarks/multirun-quota-storage-20261005-101156/postgres-proof/model-proof/report.json) | Real public 50,000-person runs, 2019–2026, one/three repetitions under 4.5/5.5 GiB XFS limits; disposable local filesystem |
 | Twelve repetitions under a smaller allowance, long-output lease renewal, verified publication/input cleanup and released capacity | [Trial report](/home/rer/simpaths-benchmarks/multirun-quota-256-12-20261005-135803/report.json) and [model proof](/home/rer/simpaths-benchmarks/multirun-quota-256-12-20261005-135803/postgres-proof/model-proof/report.json) | Real public 50,000-person runs, 2019–2026, 4 GiB + 256 MiB/repetition under a 7 GiB XFS limit; proof-only policy |
 | Read-only operator inventory of jobs, reservations, storage, cleanup, notices and releases | [Operator report](/home/rer/simpaths-benchmarks/postgres-queue-20261003-142214/report.json) | Disposable PostgreSQL and fictional files |
-| Maintained Visualiser page, configuration names, separate alternatives, comparison ZIPs, aggregate-only VM responses and owner/source guards | [Visualiser report](/home/rer/simpaths-benchmarks/vm-visualiser-20261003-220301/report.json) | Real browser and aggregation code with fictional CSVs |
+| Maintained Visualiser page, configuration names, separate alternatives, comparison ZIPs, aggregate-only VM responses and owner/source guards | [Visualiser report](/home/rer/simpaths-benchmarks/vm-visualiser-20261006-153932/report.json) and [browser proof](/home/rer/simpaths-benchmarks/vm-visualiser-20261006-153932/model-proof/report.json) | Real browser and aggregation code with fictional CSVs through the private-file/helper pipeline; nine workflow checks; no uncaught browser errors; cleanup confirmed |
 | MultiRun TLS/cookies, private-file denial, large ZIP preparation, slow transfer, restart/resume, deletion and revocation | [MultiRun HTTPS report](/home/rer/simpaths-benchmarks/https-rehearsal-20261004-003741/report.json) | Real local Nginx/TLS and fictional output |
 | SingleRun TLS/ownership, controls/charts, long ZIP transfer, disconnect cleanup and restart access | [SingleRun HTTPS report](/home/rer/simpaths-benchmarks/singlerun-https-20261004-071322/report.json) | Real local Nginx/TLS and fictional models |
 | STARTTLS sign-in/completion mail, durable delivery retries, expiry warnings, actual file deletion and reader protection | [Mail and retention report](/home/rer/simpaths-benchmarks/mail-retention-20261004-080335/report.json) | Local SMTP server and disposable files; not external inbox delivery |
@@ -115,7 +119,16 @@ These two enclosing reports are **failed**: their post-verification progress-fil
 and retirement assertions exposed harness defects, now corrected and covered by
 the passing native retirement check above. They are observations, not additional
 passing wrapper runs. Their transient final-verification database-connection
-timeouts still require investigation; they do not certify error-free polling.
+timeouts prompted a [focused investigation](multirun/VM.md#output-verification-and-database-responsiveness).
+CSV thread blocking was reproduced and fixed; the passing fictional proof does
+not establish the exact cause of the earlier rare handshake timeout or certify
+real-model polling on the selected host.
+The follow-up [aggregate/maintenance work](multirun/VM.md#background-work-and-heartbeats)
+isolates large JSON work and renews leases during maintenance. Cached-read helpers
+are bounded separately from model processing; include their configured memory
+bound and encoded response buffers in frontend headroom. Repeat aggregate reads,
+ZIP transfers, scans and cleanup alongside representative scientific/concurrent
+load when the host is selected.
 Single trials do not establish general performance or suitable sizes for other
 populations/horizons/collectors. No default heap/container setting was changed.
 
@@ -184,9 +197,10 @@ not install services, choose providers or change security settings.
   pressure thresholds and maximum allocations with representative populations.
   Include SingleRun, aggregation, database and backup activity in shared/physical
   capacity tests. Confirm owner/operator notices and pending-change reconciliation.
-- [ ] Complete the real-model native XFS growth stage and investigate transient
-  database-connection timeouts during long output verification. Then check polling
-  and validation under the selected host's intended scientific/concurrent load.
+- [ ] Check final output verification and polling under the selected host's
+  intended scientific/concurrent load. The local CSV thread-blocking fix and
+  short-lease proof passed; the exact earlier rare connection-handshake timeout
+  was not reproduced. Retain private timestamped HTTP/PostgreSQL logs if it recurs.
 
 ### Database security and supervised services
 

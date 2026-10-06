@@ -366,8 +366,8 @@ were 3.28/2.90 GiB. Original seed/settings, all eight annual years, durable hash
 browser notices, other-owner denial, input-copy reclamation and settled capacity
 were verified. The test-only 50% threshold exercises growth before the normal
 85% threshold is reached; it does not establish that this workload needs 7 GiB RAM.
-Physical XFS growth under this real workload is a separate stage below and remains
-pending until its native reports pass.
+Physical XFS growth under this real workload passed in the subsequent native
+stage described below.
 
 The ordinary command checks application-monitored storage growth. For physical
 XFS growth with the same real workload, use the existing administrator fixture:
@@ -390,10 +390,161 @@ service and cleans up its own broker, mount and models. Existing small native
 fixtures separately test actual storage/container exhaustion, lost replies and
 restart reconciliation; this real-model stage tests growth under scientific load.
 
+The native run `resource-model-xfs-20261006-104316` passed all 32 storage/worker
+checks and the real-model workflow. Its
+[filesystem wrapper](/home/rer/simpaths-benchmarks/resource-model-xfs-20261006-104316/report.json),
+[database driver](/home/rer/simpaths-benchmarks/resource-model-xfs-20261006-104316/postgres-proof/report.json)
+and [model report](/home/rer/simpaths-benchmarks/resource-model-xfs-20261006-104316/postgres-proof/model-proof/report.json)
+all confirm success and cleanup. Kernel readback verified the same XFS project
+as its limit increased from 4.25 to 5.3125 to 6.640625 GiB. Container RAM grew
+from 5 to 6 GiB, while the 3 GiB maximum heap, container and JVM PID stayed
+unchanged. One attempt completed all eight annual years with original seed 606,
+settings and verified hashes. Browser notices/owner denial, source preservation,
+input-copy reclamation, container removal and released capacity passed.
+Sampled working-RAM peak was 2.70 GiB; sampled workspace/kernel-accounted storage
+peaks were 2.91 GiB. The deliberately lower 50% threshold exercised proactive
+growth; these measurements do not mean this workload needs the enlarged limits.
+
 Require success and confirmed cleanup in the wrapper and model reports. These
 local public-data measurements do not cover other populations, collector settings,
 concurrent users or an eventual VM. Calibrate those before changing service
 allocations or enabling recovery for users.
+
+### Output verification and database responsiveness
+
+The earlier final-verification errors were investigated on 6 October 2026. The
+first calibration's PostgreSQL log records one authentication handshake timeout;
+the inspected logs do not show a database crash or exhausted connection limit.
+A focused reproduction found that parsing large CSV files in the application
+process delayed HTTP polling and the worker's renewal thread. With the shortest
+permitted five-second lease, verification failed because that lease expired.
+
+`queue_adapter.validate_outputs` now runs the same CSV header, row, annual-year
+and shared-run checks in a separate private Python helper process. It reads only
+the trusted output files and returns a small success/error response; no CSV rows
+or private paths are returned to the browser. Settings/seed checks, output hashes,
+scientific calculations, permissions, database timeouts and normal lease settings
+are unchanged. This is hosting-side Python code; no model JAR rebuild is required.
+
+The [failed reproduction](/tmp/codex-rer/connection-investigation-20261006/run-b/model-proof/report.json)
+and [first passing check](/tmp/codex-rer/connection-investigation-20261006/run-c/model-proof/report.json)
+used 280 MiB of fictional CSV files, three concurrent owner polling threads,
+one denied owner and the production renewal code:
+
+| During CSV verification | Before isolation | After isolation |
+| --- | ---: | ---: |
+| Slowest HTTP response | 8,499 ms | 278 ms |
+| Slowest database connection | 2,398 ms | 101 ms |
+| Slowest heartbeat | 4,485 ms | 152 ms |
+| Five-second lease | Expired | Preserved |
+
+These are local observations, not deployment latency guarantees. The before
+case stopped when renewal failed; the fixed case completed all three validation
+passes. The maintained [proof](/tmp/codex-rer/connection-investigation-20261006/run-e/model-proof/report.json)
+and [driver report](/tmp/codex-rer/connection-investigation-20261006/run-e/report.json)
+also passed with cleanup. During verification it recorded 763 expected HTTP
+responses, no connection/HTTP/renewal errors, a 204 ms maximum HTTP response
+and a 50 ms maximum heartbeat. The original attempt/generation, seed, frozen
+settings/policy, repeatable hashes, owner denial and released capacity passed.
+All 22 local parser/adapter checks and 32 database worker/storage checks passed.
+
+Repeat this focused check using disposable PostgreSQL and fictional files:
+
+```bash
+cd ~/git/JAS-mine/JAS-mine-web
+~/simpaths-browser-tests/venv/bin/python scripts/test_batch_queue.py \
+  --proof-only \
+  --proof-script "$HOME/git/SimPathsWeb/SimPaths/deploy/multirun/database_response_proof.py" \
+  --proof-requirements "$HOME/git/SimPathsWeb/SimPaths/deploy/multirun/requirements.txt"
+```
+
+The exact earlier handshake timeout was not reproduced. Thread delays are a
+plausible contributor, rather than a proven explanation of that rare error.
+Check final verification with representative scientific output and concurrent
+users on the selected host, retaining private timestamped HTTP/PostgreSQL logs
+if a connection error recurs. Passing fictional checks do not replace that test.
+
+### Background work and heartbeats
+
+The follow-up audit measured 120,000 fictional aggregate rows (39 MB) with a
+20 ms scheduling probe. Parsing, validation and JSON encoding in the application
+process produced 392–538 ms scheduling gaps; SHA-256 hashing did not. This
+[audit](/tmp/codex-rer/background-audit-20261006-a/report.json) measured thread
+scheduling, not HTTP/database failures or an expired lease.
+
+Large Visualiser parsing, the existing publication/privacy checks and JSON
+response encoding now run in private Python helpers. The SimPaths backend leaves
+Node's calculated aggregate rows in private files rather than parsing them in
+the server. Publication keeps its existing processing reservation, source locks,
+deadline and cancellation checks. Authenticated reads validate the recorded hash
+and data in a helper, then recheck permissions before returning encoded bytes.
+The scientific Node calculations, suppression rules, aggregate formats, legacy
+ready links and model execution budgets are unchanged.
+
+One cached-read helper is allowed per execution root. An inherited lock and an
+independent timeout preserve that bound across a frontend crash; a competing
+request gets a controlled busy response after at most 0.5 seconds of waiting.
+Read helpers have the configured Visualiser address-space limit and at most
+60 seconds, or its shorter processing limit. They inherit no database credentials.
+Allow frontend headroom for that helper and encoded response buffers separately
+from the shared model/processing reservations. Publication uses the existing
+Visualiser reservation and does not overlap its Node calculation child.
+
+The dispatcher renews owned leases during both periodic and pre-admission
+maintenance, including admission storage scans. Renewal errors prevent further
+admission; the renewal thread is joined before the worker advances. The original
+generations, hard deadlines and retry/time budgets remain effective. Finished
+file cleanup retains its existing identity, confirmed-stop and reader guards.
+Chunked hashing and the serial ZIP builder remain in threads; scheduled backups
+keep their separate service and resource limits. No model JAR or Visualiser
+bundle rebuild is needed for these hosting changes.
+
+The [background proof](/tmp/codex-rer/background-response-20261006-proof-c/model-proof/report.json)
+and [driver](/tmp/codex-rer/background-response-20261006-proof-c/report.json)
+passed with cleanup. It uses a real local HTTP server/event loop, disposable
+PostgreSQL, four polling clients and a five-second lease. Its workload covers a
+120,000-row/40 MiB comparison publication, three complete aggregate reads,
+128 MiB of fictional CSV bytes, a verified compressed ZIP and HTTP download,
+160 disposable output shards, 1,500 scratch files and storage inventory/scans.
+The deletion fixture adds 40 ms per target to imitate a slow filesystem; the
+7.79-second maintenance phase therefore exceeds the original lease duration.
+
+| Concurrent workload | Polling replies | Slowest status reply | Slowest heartbeat |
+| --- | ---: | ---: | ---: |
+| Aggregate publication | 203 | 272 ms | 166 ms |
+| Aggregate HTTP reads | 373 | 198 ms | 75 ms |
+| ZIP building, hashing and download | 171 | 234 ms | 64 ms |
+| Slow cleanup and storage scan | 192 | 233 ms | 61 ms |
+
+All 1,092 polling replies (including the idle phase) had the expected owner/denied
+status. There were no connection, HTTP or renewal errors. The original attempt,
+generation, deadline, frozen settings/policy and seed plan survived; ZIP/source
+hashes, actual file removal, retained diagnostics, owner denials and final capacity
+release passed. These are local fictional-load observations, not deployment
+latency or capacity guarantees. The earlier rare authentication handshake timeout
+still has no confirmed cause; representative selected-host testing remains open.
+
+Focused validation passed 10 helper checks, 20 Visualiser cases, 23 worker,
+20 download, 12 storage, 16 attempt-cleanup, 10 output-deletion and 35 retention
+cases, plus 11 hosting-runtime and nine pinned calculation/asset cases (166
+distinct checks). The maintained-page [browser proof](/home/rer/simpaths-benchmarks/vm-visualiser-20261006-153932/model-proof/report.json)
+and [driver](/home/rer/simpaths-benchmarks/vm-visualiser-20261006-153932/report.json)
+also passed with cleanup and no uncaught browser errors. The nine workflow checks
+cover retry status, pair and multiple-alternative charts, comparison ZIPs, PNG
+export, aggregate-only Online responses, local-folder processing, owner denials
+and source-deletion invalidation. Selected-host checks remain separate.
+
+Repeat with disposable data and no model simulations or emails:
+
+```bash
+cd ~/git/JAS-mine/JAS-mine-web
+~/simpaths-browser-tests/venv/bin/python scripts/test_batch_queue.py \
+  --test-pattern test_aggregate_io.py test_visualiser.py test_worker.py \
+    test_downloads.py test_storage.py test_attempt_cleanup.py \
+    test_output_management.py test_retention.py \
+  --proof-script "$HOME/git/SimPathsWeb/SimPaths/deploy/multirun/background_response_proof.py" \
+  --proof-requirements "$HOME/git/SimPathsWeb/SimPaths/deploy/multirun/requirements.txt"
+```
 
 Newly registered release policies scale working storage independently of runtime:
 **4 GiB fixed + 256 MiB per repetition**, raising the fixed term for larger input

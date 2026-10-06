@@ -27,8 +27,9 @@ cancel submitted work.
 Each page has a collapsed **Help with…** panel beside its controls: New Experiment,
 Create Input Dataset, My Datasets, My Jobs, Storage and Results. The panels explain
 inputs and model versions, configuration/repetition workload, parameter sweeps,
-retry eligibility and cancellation, retention and deletion, Online Visualiser
-comparisons, optional input downloads and resumable ZIPs. They refer to the
+retry eligibility and cancellation, optional resource growth/recovery and its
+waiting/time-budget rules, retention and deletion, Online Visualiser comparisons,
+optional input downloads and resumable ZIPs. They refer to the
 service's displayed allowances and dates rather than fixing values in the help.
 The Results panel explains that current charts switch between alternatives and
 that the local-folder picker still requires a separate Baseline/Scenario pair.
@@ -73,8 +74,9 @@ This preview defaults to a maximum of 100 configurations per experiment. The
 operator can choose a lower limit with `--max-configurations`. Repetitions default to a maximum of 3
 per configuration; the operator can set `--max-repetitions` when starting the
 service. Each configuration uses the same seed sequence, starting at 606 by default and
-increasing by one per repetition. The local pool admits one job at a time, with two CPUs and up to
-5 GiB container memory. Each simulation attempt is allowed 15 minutes for setup
+increasing by one per repetition. The local pool admits one job at a time, with two
+CPUs and an initial memory allowance of up to 5 GiB per container. Each simulation
+attempt is allowed 15 minutes for setup
 plus 60 minutes per planned repetition, with a cumulative execution budget of
 three times that allowance across at most three attempts. The operator can
 configure these values as described below. Its allowance does not coordinate with the separate
@@ -245,9 +247,11 @@ Retries still use normal queue admission and fresh private working directories.
 They share the original three-attempt maximum, per-attempt deadline and total
 time allowance. The review explains when access, deleted inputs, unfinished-work
 allowances, cancellation/expiry, attempts or time budgets prevent a retry.
-Permissions, inputs and budgets are checked again on confirmation. A retry does
-not correct model settings or increase memory/storage allowances; an unchanged
-model/resource failure may recur.
+Permissions, inputs and budgets are checked again on confirmation. **Confirm retry**
+uses the existing recorded resource allocation; it does not itself request
+an increase or correct model settings. An unchanged model/resource failure may
+recur. Automatic resource recovery, described below, can separately increase an
+allocation within the policy recorded at submission.
 
 **Local laptop recovery:** the loopback launcher explicitly enables an optional
 **Exclude time recorded after the previous deadline** checkbox for a finished
@@ -273,6 +277,51 @@ Acceptance passed in `multirun-browser-20260929-101651`: all 277 backend tests
 and all 47 browser checks passed. Temporary test resources were cleaned up.
 The browser proof confirmed a retry after the explicit local delay adjustment,
 preserving the completed baseline and original experiment's Results page.
+
+### Automatic resource recovery and delays
+
+The operator can enable automatic resource recovery for newly reviewed simulation
+submissions. The submission review shows the permitted increases and ceilings;
+existing submissions keep their original policy, and input preparation does not
+use this recovery option. Users cannot increase the ceilings themselves.
+
+- **While running:** a configuration approaching its working-storage or total
+  memory limit may receive a larger allowance without restarting. Java heap memory
+  holds the model's objects; its maximum stays fixed during an attempt. Increasing
+  the total memory allowance cannot raise that heap maximum in the running process.
+- **After a confirmed resource failure:** with **Automatically retry eligible
+  failed runs** selected, the whole affected configuration may restart with a
+  larger allowance for the resource that ran out: working storage, total memory
+  or Java heap memory. A larger heap may also need more total memory. Model
+  version, input files, settings and seeds are preserved; completed configurations
+  stay available. Failed attempts and their elapsed execution time still count
+  towards the original attempt and cumulative time limits. Ordinary model/input
+  errors and time-limit failures do not receive resource increases.
+
+Every increase must fit the reviewed ceilings and available shared and physical
+capacity. **My Jobs** shows confirmed increases, delays and limits reached. An
+increase may be delayed or unavailable. A running simulation waiting for an
+increase continues within its current allowance and original deadline; that time
+still uses the execution budget. Waiting for a queued retry to start does not
+spend an attempt or execution time. Unticking automatic retry
+prevents automatic restarts, but live resource growth can still occur under the
+recorded policy. Cancellation stops further work, subject to confirmed termination.
+
+Resource incidents are recorded for the owner and administrator. Email notices
+use the service's optional delivery setting; the laptop records notices without
+sending them by default. A recovery notice describes an event, not a guarantee of
+successful completion. Check the configuration's current status and attempt count.
+
+If failures repeat or recovery reaches a ceiling, use **Copy to New Experiment**
+to try a smaller population, shorter period or less recorded output where the
+study permits, or contact the administrator to discuss additional resources.
+Include the experiment/configuration names, job reference and status message.
+Fewer repetitions reduce accumulated output and total runtime, but do not
+necessarily reduce the memory needed by one repetition. Editing the new draft
+does not change the original experiment or its completed results.
+
+For operator enablement, capacity planning and the current default ceilings, see
+[automatic resource recovery](VM.md#automatic-resource-recovery).
 
 ## Viewing and downloading completed results
 
@@ -936,7 +985,10 @@ Jobs unable to pass the initial disk-space check remain queued and recheck every
 30 seconds without using up simulation attempts. Their status becomes “waiting
 for storage”; after five minutes, the page explains that the shared capacity needs
 operator attention. Jobs resume automatically when space and other resources are
-available. Running jobs that exceed their own allowance still require review.
+available. Running simulations approaching or exceeding their own allowance use
+the [resource-recovery rules](#automatic-resource-recovery-and-delays) recorded for
+their submission. Where recovery is disabled, unavailable or exhausted, a resource
+failure needs review; an increase is never guaranteed merely by free disk space.
 
 Problem emails are **disabled by default on the laptop**. The terminal confirms
 this at startup. The service records deduplicated incidents locally so notification

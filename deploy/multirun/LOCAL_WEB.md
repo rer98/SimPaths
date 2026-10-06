@@ -905,6 +905,39 @@ If the queue suite passed and only a browser check needs repeating, add
 `--browser-only` to skip rerunning that unchanged suite. Its report explicitly
 records that the queue tests were skipped.
 
+### Public guidance and static assets
+
+For a short native check without a database, Docker or model runs:
+
+```bash
+cd ~/git/JAS-mine/JAS-mine-web
+~/simpaths-browser-tests/venv/bin/python tests/browser/batch_guidance.py
+```
+
+The check repeats in-process GET/HEAD of `batch.js`, then serves a disposable
+loopback application and uses Chromium to verify every referenced script, style
+and logo against the source bytes. If headless Chromium skips the tab icon,
+an explicit HTTP request verifies the favicon's bytes and headers. The report
+records which transfer was used. It displays the Help elements
+already present in the public HTML, checks that all six expand/collapse, and
+renders the updated resource-recovery guidance. Its access fixture rejects all
+accounts. Reports and a screenshot are private under
+`~/simpaths-benchmarks/guidance-assets-<timestamp>/`; the server and browser stop
+after the check. Protected sign-in/submission workflows use the full acceptance
+proof above.
+
+The earlier optional in-process check stalled in the Codex sandbox after the
+worker finished `os.stat`. A subsequent probe confirmed that the worker's
+event-loop notification failed with `PermissionError`/`EPERM`, so the completed
+result could not wake the waiting loop. Run this native check in the ordinary
+terminal to verify transfer outside that sandbox restriction. No application
+workaround or security-policy change was made. Native validation passed on
+6 October 2026 in `guidance-assets-20261006-180324/report.json`: the original
+GET/HEAD check, all 12 referenced assets (11 loaded by Chromium and the favicon
+checked through explicit HTTP), all six Help panels and signed-out access.
+There were no external requests, browser errors or failed requests; browser and
+server cleanup completed.
+
 ## Still to integrate
 
 Production SMTP setup, approval administration, shared SingleRun/MultiRun

@@ -14,17 +14,18 @@ const fixture=()=>({format:'simpaths.visualiser.v2',
     {configuration:'a',rows:[{scenario:'scenario',mean_value:20}]},
     {configuration:'b',rows:[{scenario:'scenario',mean_value:30}]}]}});
 
-test('alternative IDs select a separate series and include the baseline once',()=>{
+test('all alternatives retain separate identities and include the baseline once',()=>{
   const source=fixture(),snapshot=JSON.stringify(source);
-  assert.deepEqual(displayedComparison(source,'a').rows.map(r=>r.mean_value),[10,20]);
-  const selected=displayedComparison(source,'b');
-  assert.deepEqual(selected.rows.map(r=>r.mean_value),[10,30]);
-  assert.deepEqual(selected.configurations.map(c=>c.id),['base','b']);
-  assert.equal(selected.configurations[1].name,'<b>Third name</b>');
+  const selected=displayedComparison(source);
+  assert.deepEqual(selected.rows.map(r=>r.mean_value),[10,20,30]);
+  assert.deepEqual(selected.rows.map(r=>r.scenario),['baseline','scenario_1','scenario_2']);
+  assert.deepEqual(selected.configurations.map(c=>c.id),['base','a','b']);
+  assert.equal(selected.names.scenario_2,'<b>Third name</b>');
+  assert.equal(selected.names.scenario_1,selected.names.baseline);
   assert.equal(JSON.stringify(source),snapshot);
 });
-test('unknown or missing saved choices select the first alternative',()=>{
-  for(const id of [undefined,'deleted','base']) assert.equal(displayedComparison(fixture(),id).selected,'a');
+test('former saved choices cannot omit alternatives from the new simultaneous view',()=>{
+  for(const id of [undefined,'deleted','base']) assert.equal(displayedComparison(fixture(),id).rows.length,3);
   assert.deepEqual(displayedComparison(null).rows,[]);
 });
 test('legacy pair rows and metadata are preserved',()=>{

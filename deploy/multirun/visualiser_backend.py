@@ -1,8 +1,8 @@
 """(C) Copyright 2026, by Ross Richardson
 
-Pinned Visualiser development adapter: private VM aggregation, approved vocabulary,
-and existing charts. Own-input/public Quick Start previews only while the updated
-paired calculation/release interface is pending.
+Pinned Visualiser adapter: private VM aggregation, approved vocabulary and charts.
+Own-input/public previews use upstream seed-paired multi-scenario calculations;
+restricted provider results still require approved disclosure controls.
 @author ross richardson
 """
 from contextlib import ExitStack
@@ -20,7 +20,7 @@ class VisualiserBackend:
     # glob that could also expose bundled simulation data or server calculations.
     APPLICATION_ASSETS=frozenset({'index.html','visualiser.js','visualiser.css',
         'pmh_logo.png','UKRILogo.png','Interpreting-results.html','Interpreting-results.css',
-        'citation.html','citation.css'})
+        'citation.html','citation.css','SimPaths-logo-transparent.png'})
 
     def __init__(self, build, execution_root, *, public_datasets=(), memory_mib=1024):
         from jasmine_web.batch.results import open_output
@@ -38,7 +38,8 @@ class VisualiserBackend:
             raise ValueError('Visualiser processing requires Node 18 or later')
         with open_output(self.build,'build.json') as source:
             manifest=json.loads(source.read(1024**2))
-        if manifest.get('format')!='simpaths.visualiser.build.v1' or manifest.get('mode')!='development-levels':
+        if (manifest.get('format')!='simpaths.visualiser.build.v1' or
+                manifest.get('mode') not in ('development-levels','development-paired')):
             raise ValueError('Use a reviewed development Visualiser build')
         if not re.fullmatch('[a-f0-9]{40}',manifest['revision']):
             raise ValueError('Invalid Visualiser revision')
@@ -57,6 +58,7 @@ class VisualiserBackend:
                     re.fullmatch(r'\d+\.visualiser\.js',name) or name.endswith('.LICENSE.txt')):
                 self.assets[name]=content
         self.manifest=manifest
+        self.paired=manifest['mode']=='development-paired'
         # Advertise a set only when the verified application bundle includes
         # its v2 reader. Older pinned builds still support the original pair.
         self.supports_comparison_sets=b'simpaths.visualiser.v2' in self.assets['visualiser.js']
@@ -102,6 +104,7 @@ class VisualiserBackend:
         done=0
         for configuration_index,configuration in enumerate(sources):
             config=configuration['configuration']
+            role=('baseline' if configuration_index==0 else 'scenario_'+str(configuration_index)) if comparison_set and self.paired else config['role'].lower()
             configuration_metrics=[]
             for index,run in enumerate(config['runs']):
                 selected=[f for f in configuration['files']
@@ -118,7 +121,7 @@ class VisualiserBackend:
                     before=[os.fstat(f.fileno()) for f in descriptors]
                     atomic_json(work/'request.json',dict(operation='run',
                         person_fd=descriptors[0].fileno(),benefit_fd=descriptors[1].fileno(),
-                        role=config['role'].lower(),run=index+1,output=str(output)))
+                        role=role,run=run['seed'],output=str(output)))
                     command([self.node,'--max-old-space-size='+str(max(128,self.memory-256)),
                              str(self.build/'runner.cjs'),str(work/'request.json')],
                             pass_fds=tuple(f.fileno() for f in descriptors))
@@ -129,21 +132,30 @@ class VisualiserBackend:
                             raise OutputUnavailable()
                 configuration_metrics.append(str(output));done+=1;progress(done)
             if comparison_set:
-                # Keep each alternative separate. The pinned aggregation groups
-                # by role, so pooling several "scenario" metric lists is invalid.
                 output=work/('configuration-'+str(configuration_index)+'-aggregate.json')
-                atomic_json(work/'request.json',dict(operation='aggregate',metrics=configuration_metrics,output=str(output)))
-                command([self.node,'--max-old-space-size='+str(max(128,self.memory-256)),
-                         str(self.build/'runner.cjs'),str(work/'request.json')])
+                if self.paired:
+                    metrics.extend(configuration_metrics)
+                else:
+                    # Retained older builds aggregate one alternative at a time.
+                    atomic_json(work/'request.json',dict(operation='aggregate',metrics=configuration_metrics,output=str(output)))
+                    command([self.node,'--max-old-space-size='+str(max(128,self.memory-256)),
+                             str(self.build/'runner.cjs'),str(work/'request.json')])
                 series.append(output)
             else:
                 metrics.extend(configuration_metrics)
-        notice='Development preview using Visualiser revision '+self.manifest['revision'][:12]+\
-            '. Baseline and scenario levels are shown. Paired impact calculations will use the updated Visualiser release.'
+        notice='Development preview using Visualiser revision '+self.manifest['revision'][:12]+(
+            '. Policy impacts and uncertainty use runs with matching random seeds.' if self.paired else
+            '. Baseline and scenario levels are shown. Paired impact calculations will use the updated Visualiser release.')
         if comparison_set:
-            return AggregateFiles(tuple(series),notice)
+            if self.paired:
+                atomic_json(work/'request.json',dict(operation='aggregate',metrics=metrics,
+                    outputs=[dict(path=str(path),role='baseline' if index==0 else 'scenario_'+str(index))
+                             for index,path in enumerate(series)]))
+                command([self.node,'--max-old-space-size='+str(max(128,self.memory-256)),
+                         str(self.build/'runner.cjs'),str(work/'request.json')])
+            return AggregateFiles(tuple(series),notice,comparison_available=self.paired)
         output=work/'aggregate.json'
         atomic_json(work/'request.json',dict(operation='aggregate',metrics=metrics,output=str(output)))
         command([self.node,'--max-old-space-size='+str(max(128,self.memory-256)),
                  str(self.build/'runner.cjs'),str(work/'request.json')])
-        return AggregateFiles((output,),notice)
+        return AggregateFiles((output,),notice,comparison_available=self.paired and len(sources)>1)

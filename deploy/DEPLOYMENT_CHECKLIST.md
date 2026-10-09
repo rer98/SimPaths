@@ -7,7 +7,7 @@ SimPaths Online deployment readiness, verified local evidence and installation o
 
 # SimPaths Online deployment readiness
 
-**Reviewed:** 6 October 2026. **Deployment status:** local implementation and
+**Reviewed:** 9 October 2026. **Deployment status:** local implementation and
 rehearsals are recorded below; no production VM or domain has been selected.
 
 Use this checklist to prepare and validate the first SimPaths Online installation,
@@ -15,6 +15,18 @@ covering SingleRun, UK MultiRun and the Policy Impact Visualiser connection.
 The evidence table records passing local tests. The unchecked items require the
 actual deployment configuration, host or external service. Older dated plans
 retain the development history; this checklist supplies the current deployment order.
+
+The [9 October Visualiser update](multirun/VISUALISER.md) merges Reese's current
+multi-scenario charts and seed-paired calculations into both proposed PR branches.
+The candidate bundle shows all selected alternatives together and keeps names and
+identities in chart exports. Its 103 local source, packaging, native-CSV and
+publication/helper checks pass. All 91 focused database checks passed in
+`vm-visualiser-paired-20261009-183331`; after correcting an ambiguous test locator,
+all nine browser stages passed in `vm-visualiser-paired-20261009-184750`. The
+passing browser run records no uncaught errors and confirms database cleanup.
+Earlier browser reports below cover previous bundles.
+Restricted-provider aggregate release rules and the 100,000-person/2070 research
+workload still require separate approval and calibration respectively.
 
 The reports test different recorded source revisions and images. They do not
 collectively certify an unspecified future build. Record the exact selected release
@@ -98,6 +110,7 @@ The older real-model drivers use `status: "passed"` rather than that report form
 | Twelve repetitions under a smaller allowance, long-output lease renewal, verified publication/input cleanup and released capacity | [Trial report](/home/rer/simpaths-benchmarks/multirun-quota-256-12-20261005-135803/report.json) and [model proof](/home/rer/simpaths-benchmarks/multirun-quota-256-12-20261005-135803/postgres-proof/model-proof/report.json) | Real public 50,000-person runs, 2019–2026, 4 GiB + 256 MiB/repetition under a 7 GiB XFS limit; proof-only policy |
 | Read-only operator inventory of jobs, reservations, storage, cleanup, notices and releases | [Operator report](/home/rer/simpaths-benchmarks/postgres-queue-20261003-142214/report.json) | Disposable PostgreSQL and fictional files |
 | Maintained Visualiser page, configuration names, separate alternatives, comparison ZIPs, aggregate-only VM responses and owner/source guards | [Visualiser report](/home/rer/simpaths-benchmarks/vm-visualiser-20261006-153932/report.json) and [browser proof](/home/rer/simpaths-benchmarks/vm-visualiser-20261006-153932/model-proof/report.json) | Real browser and aggregation code with fictional CSVs through the private-file/helper pipeline; nine workflow checks; no uncaught browser errors; cleanup confirmed |
+| Updated maintained Visualiser, simultaneous alternatives, seed-paired impacts, named exports and aggregate-only owner/source guards | [Backend log](/home/rer/simpaths-benchmarks/vm-visualiser-paired-20261009-183331/tests.log), [Visualiser report](/home/rer/simpaths-benchmarks/vm-visualiser-paired-20261009-184750/report.json) and [browser proof](/home/rer/simpaths-benchmarks/vm-visualiser-paired-20261009-184750/model-proof/report.json) | 91 focused database cases and nine browser stages; pinned `paired-c` build from `b981df5`; fictional native CSVs; no uncaught browser errors; cleanup confirmed |
 | MultiRun TLS/cookies, private-file denial, large ZIP preparation, slow transfer, restart/resume, deletion and revocation | [MultiRun HTTPS report](/home/rer/simpaths-benchmarks/https-rehearsal-20261004-003741/report.json) | Real local Nginx/TLS and fictional output |
 | SingleRun TLS/ownership, controls/charts, long ZIP transfer, disconnect cleanup and restart access | [SingleRun HTTPS report](/home/rer/simpaths-benchmarks/singlerun-https-20261004-071322/report.json) | Real local Nginx/TLS and fictional models |
 | STARTTLS sign-in/completion mail, durable delivery retries, expiry warnings, actual file deletion and reader protection | [Mail and retention report](/home/rer/simpaths-benchmarks/mail-retention-20261004-080335/report.json) | Local SMTP server and disposable files; not external inbox delivery |

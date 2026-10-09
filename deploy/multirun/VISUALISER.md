@@ -18,74 +18,100 @@ is the underlying web software; those technical names are not the service title.
 The Visualiser labels service-generated output **Online results**, alongside
 **Visualise Locally Saved Data** for output selected from the user's computer.
 
-This first connection uses the available Visualiser revision
-`9a904b52c8a7d2306d3a9e5d175cf2614de0c0ee`. Its existing calculations provide
-Baseline and Scenario **levels**. The VM page disables its old delta view;
-seed-paired policy impacts and their uncertainty await the updated calculation
-interface. This is a development preview for owner-supplied inputs and explicitly
+The updated development connection uses Reese's 7 October multi-scenario charts
+and seed-paired calculations, plus her 9 October README update at
+`fdd05894c535b4d442d458a546c4b6e6e97f7247`. Ross's two proposed PR branches merge
+that revision; the tested connected source revision is
+`b981df532220144f8e1a7936c557eef5c05deb5a`. The baseline and all selected
+alternatives are shown together, with individual scenario toggles and named exports.
+
+This remains a development preview for owner-supplied inputs and explicitly
 verified public Quick Start datasets. Other provider data remains unavailable.
-The current source's suppression threshold is not treated as approval to publish
+The implementation's level suppression is `total_sample < 20`, pooled across
+runs; the newest upstream README instead describes `min_sample < 20`. Paired
+impact fields are calculated independently of suppressed levels. The integration
+preserves those upstream calculations: this threshold is not approval to publish
 restricted data. Scientific definitions and release rules remain with the
-Visualiser/SimPaths teams.
+Visualiser/SimPaths teams, including any rules for paired impacts and exports.
 
 ## Build the maintained application
 
 The builder reads a trusted Visualiser checkout, preserves upstream notices and
 records its commit, source hashes, dependency versions, build toolchain and asset
 hashes. It copies neither the default aggregate dataset nor raw example data.
-Use a clean checkout of the pinned revision, separate from any branch containing
-unfinished upstream contributions. The local branding build uses
-`/tmp/codex-rer/visualiser-source-9a904b5-20260930` for this purpose.
-The original checkout is not changed. `adapt_app.cjs` applies guarded data-source
-edits to a generated copy of `src/App.js`, replacing its bundled-default loader
-and Connect Data controls with the authenticated VM/local adapter. It retains
-the upstream page design and variable/domain definitions rather than copying them
-into a separate maintained page. Changed upstream integration anchors stop the
-build for review. The scientific calculation modules are unchanged by this page
-adaptation. The preferred future arrangement is an upstream-supported aggregate
-data-source interface; the proposed reusable changes are separate pull requests
-for Reese's team to review. This hosting build does not modify that checkout.
+Use a clean checkout of the reviewed connected branch. The persistent isolated
+checkout for this update is `/tmp-codex/visualiser-update-20261009/repository`.
+It preserves the original PR histories and includes the newest upstream main;
+the user's original checkout is unchanged. `adapt_app.cjs` checks the reusable
+`dataSource` interface and maps the locally served interpretation page. It no
+longer replaces the upstream loader or maintains a second page implementation.
+The connected interface, browser security corrections and export fixes remain
+reviewable changes in Ross's PR branches; no scientific formula is rewritten.
 
-Charts, dependencies, PMH/UKRI logos and the upstream interpretation/citation pages
+Charts, dependencies, PMH/SimPaths/UKRI logos and the upstream interpretation/citation pages
 are served locally. Guidance styles are extracted into local CSS, Google Fonts
 requests and inline image handlers are removed, and resource links use the VM
 asset route. Installed fonts provide the normal fallback. There is no CDN,
 default-data request or source map, and the default CSV is not deployed.
 
-For this laptop, the installed Debian Node/Babel/webpack toolchain and verified
-cached dependencies can build without downloading packages:
+For this laptop, the reviewed checkout has its locked dependencies installed.
+The application builder reads that directory without package downloads:
 
 ```bash
 cd ~/git/SimPathsWeb/SimPaths
-/usr/bin/node deploy/multirun/visualiser/build.cjs \
-  --source /tmp/codex-rer/visualiser-source-9a904b5-20260930 \
-  --dependencies "$HOME/.npm/_npx/668c188756b835f3/node_modules" \
-  --output "$HOME/simpaths-multirun-local/visualiser-build-20260929"
+node deploy/multirun/visualiser/build.cjs \
+  --source /tmp-codex/visualiser-update-20261009/repository \
+  --dependencies /tmp-codex/visualiser-update-20261009/repository/node_modules \
+  --output /tmp-codex/visualiser-build-YYYYMMDD-paired
 ```
 
 Choose a new output directory for each build. React and React DOM are `19.2.7`,
-D3 is `7.9.0`; the tested system tools are webpack `5.76.1` and Babel `7.20.12`.
+D3 is `7.9.0`. The build receipt records the actual Node, webpack and Babel
+versions; reproduce that receipt when preparing a deployment build.
 On another VM supply a reviewed dependency directory containing those packages
 and Babel/webpack. Review licensing/contribution arrangements before distributing
 an upstream-derived public build; this checkout declares no standalone licence.
 Generated builds include integration attribution and dependency licence files.
 They are deployment artifacts, not source files to commit.
 
+### Refresh Ross's two PR branches
+
+The isolated branches are descendants of the original PR branches and latest
+upstream main. The verified bundle is retained at
+`/tmp-codex/visualiser-update-20261009/visualiser-pr-updates-v3.bundle`.
+The focused browser proof now passes. Import the verified commits and push Ross's fork:
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths-Policy-Impacts-Visualiser &&
+git fetch /tmp-codex/visualiser-update-20261009/visualiser-pr-updates-v3.bundle \
+  refs/heads/fix/local-processing-security:refs/remotes/local-update/fix/local-processing-security \
+  refs/heads/feat/aggregate-data-source:refs/remotes/local-update/feat/aggregate-data-source &&
+git switch fix/local-processing-security &&
+git merge --ff-only refs/remotes/local-update/fix/local-processing-security &&
+git switch feat/aggregate-data-source &&
+git merge --ff-only refs/remotes/local-update/feat/aggregate-data-source &&
+git push origin fix/local-processing-security feat/aggregate-data-source
+```
+
+The fast-forward guards stop if the original branches have acquired other changes.
+No force push or write to Reese's repository is needed. Existing PRs update when
+their source branches are pushed; Reese retains control of merging them.
+
 ## Enable the local preview
 
 Add both flags to the existing launcher:
 
 ```bash
-  --visualiser-build "$HOME/simpaths-multirun-local/visualiser-build-20260929" \
+  --visualiser-build /tmp-codex/visualiser-build-20261009-paired-c \
   --visualiser-preview
 ```
 
-For the multiple-alternative temporary build with SimPaths Online
-branding, use `--visualiser-build /tmp/codex-rer/visualiser-build-20261003-multi-c` instead. Keep that
-directory while the service uses it; build a persistent copy for longer use.
-No model image rebuild or repeat simulation is required. Restart applies platform
-migration 019 and starts the private processor alongside the existing worker.
-The normal command without these flags keeps the feature disabled.
+Keep that build directory while the service uses it; copy or rebuild it in the
+chosen deployment location for longer use. No model image rebuild or repeat
+simulation is required. Restart the service and prepare the selected results again
+to generate aggregates with the new build's identity. Older verified aggregate
+links retain their original data; legacy level-only results keep their delta view
+disabled. The normal command without the preview flags keeps the feature disabled.
 
 In Results, choose **Baseline for visualisation** and **Scenario for visualisation**,
 then **Prepare Visualiser**. With no baseline, select one configuration in the
@@ -102,22 +128,27 @@ For several alternatives, tick **Compare several alternatives**, choose the
 baseline and tick the required configurations. **Select all available alternatives**
 excludes the baseline and unavailable configurations. Up to 99 alternatives can
 be selected, within the experiment's configured limit. **Prepare Visualiser**
-processes the baseline once and every alternative separately. Progress counts all
+processes each baseline/alternative repetition once. Private per-run summaries
+feed one joint accumulator, with each alternative retaining its own identity;
+actual seed values determine matching, rather than processing order. Progress counts all
 selected repetitions. Selection and progress survive refresh after submission.
 
-The generated link opens the maintained application with the complete aggregate
-set already loaded. **Alternative scenario** switches the displayed pair by
-configuration ID, retaining the user's names even when two names are identical.
-The selected alternative survives a page reload and a return from local-file mode.
-The current upstream charts show the baseline with one alternative at a time.
-Simultaneous comparison charts remain a Visualiser development; this connection
-supplies separate identified series for that future interface. It does not pool
-alternatives into a single Scenario or change scientific calculations/suppression.
+The generated link opens the maintained application with the full aggregate set
+loaded. All selected alternatives appear alongside the baseline. Scenario buttons
+show or hide individual alternatives without merging their values. Display names
+are plain text, separate from stable configuration IDs. Refresh reloads the full
+set; returning from local files does the same. Chart CSVs include the displayed
+alternatives and configuration names, retaining individual identities in delta
+exports. PNG legends include every displayed alternative and wrap long names.
 
 The aggregate API keeps single/pair results in `simpaths.visualiser.v1`. A set
 uses `simpaths.visualiser.v2`: `comparison` names the baseline and ordered alternative
 configuration IDs; `data.series` contains one `{configuration, rows}` entry for each
-configuration. All rows use the existing aggregate schema. Baseline rows retain
+configuration. Rows use the fixed aggregate schema, with four optional paired fields:
+`paired_mean_delta`, `paired_lower_ci`, `paired_upper_ci`, `paired_n_runs`.
+Legacy rows without those fields remain supported. Mean/share, wage-bin,
+income-bin and population-pyramid metrics are admitted explicitly; unknown
+fields and nonfinite JSON values remain rejected. Baseline rows retain
 `scenario: "baseline"`; each separate alternative retains `scenario: "scenario"`.
 Consumers must use the enclosing configuration ID to distinguish alternatives.
 No private run summaries or raw records are added. Each API read rechecks every
@@ -185,15 +216,16 @@ readers, and a deletion request prevents a newly finished aggregate being publis
 
 ## Local files and browser security
 
-**Visualise Locally Saved Data** uses the existing folder scanner and calculation
-workers in the browser. Raw local files stay local and are not uploaded. Returning
+**Visualise Locally Saved Data** uses the existing folder scanner and serial
+streaming parser in the browser. Raw local files stay local and are not uploaded. Returning
 to **View Online Results** clears that source and reloads only authenticated aggregates.
 Combining local and VM sources in one comparison is deliberately deferred because
 statistical compatibility needs a separate design.
 
 The generated integration makes only practical compatibility changes: safe
 tooltip text, a CSP-compatible CSV object converter using D3's row parser,
-termination/counting fixes for reused local workers, and fixed display mappings
+the connected aggregate interface, complete multi-scenario exports, robust
+variable-name matching, and fixed display mappings
 for native employment enum spellings and the pinned parser's UK region aliases.
 For example, `North East (England)` is displayed as `North East`, matching the
 chart vocabulary. These mappings change labels after aggregation; they do not
@@ -205,26 +237,43 @@ Unknown categories fail publication rather than leaking arbitrary raw strings.
 
 ## Acceptance
 
+The current focused proof is:
+
 ```bash
 cd ~/git/JAS-mine/JAS-mine-web
 ~/simpaths-browser-tests/venv/bin/python tests/browser/batch_visualiser.py \
-  --backend-pattern test_comparisons.py test_visualiser.py test_results.py test_input_results.py test_downloads.py \
-  --build /tmp/codex-rer/visualiser-build-20261003-multi-c
+  --backend-pattern test_comparisons.py test_visualiser.py test_aggregate_io.py test_results.py test_input_results.py test_downloads.py \
+  --build /tmp-codex/visualiser-build-20261009-paired-c \
+  --output "$HOME/simpaths-benchmarks/vm-visualiser-paired-$(date +%Y%m%d-%H%M%S)"
 ```
 
-Without `--backend-pattern` the command runs the complete backend suite, then a real-browser proof with
-fictional native CSVs and the actual pinned chart bundle. It exercises shared
-capacity, refresh, source roles/names, aggregate-only network traffic, permission
-changes, source deletion and six local runs processed on two workers. Add
-`--browser-only` after a separately passing backend suite, or
-`--backend-pattern test_visualiser.py` for a focused integration rerun.
-It uses disposable PostgreSQL, creates no production data and sends no email.
-The focused command above runs 77 backend checks plus the browser proof. New set
-checks cover separate numerical series, selected-name switching and refresh,
-numbered ZIP folders/options/settings, deduplicated inputs, all-source permissions,
-provider raw-download denial and cached ZIP resumption after restart. Native-CSV
-checks also confirm that alternatives are not pooled by the current role-based
-aggregation. PostgreSQL/Chromium acceptance must run outside the coding sandbox.
+It uses disposable PostgreSQL, fictional native CSVs and the real chart bundle;
+it sends no email and reruns no scientific model. Checks include simultaneous
+alternative charts/toggles, seed-paired deltas, complete named CSV/PNG exports,
+refresh, comparison ZIPs, aggregate-only network delivery, local streaming,
+owner isolation and source-deletion denial. Without `--backend-pattern` it runs
+the complete backend suite; use `--browser-only` only after passing database checks.
+
+Local checks on 9 October pass: 69 Visualiser/Jest cases, eight Node application, compiled-bundle
+and comparison-mapping cases, 11 native-CSV calculation/backend cases, and 15
+publication/private-helper cases. The build records its pinned source and asset
+hashes. All 91 focused database checks passed in the
+[backend test log](/home/rer/simpaths-benchmarks/vm-visualiser-paired-20261009-183331/tests.log).
+The subsequent browser-only run, `vm-visualiser-paired-20261009-184750`, passed all
+nine stages using the pinned `paired-c` build. Its
+[browser report](/home/rer/simpaths-benchmarks/vm-visualiser-paired-20261009-184750/model-proof/report.json)
+records no uncaught browser errors; the
+[wrapper report](/home/rer/simpaths-benchmarks/vm-visualiser-paired-20261009-184750/report.json)
+confirms success and temporary-database cleanup. The controlled ValueError is the
+deliberate failed-preparation/retry fixture.
+
+The initial browser attempt stopped at an ambiguous access-denied assertion;
+both affected assertions now select the Online connection message. The
+compiled-bundle check also verifies that a denied reload clears charts, displays
+the denial and makes no default-data request. No application rebuild was needed
+for that assertion correction. These tests use fictional native CSVs; they do not
+measure the larger 100,000-person/2070 research workload or approve restricted
+provider releases. Earlier browser reports below cover previous bundles.
 
 Multiple-alternative acceptance passed on 3 October 2026 in
 `vm-visualiser-20261003-220301` using build `multi-c`: all 77 focused backend cases
@@ -250,7 +299,7 @@ The model-side numerical/schema tests run separately:
 
 ```bash
 cd ~/git/SimPathsWeb/SimPaths
-SIMPATHS_VISUALISER_TEST_BUILD=/tmp/codex-rer/visualiser-build-20261003-multi-c \
+SIMPATHS_VISUALISER_TEST_BUILD=/tmp-codex/visualiser-build-20261009-paired-c \
   ~/simpaths-browser-tests/venv/bin/python \
   -m unittest deploy.multirun.test_visualiser_backend -v
 ```
@@ -328,8 +377,8 @@ The application adapter checks can also run without PostgreSQL or Chromium:
 
 ```bash
 cd ~/git/SimPathsWeb/SimPaths
-SIMPATHS_VISUALISER_SOURCE="$HOME/git/SimPathsWeb/SimPaths-Policy-Impacts-Visualiser" \
-SIMPATHS_VISUALISER_DEPENDENCIES="$HOME/.npm/_npx/668c188756b835f3/node_modules" \
+SIMPATHS_VISUALISER_SOURCE=/tmp-codex/visualiser-update-20261009/repository \
+SIMPATHS_VISUALISER_DEPENDENCIES=/tmp-codex/visualiser-update-20261009/repository/node_modules \
   /usr/bin/node deploy/multirun/visualiser/test_app.cjs
 ```
 
@@ -369,8 +418,15 @@ PLAN_OF_ACTION.md so it is included when organising deployment.
 
 ## Next integration checkpoint
 
-When Reese publishes the updated source, review its aggregate/pair interface,
-pin a new build, consume server-computed seed-paired impacts, and compare reference
-outputs. Agree which fields and exports are permitted for restricted provider
-results before enabling them. Keep statistical methods in the Visualiser source;
-authentication, queue capacity, input permissions and retention stay in the service.
+Complete the updated browser proof and submit the refreshed PR branches for
+Reese's review. Before enabling restricted provider results, agree release rules
+for both level estimates and paired impacts/exports, including the pooled-versus-
+per-run suppression discrepancy above.
+
+Measure server aggregation and browser rendering for the research target agreed
+with Matteo: 100,000 initial people, 2019–2070, up to ten repetitions per
+configuration and four concurrent users. This is a heavier workload than the
+50,000-person, eight-year calibration; it requires separate resource measurements.
+Server aggregation keeps raw output outside the browser but does not make large
+CSV processing or large aggregate sets free of memory/time limits.
+Local-folder manifest names and sweep metadata remain a separate upstream enhancement.

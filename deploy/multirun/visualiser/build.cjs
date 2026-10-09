@@ -34,7 +34,8 @@ function revision(){
 }
 const hashes={};
 const licences=new Map();
-const selected=['App.js','parseCore.js','useAggregatedData.js','DashboardSection.js','localFolderParser.js','parseWorker.js'];
+const selected=['App.js','parseCore.js','useAggregatedData.js','DashboardSection.js','localFolderParser.js',
+  'AggregateDataPanel.js','aggregateDataSource.js','csvParse.js','tooltipContent.js'];
 fs.mkdirSync(args.output,{recursive:true,mode:0o700});
 const staging=path.join(args.output,'source');
 fs.mkdirSync(staging,{mode:0o700});
@@ -42,58 +43,23 @@ for(const name of selected){
   let text=fs.readFileSync(path.join(args.source,'src',name),'utf8');
   hashes[name]=sha(text);
   if(name==='App.js')text=adaptApp(text);
-  if(name==='DashboardSection.js'){
-    // Guarded integration changes to the generated copy only. Updating the
-    // upstream interface requires reviewing these anchors rather than guessing.
-    const replace=(old,value)=>{
-      if(text.split(old).length!==2) throw Error('Review changed upstream dashboard interface: '+old);
-      text=text.replace(old,value);
-    };
-    replace('export default function DashboardSection({parsedCache,targetVariable})',
-            'export default function DashboardSection({parsedCache,targetVariable,vmMode=false})');
-    replace('<button style={togBtn(activeTab==="delta")} onClick={()=>setActiveTab("delta")}>Δ Baseline → Scenario</button>',
-            '{!vmMode&&<button style={togBtn(activeTab==="delta")} onClick={()=>setActiveTab("delta")}>Δ Baseline → Scenario</button>}');
-    // Keep the existing tooltip formatting, with inert allowed elements only.
-    replace('t.innerHTML=html;',
-      'const template=document.createElement("template");template.innerHTML=html;'+
-      'function clean(node){if(node.nodeType===3)return document.createTextNode(node.textContent);'+
-      'const out=document.createElement(["STRONG","BR"].includes(node.nodeName)?node.nodeName:"span");'+
-      'for(const child of node.childNodes)out.append(clean(child));return out;}'+
-      't.replaceChildren(...Array.from(template.content.childNodes,clean));');
-  }
-  if(name==='localFolderParser.js'){
-    const old='active++;\n      worker.onmessage = ({ data }) => {';
-    if(text.split(old).length!==2)throw Error('Review changed local worker interface');
-    // Count workers, not every assignment: upstream stalls on worker reuse.
-    text=text.replace('let active = 0;','let active = pool.length;').replace(old,
-      'worker.onmessage = ({ data }) => {');
-    text=text.replace('await new Promise((resolve, reject) => {','try { await new Promise((resolve, reject) => {')
-      .replace('pool.forEach(w => w.terminate());','} finally { pool.forEach(w => w.terminate()); }');
-  }
   const transformed=babel.transformSync(text,{
-    filename:name,presets:[[reactPreset,{runtime:'classic'}]],
+    filename:name,presets:[[reactPreset,{runtime:'automatic'}]],
     babelrc:false,configFile:false,comments:true}).code;
   fs.writeFileSync(path.join(staging,name),transformed,{mode:0o600});
-  if(name==='parseCore.js'){
-    const old='from "d3";';
-    if(transformed.split(old).length!==2)throw Error('Review changed CSV parsing interface');
-    fs.writeFileSync(path.join(staging,'browserCore.js'),transformed.replace(old,'from "./safeCsv.js";'),{mode:0o600});
-  }
 }
-fs.copyFileSync(path.join(__dirname,'safe_csv.js'),path.join(staging,'safeCsv.js'));
 fs.copyFileSync(path.join(__dirname,'entry.jsx'),path.join(staging,'entry.jsx'));
 fs.copyFileSync(path.join(__dirname,'comparison_data.mjs'),path.join(staging,'comparison_data.mjs'));
 const entry=fs.readFileSync(path.join(staging,'entry.jsx'),'utf8');
 fs.writeFileSync(path.join(staging,'entry.js'),babel.transformSync(entry,{
-  filename:'entry.jsx',presets:[[reactPreset,{runtime:'classic'}]],
+  filename:'entry.jsx',presets:[[reactPreset,{runtime:'automatic'}]],
   babelrc:false,configFile:false}).code);
 fs.writeFileSync(path.join(staging,'server.js'),
   'export * from "./parseCore.js";export {getVariableDef,getStratifierDef} from "./useAggregatedData.js";');
 const compile=(entry,filename,target)=>new Promise((resolve,reject)=>{
   webpack({mode:'production',target,entry,devtool:false,
     output:{path:args.output,filename,...(target==='node'?{library:{type:'commonjs2'}}:{})},
-    resolve:{modules:[args.dependencies,'node_modules'],extensions:['.js','.jsx'],
-      alias:target==='web'?{'./parseCore.js':path.join(staging,'browserCore.js')}:{}} ,
+    resolve:{modules:[args.dependencies,'node_modules'],extensions:['.js','.jsx']},
     optimization:{minimize:true},
     plugins:[new webpack.DefinePlugin({'process.env.PUBLIC_URL':JSON.stringify('/visualiser-assets')})],
   },(error,stats)=>{
@@ -122,14 +88,15 @@ const compile=(entry,filename,target)=>new Promise((resolve,reject)=>{
   hashes['index.css']=sha(baseCss);
   fs.writeFileSync(path.join(args.output,'visualiser.css'),baseCss+'\n'+fs.readFileSync(path.join(__dirname,'visualiser.css'),'utf8'));
   fs.copyFileSync(path.join(__dirname,'index.html'),path.join(args.output,'index.html'));
-  for(const name of ['pmh_logo.png','UKRILogo.png']){
+  for(const name of ['pmh_logo.png','UKRILogo.png','SimPaths-logo-transparent.png']){
     const content=fs.readFileSync(path.join(args.source,'public',name));
     hashes['public/'+name]=sha(content);
     fs.writeFileSync(path.join(args.output,name),content);
   }
   for(const name of ['Interpreting-results','citation']){
-    let text=fs.readFileSync(path.join(args.source,'public',name+'.html'),'utf8');
-    hashes['public/'+name+'.html']=sha(text);
+    const sourceName=name==='Interpreting-results'?'interpreting-results':name;
+    let text=fs.readFileSync(path.join(args.source,'public',sourceName+'.html'),'utf8');
+    hashes['public/'+sourceName+'.html']=sha(text);
     const style=text.match(/<style>([\s\S]*?)<\/style>/);
     if(!style||text.split('<style>').length!==2)throw Error('Review changed guidance styles');
     fs.writeFileSync(path.join(args.output,name+'.css'),style[1]);
@@ -139,7 +106,7 @@ const compile=(entry,filename,target)=>new Promise((resolve,reject)=>{
       .replaceAll('src="/pmh_logo.png"','src="/visualiser-assets/pmh_logo.png"')
       .replaceAll('href="/citation.html"','href="/visualiser-assets/citation.html"')
       .replaceAll('href="/interpreting-results.html"','href="/visualiser-assets/Interpreting-results.html"')
-      .replace('← Back to Dashboard','← Return to SimPaths Online');
+      .replace(/← Back to (?:Dashboard|Visualiser)/,'← Return to SimPaths Online');
     if(/<script\b|\son\w+\s*=|<link[^>]+href="https?:|<img[^>]+src="https?:/i.test(text))
       throw Error('Review changed guidance resources before hosting');
     fs.writeFileSync(path.join(args.output,name+'.html'),text);
@@ -163,7 +130,7 @@ const compile=(entry,filename,target)=>new Promise((resolve,reject)=>{
   }
   const identity={format:'simpaths.visualiser.build.v1',
     revision:revision(),
-    mode:'development-levels',source_hashes:hashes,dependencies,
+    mode:'development-paired',source_hashes:hashes,dependencies,
     toolchain:{node:process.version,webpack:webpack.version,babel:babel.version},files};
   fs.writeFileSync(path.join(args.output,'build.json'),JSON.stringify(identity,null,2),{mode:0o600});
   fs.rmSync(staging,{recursive:true});

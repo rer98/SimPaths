@@ -8,6 +8,7 @@ import csv
 import hashlib
 import io
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -91,13 +92,19 @@ class VisualiserBackendTests(unittest.TestCase):
         for role,expected in [('baseline',20),('scenario',25)]:
             row=next(r for r in result['rows'] if r['scenario']==role and
                 r['variable']=='Mental Component Summary (MCS)' and r['stratifier']=='Overall'
-                and r['variable_value']=='Mean')
+                and r['variable_value'] in ('Mean','Continuous Mean'))
             self.assertAlmostEqual(row['mean_value'],expected)
             self.assertEqual(row['n_runs'],3)
         text=json.dumps(result)
         for private in ('PRIVATE_ROW_SENTINEL','id_Person','id_BenefitUnit','70000000000000001',str(self.root)):
             self.assertNotIn(private,text)
-        self.assertFalse(result['comparison_available'])
+        self.assertTrue(result['comparison_available'])
+        scenario=next(r for r in result['rows'] if r['scenario']=='scenario' and
+            r['variable']=='Mental Component Summary (MCS)' and r['stratifier']=='Overall'
+            and r['variable_value'] in ('Mean','Continuous Mean'))
+        self.assertEqual(scenario['paired_n_runs'],3)
+        self.assertEqual(scenario['paired_mean_delta'],5)
+        self.assertEqual((scenario['paired_lower_ci'],scenario['paired_upper_ci']),(5,5))
 
     def test_platform_interface_stages_rows_without_parsing_them_in_the_server(self):
         from unittest.mock import patch
@@ -111,21 +118,63 @@ class VisualiserBackendTests(unittest.TestCase):
 
     def test_multiple_alternatives_use_independent_unchanged_calculations_and_one_baseline(self):
         from jasmine_web.batch.visualiser import validate_publication
+        from deploy.multirun.vm_boundary import aggregate_envelope
         self.assertTrue(self.backend.supports_comparison_sets)
         selected=sources(self.root,alternatives=2)
         progress=[]
         published=self.backend.process(selected,self.work,self.command,progress.append,comparison_set=True)
         validate_publication(published,configurations=[s['configuration'] for s in selected])
+        configurations=[s['configuration'] for s in selected]
+        envelope=dict(format='simpaths.visualiser.v2',backend=self.backend.identity,experiment='Fictional',
+            configurations=configurations,comparison=dict(baseline=configurations[0]['id'],
+                scenarios=[c['id'] for c in configurations[1:]]),data=published)
+        self.assertIs(aggregate_envelope(envelope),envelope)
         self.assertEqual(progress,list(range(1,10)))
         self.assertEqual([s['configuration'] for s in published['series']],['baseline','scenario_1','scenario_2'])
         for series,expected in zip(published['series'],(20,25,30)):
             overall=next(r for r in series['rows'] if r['variable']=='Mental Component Summary (MCS)'
-                and r['stratifier']=='Overall' and r['variable_value']=='Mean')
+                and r['stratifier']=='Overall' and r['variable_value'] in ('Mean','Continuous Mean'))
             self.assertAlmostEqual(overall['mean_value'],expected)
             self.assertEqual(overall['n_runs'],3)
             self.assertEqual(overall['total_sample'],36)
+            if series['configuration']!='baseline':
+                self.assertEqual(overall['paired_n_runs'],3)
+                self.assertEqual(overall['paired_mean_delta'],expected-20)
+                self.assertEqual((overall['paired_lower_ci'],overall['paired_upper_ci']),(expected-20,expected-20))
         for private in ('PRIVATE_ROW_SENTINEL','id_Person','id_BenefitUnit',str(self.root)):
             self.assertNotIn(private,json.dumps(published))
+
+    def test_pairing_uses_actual_seed_when_scenario_runs_are_in_a_different_order(self):
+        selected=sources(self.root)
+        selected[1]['configuration']['runs'].reverse()
+        published=self.backend.process(selected,self.work,self.command,lambda _:None)
+        overall=next(r for r in published['rows'] if r['scenario']=='scenario'
+            and r['variable']=='Mental Component Summary (MCS)' and r['stratifier']=='Overall'
+            and r['variable_value'] in ('Mean','Continuous Mean'))
+        self.assertEqual(overall['paired_n_runs'],3)
+        self.assertEqual(overall['paired_mean_delta'],5)
+        self.assertEqual((overall['paired_lower_ci'],overall['paired_upper_ci']),(5,5))
+
+    def test_paired_uncertainty_uses_run_differences_and_preserves_new_chart_metrics(self):
+        selected=sources(self.root)
+        for index,run in enumerate(selected[1]['configuration']['runs']):
+            item=next(f for f in selected[1]['files'] if f['name']==run['folder']+'/csv/Person.csv')
+            content=native_texts((index+1)*12)[0].encode()
+            (self.root/item['path']).write_bytes(content)
+            item.update(bytes=len(content),sha256=hashlib.sha256(content).hexdigest())
+        published=self.backend.process(selected,self.work,self.command,lambda _:None)
+        overall=next(r for r in published['rows'] if r['scenario']=='scenario'
+            and r['variable']=='Mental Component Summary (MCS)' and r['stratifier']=='Overall'
+            and r['variable_value']=='Continuous Mean')
+        # Matched differences are 2, 4, 6: sample SD=2 and SE=2/sqrt(3).
+        self.assertAlmostEqual(overall['paired_mean_delta'],4)
+        self.assertAlmostEqual(overall['paired_lower_ci'],4-1.96*2/math.sqrt(3))
+        self.assertAlmostEqual(overall['paired_upper_ci'],4+1.96*2/math.sqrt(3))
+        self.assertEqual(overall['paired_n_runs'],3)
+        self.assertTrue({'wage_bin','income_bin','pyramid_bin'}<=
+            {r['metric_type'] for r in published['rows']})
+        # Existing upstream suppression still hides pooled samples below 20.
+        self.assertTrue(all(r['mean_value'] is None for r in published['rows'] if r['total_sample']<20))
 
     def test_older_verified_application_keeps_pair_support_without_offering_sets(self):
         legacy=self.root/'legacy-build'
@@ -134,11 +183,13 @@ class VisualiserBackendTests(unittest.TestCase):
         (legacy/'visualiser.js').write_bytes(application)
         manifest=json.loads((legacy/'build.json').read_text())
         manifest['files']['visualiser.js']=hashlib.sha256(application).hexdigest()
+        manifest['mode']='development-levels'
         (legacy/'build.json').write_text(json.dumps(manifest))
         backend=VisualiserBackend(legacy,self.root)
         self.assertFalse(backend.supports_comparison_sets)
         result=backend.process(sources(self.root),self.work,self.command,lambda _:None)
         self.assertEqual({r['scenario'] for r in result['rows']},{'baseline','scenario'})
+        self.assertFalse(result['comparison_available'])
         with self.assertRaises(ValueError):
             backend.process([],self.work,self.command,lambda _:None,comparison_set=True)
 
@@ -159,7 +210,7 @@ class VisualiserBackendTests(unittest.TestCase):
         for role,mean in [('baseline',20),('scenario',25)]:
             overall=next(r for r in published['rows'] if r['scenario']==role and
                 r['variable']=='Mental Component Summary (MCS)' and r['stratifier']=='Overall'
-                and r['variable_value']=='Mean')
+                and r['variable_value'] in ('Mean','Continuous Mean'))
             self.assertAlmostEqual(overall['mean_value'],mean)
             self.assertEqual(overall['n_runs'],3)
             self.assertEqual(overall['total_sample'],36)

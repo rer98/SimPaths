@@ -14,7 +14,6 @@ function Page(){
   const [result,setResult]=useState(null),[local,setLocal]=useState(null);
   const [message,setMessage]=useState('Loading online results…');
   const [processing,setProcessing]=useState(false);
-  const [scenario,setScenario]=useState(()=>new URLSearchParams(location.search).get('scenario')||'');
   const generation=useRef(0);
   async function vm(){
     const serial=++generation.current;setLocal(null);setResult(null);setProcessing(false);setMessage('Loading online results…');
@@ -23,8 +22,7 @@ function Page(){
       const data=await response.json();
       if(!response.ok)throw Error(data.error||'Online results are unavailable.');
       if(serial!==generation.current)return;
-      const selected=displayedComparison(data,scenario);
-      setScenario(selected.selected);
+      displayedComparison(data);
       setResult(data);setMessage('');
     }catch(error){
       if(serial===generation.current)setMessage(error.message);
@@ -41,32 +39,25 @@ function Page(){
     }catch(error){if(serial===generation.current)setMessage(error.name==='AbortError'?'Local selection cancelled.':error.message);}
     finally{if(serial===generation.current)setProcessing(false);}
   }
-  const comparison=useMemo(()=>displayedComparison(result,scenario),[result,scenario]);
+  const comparison=useMemo(()=>displayedComparison(result),[result]);
   const data=local||comparison.rows;
   const rows=useMemo(()=>data.map(row=>Object.fromEntries(Object.entries(row).map(([k,v])=>
     [k,v===null?NaN:v]))),[data]);
   const controls=<>
-    <p className="vm-source-help">View your selected online results, or select a local parent folder with runs in Baseline and Scenario subfolders.</p>
+    <p className="vm-source-help">View your selected online results, or select a local parent folder with a Baseline folder and one folder for each alternative scenario.</p>
     <button className="vm-source-button" onClick={vm}>View Online Results</button>
     <button className="vm-source-button" onClick={localFiles} disabled={processing}>
       Visualise Locally Saved Data</button>
     <p className="vm-source-help">Local files are processed in this browser and are never uploaded.</p>
     {message&&<p className="vm-source-message" role="status">{message} <a href="/">Return to SimPaths Online</a></p>}
-    {result&&comparison.alternatives.length>0&&<label className="vm-source-help">
-      Alternative scenario
-      <select className="vm-scenario-select" aria-label="Alternative scenario" value={comparison.selected}
-        onChange={event=>{const id=event.target.value;setScenario(id);
-          history.replaceState(null,'',location.pathname+'?scenario='+encodeURIComponent(id));}}>
-        {comparison.alternatives.map(c=><option key={c.id} value={c.id}>{c.name||'Scenario'}</option>)}
-      </select>
-      <p>Current charts show the baseline and one selected alternative. All {comparison.alternatives.length} alternatives are retained in this comparison set.</p>
-    </label>}
-    {data.length>0&&<section className="vm-source" aria-label="Displayed data source">
-      <strong>Data source: {local?'locally saved data':'Online results'}</strong>
-      {result&&comparison.configurations.map(c=><p key={c.id}>{c.role}{c.name?' - '+c.name:''}</p>)}
-    </section>}
+    {result&&comparison.alternatives.length>0&&<p className="vm-source-help">
+      The charts include the baseline and all {comparison.alternatives.length} selected alternatives. Use the scenario buttons to show or hide individual alternatives.
+    </p>}
   </>;
-  return <App dataSource={{rows,controls,kind:local?'local':'vm-'+comparison.selected,vmMode:!local,notice:result?.data.notice,
-    comparison:result?.comparison,configurations:result?.configurations,series:result?.data.series}}/>;
+  return <App dataSource={{rows,controls,key:local?'local':key,
+    label:local?'locally saved data':'Online results',names:local?undefined:comparison.names,
+    description:'Online results are aggregated on the server. Locally saved files are processed in this browser.',
+    navigation:<a className="vm-return" href="/">Return to SimPaths Online</a>,
+    showDelta:local!=null||result?.data.comparison_available===true,notice:result?.data.notice}}/>;
 }
 createRoot(document.getElementById('root')).render(<Page/>);

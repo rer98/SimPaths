@@ -14,36 +14,54 @@ const {renderToStaticMarkup}=require(path.join(dependencies,'react-dom/server'))
 const babel=require('/usr/share/nodejs/@babel/core');
 const input=fs.readFileSync(path.join(source,'src/App.js'),'utf8');
 const adapted=adaptApp(input);
-const code=babel.transformSync(adapted,{filename:'App.js',babelrc:false,configFile:false,
-  presets:[[require('/usr/share/nodejs/@babel/preset-react'),{runtime:'classic'}]],
-  plugins:[require('/usr/share/nodejs/@babel/plugin-transform-modules-commonjs')]}).code;
-const applicationExports={};
-vm.runInNewContext(code,{exports:applicationExports,process:{env:{PUBLIC_URL:'/visualiser-assets'}},require:name=>{
-  if(name==='react')return React;
-  if(name==='./DashboardSection')return ({vmMode})=>React.createElement('svg',{'data-mode':vmMode?'vm':'local'});
-  throw Error('Unexpected dependency in data-source adapter: '+name);
-}});
-const App=applicationExports.default;
-const render=(rows,vmMode=true)=>renderToStaticMarkup(React.createElement(App,{dataSource:{rows,vmMode,
-  kind:vmMode?'vm':'local',controls:React.createElement('p',null,'Baseline - <script>fictional</script>'),
-  notice:'Development preview'}}));
+// Load reviewed reusable components, leaving chart drawing and raw-folder I/O
+// to the full Chromium/Jest checks. Static rendering never starts a fetch.
+const cache=new Map();
+function load(file){
+  const absolute=path.join(source,'src',file);
+  if(cache.has(absolute))return cache.get(absolute);
+  const exports={};cache.set(absolute,exports);
+  const original=fs.readFileSync(absolute,'utf8');
+  const code=babel.transformSync(file==='App.js'?adaptApp(original):original,{
+    filename:file,babelrc:false,configFile:false,
+    presets:[[require('/usr/share/nodejs/@babel/preset-react'),{runtime:'automatic'}]],
+    plugins:[require('/usr/share/nodejs/@babel/plugin-transform-modules-commonjs')]}).code;
+  vm.runInNewContext(code,{exports,process:{env:{PUBLIC_URL:'/visualiser-assets'}},require:name=>{
+    if(name==='react'||name.startsWith('react/'))return require(path.join(dependencies,name));
+    if(name==='d3')return require(path.join(dependencies,'d3'));
+    if(name==='./DashboardSection')return ()=>React.createElement('svg',{'data-chart':'fixture'});
+    if(name==='./localFolderParser')return {parseLocalFolder:()=>{throw Error('No raw files in static check');}};
+    if(name.startsWith('./'))return load(name.slice(2).replace(/\.js$/,'')+'.js');
+    throw Error('Unexpected dependency in data-source adapter: '+name);
+  }});
+  return exports;
+}
+const App=load('App.js').default;
+const row={year:2019,scenario:'baseline',module:'Health',variable:'Mental Component Summary (MCS)',
+  variable_value:'Continuous Mean',stratifier:'Overall',stratifier_value:'Overall',metric_type:'mean',
+  n_runs:3,total_sample:300,min_sample:100,mean_sample:100,mean_value:50,sd_value:1,lower_ci:49,upper_ci:51};
+const render=rows=>renderToStaticMarkup(React.createElement(App,{dataSource:{rows,
+  names:{baseline:'<script>fictional</script>'},label:'Online results',
+  navigation:React.createElement('a',{href:'/results'},'Return to SimPaths Online'),notice:'Development preview'}}));
 
 test('original application presents its topics, explanations, credits and local assets',()=>{
-  const html=render([{}]);
+  const html=render([row]);
   for(const label of ['SimPaths Policy Impacts Visualiser','Connect Data','Explore Variables',
     'Demographics','Activity status','Income','Health','Highest Level of Education',
     'Getting Started','Limitations &amp; Interpretation','Credit &amp; Citation','Send Feedback',
-    '/visualiser-assets/pmh_logo.png','/visualiser-assets/UKRILogo.png','Return to SimPaths Online']){
-    assert.ok(html.includes(label),label);
-  }
-  assert.ok(html.includes('Baseline - &lt;script&gt;fictional&lt;/script&gt;'));
+    '/visualiser-assets/pmh_logo.png','/visualiser-assets/UKRILogo.png','Return to SimPaths Online',
+    'Baseline — &lt;script&gt;fictional&lt;/script&gt;'])assert.ok(html.includes(label),label);
   assert.ok(!html.includes('<script>fictional</script>'));
+  assert.ok(render([row]).includes('data-chart="fixture"'));
 });
 
-test('unavailable aggregates leave no charts and no path to bundled default data',()=>{
+test('unavailable or malformed connected aggregates render no charts',()=>{
   assert.ok(!render([]).includes('<svg'));
-  assert.ok(render([{}]).includes('data-mode="vm"'));
-  assert.ok(render([{}],false).includes('data-mode="local"'));
-  for(const forbidden of ['d3.csv','SimPaths_All_Aggregated_Outputs.csv','loadDefaultDataset','handleSelectFolder'])
-    assert.ok(!adapted.includes(forbidden),forbidden);
+  assert.ok(!render([{...row,id_Person:'private'}]).includes('<svg'));
+});
+
+test('the build guard requires the reviewed source interface and maps only local guidance',()=>{
+  assert.throws(()=>adaptApp('function App() {}'));
+  assert.ok(adapted.includes('/Interpreting-results.html'));
+  assert.ok(!adapted.includes('/interpreting-results.html'));
 });

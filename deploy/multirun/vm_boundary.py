@@ -57,7 +57,7 @@ def check(get, path, *, denied=False, cookie='', headers=None, marker=b'', maxim
     return {'path': path, 'status': status}, data
 
 
-def aggregate_envelope(value):
+def aggregate_envelope(value, *, limits=None):
     """Check both published formats without accepting arbitrary/raw fields."""
     from jasmine_web.batch.visualiser import validate_publication
     if not isinstance(value, dict):
@@ -86,7 +86,8 @@ def aggregate_envelope(value):
                                  scenarios=[item['id'] for item in configurations[1:]])
         if value['comparison'] != expected_selection:
             raise ValueError('Visualiser comparison does not match its configurations')
-    validate_publication(value['data'], configurations=configurations if multiple else None)
+    options = dict(limits=limits) if limits is not None else {}
+    validate_publication(value['data'], configurations=configurations if multiple else None, **options)
     return value
 
 

@@ -16,6 +16,17 @@ import simpaths.model.SimPathsModel;
  */
 public final class PrepareQuickStart {
     private static int population = 50000;
+    private static boolean researchCalibration;
+
+    private static SimPathsStartupConfig config() {
+        if (!researchCalibration) return SimPathsStartupConfig.quickStart(population);
+        if (population < 1000 || population > 100000)
+            throw new IllegalArgumentException("Private research population must be 1000–100000");
+        // Build only. The separate private queue trial chooses the simulation
+        // horizon; no interactive profile, public catalogue or model is changed.
+        return new SimPathsStartupConfig(simpaths.model.enums.Country.UK,
+            2019, 2026, population, 606L, true, true);
+    }
     private static long count(Connection c, String sql) throws SQLException {
         try (var q = c.createStatement(); var r = q.executeQuery(sql)) {
             r.next(); return r.getLong(1);
@@ -53,7 +64,7 @@ public final class PrepareQuickStart {
             throw new IllegalStateException("Preparation requires inputs without an existing database");
         if (!prepare) verify();
         GuiUtils.setWebMode(true);
-        var config = SimPathsStartupConfig.quickStart(population);
+        var config = config();
         SimPathsSetupService.prepareQuickStart(config, false);
         SimPathsStart.configureWeb(config);
         SimPathsModel.setPersistPopulation(true);
@@ -85,9 +96,12 @@ public final class PrepareQuickStart {
 
     public static void main(String[] args) {
         try {
-            if (args.length < 1 || args.length > 2) throw new IllegalArgumentException("Expected mode [population]");
-            population = args.length == 2 ? Integer.parseInt(args[1]) : 50000;
-            SimPathsStartupConfig.quickStart(population);
+            if (args.length < 1 || args.length > 3) throw new IllegalArgumentException("Expected mode [population [research-calibration]]");
+            researchCalibration = args.length == 3 && args[2].equals("research-calibration");
+            if (args.length == 3 && !researchCalibration)
+                throw new IllegalArgumentException("Unknown administrative preparation mode");
+            population = args.length >= 2 ? Integer.parseInt(args[1]) : 50000;
+            config();
             switch (args[0]) {
                 case "prepare" -> build(true);
                 case "verify" -> verify();

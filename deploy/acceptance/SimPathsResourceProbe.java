@@ -1,6 +1,6 @@
 /* (C) Copyright 2026, by Ross Richardson
  * Passive numeric telemetry around the unchanged MultiRun entry point.
- * Used only by the isolated resource-recovery acceptance rehearsal.
+ * Used only by isolated resource-recovery and research-calibration rehearsals.
  * @author ross richardson
  */
 import java.lang.management.ManagementFactory;
@@ -42,13 +42,16 @@ public final class SimPathsResourceProbe {
 
     public static void main(String[] args) {
         // No forced GC, extra allocation, engine controls, JMX port or input reads.
+        long interval = Long.getLong("simpaths.resource.sample.millis", 2000L);
+        if (interval < 2000 || interval > 300000)
+            throw new IllegalArgumentException("Resource sample interval must be 2000–300000 ms");
         sample();
         Thread sampler = new Thread(() -> {
             try {
                 while (true) {
-                    // Two seconds also keeps a 75-minute attempt inside the
-                    // executor's existing bounded Docker log allowance.
-                    Thread.sleep(2000);
+                    // Longer private calibration attempts use a recorded interval
+                    // to stay within the same bounded Docker log allowance.
+                    Thread.sleep(interval);
                     sample();
                 }
             } catch (InterruptedException stopped) {

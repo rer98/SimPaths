@@ -7,7 +7,7 @@ SimPaths Online deployment readiness, verified local evidence and installation o
 
 # SimPaths Online deployment readiness
 
-**Reviewed:** 9 October 2026. **Deployment status:** local implementation and
+**Reviewed:** 10 October 2026. **Deployment status:** local implementation and
 rehearsals are recorded below; no production VM or domain has been selected.
 
 Use this checklist to prepare and validate the first SimPaths Online installation,
@@ -25,8 +25,10 @@ publication/helper checks pass. All 91 focused database checks passed in
 all nine browser stages passed in `vm-visualiser-paired-20261009-184750`. The
 passing browser run records no uncaught errors and confirms database cleanup.
 Earlier browser reports below cover previous bundles.
-Restricted-provider aggregate release rules and the 100,000-person/2070 research
-workload still require separate approval and calibration respectively.
+Restricted-provider aggregate release rules still require separate approval.
+Two one-seed 100,000-person/2070 simulations and their retained-output browser
+comparison have now passed locally. Repeated-seed storage and hosted concurrency
+still require calibration.
 
 The reports test different recorded source revisions and images. They do not
 collectively certify an unspecified future build. Record the exact selected release
@@ -111,6 +113,7 @@ The older real-model drivers use `status: "passed"` rather than that report form
 | Read-only operator inventory of jobs, reservations, storage, cleanup, notices and releases | [Operator report](/home/rer/simpaths-benchmarks/postgres-queue-20261003-142214/report.json) | Disposable PostgreSQL and fictional files |
 | Maintained Visualiser page, configuration names, separate alternatives, comparison ZIPs, aggregate-only VM responses and owner/source guards | [Visualiser report](/home/rer/simpaths-benchmarks/vm-visualiser-20261006-153932/report.json) and [browser proof](/home/rer/simpaths-benchmarks/vm-visualiser-20261006-153932/model-proof/report.json) | Real browser and aggregation code with fictional CSVs through the private-file/helper pipeline; nine workflow checks; no uncaught browser errors; cleanup confirmed |
 | Updated maintained Visualiser, simultaneous alternatives, seed-paired impacts, named exports and aggregate-only owner/source guards | [Backend log](/home/rer/simpaths-benchmarks/vm-visualiser-paired-20261009-183331/tests.log), [Visualiser report](/home/rer/simpaths-benchmarks/vm-visualiser-paired-20261009-184750/report.json) and [browser proof](/home/rer/simpaths-benchmarks/vm-visualiser-paired-20261009-184750/model-proof/report.json) | 91 focused database cases and nine browser stages; pinned `paired-c` build from `b981df5`; fictional native CSVs; no uncaught browser errors; cleanup confirmed |
+| Retained 100,000-person/2070 baseline and alternative, all 52 years, named level/paired exports, refresh and aggregate-only owner guards | [Research comparison report](/tmp-codex/research-comparison-20261010-144946/report.json) and [browser proof](/tmp-codex/research-comparison-20261010-144946/model-proof/report.json) | Real completed scientific outputs and Chromium; one matched seed; private calibration budgets; identical 124.1 MiB initial/refreshed aggregate responses; originals unchanged, no model reruns or browser errors; cleanup confirmed |
 | MultiRun TLS/cookies, private-file denial, large ZIP preparation, slow transfer, restart/resume, deletion and revocation | [MultiRun HTTPS report](/home/rer/simpaths-benchmarks/https-rehearsal-20261004-003741/report.json) | Real local Nginx/TLS and fictional output |
 | SingleRun TLS/ownership, controls/charts, long ZIP transfer, disconnect cleanup and restart access | [SingleRun HTTPS report](/home/rer/simpaths-benchmarks/singlerun-https-20261004-071322/report.json) | Real local Nginx/TLS and fictional models |
 | STARTTLS sign-in/completion mail, durable delivery retries, expiry warnings, actual file deletion and reader protection | [Mail and retention report](/home/rer/simpaths-benchmarks/mail-retention-20261004-080335/report.json) | Local SMTP server and disposable files; not external inbox delivery |
@@ -196,7 +199,21 @@ not install services, choose providers or change security settings.
   for those populations, representative horizons and collector settings against
   the 4 GiB + 256 MiB-per-repetition standard before opening the service. The current
   twelve-run evidence covers 50,000 people and 2019–2026.
-- [ ] Measure the intended 50,000-person horizon, repetitions, preparation,
+- [ ] Calibrate Matteo's updated target: 100,000 people, 2019–2070, provisionally
+  ten seed repetitions per configuration and up to four concurrent users. The
+  [private one-repetition trial](multirun/VM.md#research-workload-calibration) and
+  native follow-up cleanup passed on 10 October: 4 GiB heap/5 GiB container,
+  5.84 GiB sampled workspace and 3.46 GiB retained output. The matching lower-saving-rate
+  alternative also passed in one attempt: 3.91 GiB sampled working RAM and 3.46 GiB
+  retained output, with original inputs/seed and confirmed cleanup. Read-only
+  server aggregation passed in 9.1 minutes, producing all 52 years and a 135.1 MiB
+  encoded comparison. The full private retained-output browser proof also passed:
+  charts, named level/paired exports, scenario toggles, refresh and permissions
+  were verified with a 124.1 MiB authenticated response and unchanged originals.
+  Repeated-seed output growth, hosted performance and four-user concurrency remain
+  to measure. One seed cannot estimate uncertainty across repetitions. This does
+  not widen the current 50,000-person/2026 service limits or adopt new defaults.
+- [ ] Measure the intended research horizon, repetitions, preparation,
   aggregation and retained-data growth. Increase concurrency only within measured
   CPU/RAM/disk headroom; include interactive slots and backup activity. Laptop
   measurements do not establish capacity for five or ten researchers.

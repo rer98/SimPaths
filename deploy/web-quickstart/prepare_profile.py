@@ -24,14 +24,19 @@ PROFILE = dict(country='UK', start_year=2019, end_year=2026,
                training_data=True)
 
 
-def profile_for(population):
-    if population not in (20000, 50000):
+def profile_for(population, *, research_calibration=False):
+    if research_calibration:
+        if type(population) is not int or not 1000 <= population <= 100000:
+            raise ValueError('Private research calibration supports 1000–100000 people')
+    elif population not in (20000, 50000):
         raise ValueError('Quick Start supports 20000 or 50000 people')
     return dict(PROFILE, requested_population=population)
 
 
-def profile_id(population):
-    profile_for(population)
+def profile_id(population, *, research_calibration=False):
+    profile_for(population, research_calibration=research_calibration)
+    if research_calibration:
+        return f'private-research-uk-2019-{population}-seed606'
     return f'uk-2019-training-{population}-seed606'
 
 
@@ -113,10 +118,11 @@ def check_loading(log, verified, prepared, loaded):
 
 def prepare(args):
     population = getattr(args, "population", 50000)
-    profile = profile_for(population)
+    research = getattr(args, 'research_calibration', False)
+    profile = profile_for(population, research_calibration=research)
     repo = args.repo.expanduser().resolve()
     inputs = repo / 'input'
-    jar = repo / 'singlerun.jar'
+    jar = repo / ('multirun.jar' if research else 'singlerun.jar')
     output = args.output.expanduser().absolute()
     validate_destination(output, repo, inputs)
     files = selected_inputs(inputs)
@@ -176,7 +182,8 @@ def prepare(args):
                 'simpaths.experiment.PrepareQuickStart']
         for mode in ('prepare', 'verify'):
             print(f'{mode}: see {logs / (mode + ".log")}', flush=True)
-            execute(java + [mode, str(population)], work, logs / f'{mode}.log', args.timeout)
+            execute(java + [mode, str(population)] + (['research-calibration'] if research else []),
+                    work, logs / f'{mode}.log', args.timeout)
         verified = properties(work / 'verified.properties')
         prepared = properties(work / 'build.properties')
         # This workspace is disposable; never point loading at the package itself.
@@ -184,7 +191,8 @@ def prepare(args):
         loading.mkdir()
         shutil.copytree(work / 'input', loading / 'input')
         print(f'load: see {logs / "load.log"}', flush=True)
-        execute(java + ['load', str(population)], loading, logs / 'load.log', args.timeout)
+        execute(java + ['load', str(population)] + (['research-calibration'] if research else []),
+                loading, logs / 'load.log', args.timeout)
         loaded = properties(loading / 'build.properties')
         check_loading(logs / 'load.log', verified, prepared, loaded)
         # Build may rewrite Excel files, so publish the preparation workspace,
@@ -192,7 +200,13 @@ def prepare(args):
         candidate = output / 'package.pending'
         candidate.mkdir()
         (work / 'input').rename(candidate / 'input')
-        (candidate / 'README.md').write_text(profile_readme(population))
+        (candidate / 'README.md').write_text(
+            '<!-- (C) Copyright 2026, by Ross Richardson\n'
+            'Private public-training calibration input package.\n@author ross richardson\n-->\n\n'
+            '# Private research calibration inputs\n\n'
+            'Public training sources; build-only preparation and fresh-JVM reuse checks.\n'
+            'This is not a Quick Start deployment or a registered service dataset.\n'
+            if research else profile_readme(population))
         revision = subprocess.run(['git', '-C', str(repo), 'rev-parse', 'HEAD'],
                                   capture_output=True, text=True, check=False)
         dirty = subprocess.run(['git', '-C', str(repo), 'status', '--porcelain'],
@@ -201,7 +215,7 @@ def prepare(args):
         # new package; the independent loading check above keeps its original evidence.
         execute(['java', '-cp', str(frozen_jar), 'microsim.web.server.DatabaseQueryAccess',
                  str(candidate / 'input/input')], candidate, logs / 'query-access.log', args.timeout)
-        receipt = dict(format_version=1, profile_id=profile_id(population),
+        receipt = dict(format_version=1, profile_id=profile_id(population, research_calibration=research),
                        profile=profile, prepared_at=datetime.now(timezone.utc).isoformat(),
                        actual_counts={k: int(verified[k]) for k in verified},
                        source_revision=revision.stdout.strip() if revision.returncode == 0 else None,
@@ -211,6 +225,8 @@ def prepare(args):
                        loading_build_seconds=float(loaded['buildSeconds']),
                        fresh_jvm_loading_verified=True,
                        simulated_years_run=0)
+        if research:
+            receipt['calibration_only'] = True
         write_json(candidate / 'profile.json', receipt)
         write_json(candidate / 'checksums.json', {
             str(p.relative_to(candidate)): digest(p)

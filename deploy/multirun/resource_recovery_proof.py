@@ -139,7 +139,7 @@ def native_settings(prepared, receipt):
 
 
 @contextmanager
-def browser_session(queue, prepared, receipt, work, evidence):
+def browser_session(queue, prepared, receipt, work, evidence, *, model=None):
     """Use real production authentication/routes and JavaScript against this queue."""
     import uvicorn
     from playwright.sync_api import sync_playwright,expect
@@ -153,9 +153,10 @@ def browser_session(queue, prepared, receipt, work, evidence):
     access=Access(queue,secrets.token_urlsafe(48),deliver)
     owner=access.approve_email('resource-proof@example.org')
     access.approve_email('other-proof@example.org')
-    release=storage_proof.configuration(receipt,1)['model_release']
-    model=BrowserModel({release:dict(jar=prepared/'model.jar',image=receipt['identity']['source_image'],
-        defaults=prepared/'input',resource_policy=storage_proof.calibration_policy(storage_proof.calibration([1],256)))})
+    if model is None:
+        release=storage_proof.configuration(receipt,1)['model_release']
+        model=BrowserModel({release:dict(jar=prepared/'model.jar',image=receipt['identity']['source_image'],
+            defaults=prepared/'input',resource_policy=storage_proof.calibration_policy(storage_proof.calibration([1],256)))})
     service=Submissions(access,Datasets(queue,work/'uploads',reserve_bytes=1),model)
     sock=socket.socket(); sock.bind(('127.0.0.1',0)); port=sock.getsockname()[1]
     origin='http://127.0.0.1:'+str(port)

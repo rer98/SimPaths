@@ -77,6 +77,11 @@ Upstream baseline used to identify new files: `b223738b9cdf1d814cc3c6f09b04bc493
 - `deploy/acceptance/SimPathsResourceProbe.java`
 - `deploy/multirun/resource_recovery_proof.py`
 - `deploy/multirun/test_resource_recovery_proof.py`
+- `deploy/multirun/research_calibration.py`
+- `deploy/multirun/test_research_calibration.py`
+- `deploy/multirun/research_comparison.py`
+- `deploy/multirun/test_research_comparison.py`
+- `deploy/multirun/visualiser/test_runner.cjs`
 - `deploy/acceptance/run_vm_acceptance.py`
 - `deploy/acceptance/run_user_data_browser_acceptance.py`
 - `deploy/acceptance/test_vm_acceptance.py`

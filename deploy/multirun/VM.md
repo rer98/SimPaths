@@ -275,6 +275,228 @@ write failure with a zero exit, invalid output and a larger-storage retry. These
 check recovery mechanics; they do not establish suitable scientific workload sizes
 for a VM.
 
+#### Research workload calibration
+
+Matteo's October 2026 planning target is **100,000 initial people, 2019–2070,
+provisionally ten seed repetitions per configuration and up to four concurrent
+users**. User count and simultaneous configuration count are different: each
+configuration runs its repetitions sequentially, while several configurations can
+run at once when the pool permits. The older 50,000-person/eight-year measurements
+do not establish resources for this target.
+
+Start with one repetition using the private calibration driver:
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths &&
+research_stamp="$(date +%Y%m%d-%H%M%S)" &&
+TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 \
+  ~/simpaths-browser-tests/venv/bin/python deploy/multirun/research_calibration.py \
+    --frontend "$HOME/git/JAS-mine/JAS-mine-web" \
+    --prepare "/tmp-codex/research-prepared-100000-$research_stamp" \
+    --output "/tmp-codex/research-100000-2070-$research_stamp"
+```
+
+Stop other simulations first. This requires **9 GiB available RAM and 15 GiB free
+on the chosen execution/evidence filesystem**. Space is checked again after
+preparation, once its large loading-check copy has been removed. Keep `/tmp-codex`
+private to the operator; these persistent files survive a laptop restart. Normal
+user Docker access, Java/Javac, the browser test environment and loopback sockets
+are required. No administrator command or model image rebuild is needed.
+
+The preparation freezes the current `multirun.jar` and supplied public training
+inputs, builds the requested population without running annual events, and verifies
+that a fresh JVM reuses the same processed population and actual counts. Source
+workbooks are copied, never edited. The new calibration receipt is deliberately
+rejected by normal service adapters; it is not registered in a running service.
+Use `--prepared PATH/package` for later trials of those exact frozen inputs.
+
+The first trial uses explicit **test settings**: a 4 GiB Java heap, 5 GiB initial
+container, up to 7 GiB container RAM, up to 6 GiB heap on resource-specific retries,
+a 12 GiB monitored workspace ceiling, and 15 minutes setup plus four hours per
+repetition. At most three attempts share the original cumulative budget.
+Live growth uses the usual 85% pressure threshold. Storage is monitored by the
+application in this driver, not enforced by an XFS project quota; the separate
+native quota proofs remain the evidence for kernel enforcement. These values are
+calibration ceilings, not new service defaults or measurements of actual demand.
+
+The report records the image, frozen JAR/input/helper identities, original seeds
+and full configuration, per-attempt heap/GC/cgroup/working-memory measurements,
+sampled workspace peak, output bytes, model initialisation timers and container
+lifetime. It verifies all **52 annual years**, PostgreSQL repetition hashes,
+browser status and other-owner denial, confirmed container removal and released
+reservations. Numeric telemetry and build timers are collected incrementally so
+Docker log rotation cannot silently remove measurements. Peaks remain sampled;
+the sampling interval is recorded and differs from the two-second recovery proof.
+
+The disposable database and scratch/input copies are removed after confirmed
+termination. Verified scientific output and its checksum manifest remain under
+the evidence directory's `model-proof/retained-output`, ready for aggregation
+calibration. Failed reports retain diagnostics; uncertain termination retains its
+execution workspace and never declares cleanup successful. Sign-in codes stay in
+memory and no emails are sent. Existing releases, jobs, cookies and secrets are
+unaffected.
+
+If a completed trial retained scratch because its final cleanup check failed,
+use `--finish-cleanup EVIDENCE_DIRECTORY --prepared PREPARATION_DIRECTORY/package`.
+This requires the original successful output/reservation checks and confirmed
+native test-database removal. Under the dispatcher lock it checks the original
+container identities against fresh Docker absence, revalidates the frozen inputs,
+all annual CSVs, options and hashes, preserves the removal journals, and removes
+only that trial's matched private scratch directory. It runs no simulation or new
+database and leaves the original reports unchanged; its new result is
+`model-proof/cleanup-verification.json`. Uncertain removal or changed files block
+cleanup. This also handles the first calibration's final check, which attempted
+executor inspection after the worker had released its dispatcher lock.
+
+The first native trial (9–10 October 2026, seed 606) completed 100,000 people
+through 2070 in one attempt with a **4 GiB heap and 5 GiB container**, without
+resource growth. Container lifetime including staging, initialisation and
+simulation was 5,545 seconds (92.4 minutes); the model's initialisation timer was
+116.8 seconds. Sampled working RAM peaked at **3.79 GiB**, sampled heap at
+3.20 GiB, and workspace at **5.84 GiB**. Retained output is **3.46 GiB**.
+The 539 measured owner status requests all returned 200; no browser errors were
+recorded. Scientific completion and original hashes passed. Native follow-up
+cleanup also passed on 10 October: fresh container removal and retained annual
+output/seed/hash checks were confirmed, private scratch was reclaimed, and no
+simulation was repeated. Evidence is
+`/tmp-codex/research-100000-2070-20261009-232734/model-proof/cleanup-verification.json`;
+the original failed reports remain unchanged. An independent retained-file check also verified the
+frozen inputs, all 52 annual CSV years, options and original repetition hashes;
+all 54 focused cleanup/calibration regressions pass without skips. This workload
+needs new storage measurements/settings:
+the old 256 MiB per-repetition increment is not established for 52 annual years
+and 100,000 people. Four-user concurrency and repeated-seed demand remain untested.
+
+The matching alternative completed on 10 October using the same prepared inputs
+and seed 606, changing only `savingRate` from 0.056 to 0.04. It finished all 52 years
+on its first attempt, with no resource growth, a **3.91 GiB sampled working-RAM
+peak**, **3.32 GiB sampled heap**, **5.84 GiB sampled workspace**, and **3.46 GiB
+retained output**. Container lifetime was 5,934.9 seconds (98.9 minutes); model
+initialisation was 106.9 seconds. Hashes, original settings, reclaimed input copies,
+container removal and released reservations passed. Native evidence is
+`/tmp-codex/research-alternative-100000-2070-20261010-092207/model-proof/report.json`.
+
+Use `research_comparison.py` to compare these retained runs without rerunning
+either model. Its `--baseline` and `--alternative` arguments take the enclosing
+native evidence directories, not raw CSV paths. It verifies completion, frozen
+inputs/settings/seeds and every retained file hash. The baseline's separately
+confirmed cleanup receipt is accepted only when it matches its original report.
+The browser proof imports these completion receipts into disposable Results. A
+trusted, read-only fixture catalogue maps the verified completion to its original
+files; the normal backend reads them directly without links or a second microdata
+copy. Identity, repetition and file hashes still pass the production checks.
+Cleanup removes only fixture identities/cache and the temporary database.
+Original output and reports remain intact; no emails are sent.
+
+The full native browser proof **passed on 10 October**:
+`/tmp-codex/research-comparison-20261010-144946/model-proof/report.json` and its
+enclosing report both confirm cleanup. Real Chromium drew all 52 annual years,
+exported named levels and seed-paired impacts, switched the scenario and reloaded
+the same checksum-verified publication. Both complete authenticated HTTP responses
+contained 130,174,693 bytes (**124.1 MiB**) of aggregates and seed metadata;
+anonymous and second-owner reads were denied, as were provider raw downloads.
+No browser or response-capture errors occurred. Original output hashes remained
+unchanged and neither model was rerun. The complete proof took 962.3 seconds
+(16.0 minutes), including processing, browser checks and cleanup; this is not
+simulation runtime or a measurement of individual chart-response latency.
+
+The first native comparison stopped because its hard-link fixture conflicted
+with the production reader's deliberate rejection of multiply linked files.
+That guard remains unchanged. The fixture now reads the originals, and failure
+cleanup closes Chromium before stopping Playwright and saves the failed status
+without replacing the original error. The failed evidence remains at
+`/tmp-codex/research-comparison-20261010-121420/report.json`.
+A second native run of the corrected fixture is recorded at
+`/tmp-codex/research-comparison-20261010-132011/model-proof/report.json`.
+That run reached ready and passed the real Chromium charts, all 52 annual years,
+named level/paired CSV exports and scenario toggles. Source hashes and cleanup
+also passed. It then failed because Chromium had evicted the large response body
+from its developer-tools cache; the test could not save its network evidence.
+Laptop sleep was reported, so this run is not timing evidence.
+
+The proof now records one bounded successful HTTP response as the application
+sends it, forwards all response messages unchanged and checksums the refreshed
+response. Browser event callbacks record only URLs/statuses and never retrieve
+bodies from the inspector cache. Denied and unrelated bodies/cookies are not
+saved, and interrupted or oversized captures cannot become completed evidence.
+This is test instrumentation only; application, authentication, cookies and
+scientific calculations are unchanged. The subsequent full native proof above
+verifies this capture together with browser transport and permissions.
+The capture also passes a local streaming/repeat check with the complete
+141,658,767-byte aggregate payload and matching hashes, without inspector storage:
+`/tmp-codex/research-response-capture-20261010/report.json`. This checks the capture,
+not native browser transport or permissions.
+
+Large Person/BenefitUnit CSVs are read one complete annual block at a time and
+passed to the **unchanged pinned Visualiser calculations**. Small outputs retain
+their existing parser path. Annual blocks have explicit 128 MiB/500,000-record
+limits; missing/mismatched or repeated year blocks fail before publication. Local
+parity checks cover original row order, benefit-unit joins, paired calculations,
+suppression and confidence intervals. The 2.8 GB Person.csv from this calibration
+cannot be loaded as one JavaScript string.
+
+This private comparison uses a 2 GiB Node processing budget, 3 GiB processing
+reservation/helper ceiling, 96 MiB per published series, 256 MiB per comparison,
+200,000 rows per series, 400,000 combined rows, and a 768 MiB cache. All budgets
+are recorded in the processing identity and checksum-verified on later reads.
+HTTP clients cannot select budgets or widen the fixed aggregate-only schema.
+**Normal service publication limits remain 16 MiB/64 MiB and
+50,000/200,000 rows.** These larger private budgets require measurement before
+adoption in a deployment. One matched seed supports policy comparison; it cannot
+estimate uncertainty across repetitions. Upstream one-seed zero-width intervals
+are retained, pending scientific guidance.
+
+Run the full retained-output browser proof with a newly reviewed build containing
+the annual reader:
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths &&
+TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 \
+  ~/simpaths-browser-tests/venv/bin/python deploy/multirun/research_comparison.py \
+    --frontend "$HOME/git/JAS-mine/JAS-mine-web" \
+    --prepared /tmp-codex/research-prepared-100000-20261009-232734/package \
+    --baseline /tmp-codex/research-100000-2070-20261009-232734 \
+    --alternative /tmp-codex/research-alternative-100000-2070-20261010-092207 \
+    --build /tmp-codex/visualiser-build-20261010-research-final \
+    --output "/tmp-codex/research-comparison-$(date +%Y%m%d-%H%M%S)"
+```
+
+It needs 2 GiB free for bounded aggregate evidence and disposable dependencies,
+not another simulation workspace. It checks real charts, all 52 years, names,
+scenario toggles, level/paired CSV exports, refresh, anonymous/other-owner denials
+and continued denial of provider raw downloads. `--dry-run` shows the plan without
+running services. `--aggregate-only` checks the native server calculations and
+delivered schema without PostgreSQL or a browser; it does not replace the browser
+proof. The full comparison/browser proof has passed for these two retained runs.
+
+The read-only server calculation passed on 10 October in **548.5 seconds
+(9.1 minutes)**. It produced 135,095 baseline and 135,017 alternative aggregate
+rows, covering every year from 2019 through 2070. There are 134,906 matched-seed
+aggregate cells, including 123,839 nonzero differences. The encoded publication is
+**135.1 MiB**; the compact HTTP representation in the passing native browser proof
+is **124.1 MiB**. This is still a substantial payload, so selected-host tests must
+measure preparation and browser performance over representative connections.
+All output and original evidence hashes remained unchanged. Evidence:
+`/tmp-codex/research-comparison-aggregation-20261010/report.json`. Local validation
+passes 57 Python research/backend cases and 25 publication/helper/file-guard
+cases without skips. The five Node annual-buffering parity/boundary cases and
+compiled-application boot check also pass. A further in-process DOM check loads
+all 270,112 real aggregate rows into the unmodified compiled application and
+verifies charts, level/paired CSV exports and a scenario toggle. It is not a
+native Chromium or transport check. Evidence:
+`/tmp-codex/research-comparison-checks-20261010/full-bundle-clean-check.json`.
+These checks do not yet establish hosted performance, ten-repetition capacity
+or four-user concurrency.
+
+`--population`, `--end-year`, `--repetitions`, memory/storage settings and runtime
+settings are explicit operator calibration options. `--dry-run` shows the plan
+without launching anything. The driver rejects plans exceeding its 48-hour proof
+deadline; a later ten-repetition measurement may use `--max-attempts 1` after the
+one-run results establish adequate starting resources. Measure baseline/alternative
+aggregation and browser charts next, then output growth across repetitions. Choose
+the final repetition policy and measure four-user concurrency on the intended VM
+before widening service population/year limits or confirming hosting capacity.
+
 #### Real-model resource calibration and recovery rehearsal
 
 Use the prepared public 50,000-person dataset containing shared memory monitoring.

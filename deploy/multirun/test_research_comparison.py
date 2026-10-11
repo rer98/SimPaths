@@ -282,6 +282,32 @@ class ResponseCaptureTests(unittest.TestCase):
         observed=[];comparison.observe_browser_response(response,observed)
         self.assertEqual(observed,[dict(url=response.url,status=200)])
 
+    def test_catalogue_and_distinct_queries_save_separate_private_evidence(self):
+        captures=[]
+        for suffix,query,body in (('catalogue',b'',b'{"variables":[]}'),
+                ('view',b'variable=MCS&configuration=baseline',b'{"series":[]}'),
+                ('view',b'variable=MCS&configuration=alternative',b'{"series":[1]}')):
+            scope=dict(self.scope,path=self.scope['path'].rsplit('/',1)[0]+'/'+suffix,query_string=query)
+            messages=[dict(type='http.response.start',status=200,headers=[(b'set-cookie',b'PRIVATE')]),
+                      dict(type='http.response.body',body=body,more_body=False)]
+            tap,forwarded=self.invoke(messages,scope=scope)
+            receipt=tap.responses[0];captured=self.root/receipt['file']
+            self.assertEqual(forwarded,messages);self.assertEqual(captured.read_bytes(),body)
+            self.assertEqual(receipt['query'],query.decode());self.assertNotIn('headers',receipt)
+            self.assertEqual(captured.stat().st_mode&0o777,0o600);captures.append(captured)
+            self.assertEqual(fingerprint(captured),{key:receipt[key] for key in ('bytes','sha256')})
+        self.assertEqual(len(set(captures)),3);self.assertFalse((self.root/'delivered-aggregates.json').exists())
+
+    def test_section_specific_bounds_apply_even_with_a_large_legacy_limit(self):
+        for suffix,maximum in (('catalogue',512*1024),('view',8*1024**2)):
+            scope=dict(self.scope,path=self.scope['path'].rsplit('/',1)[0]+'/'+suffix)
+            with self.subTest(suffix=suffix),self.assertRaises(ArtifactError):
+                self.invoke([dict(type='http.response.start',status=200,headers=[]),
+                    dict(type='http.response.body',body=b'x'*(maximum+1),more_body=False)],
+                    scope=scope,maximum_bytes=256*1024**2)
+            self.assertEqual(list(self.root.glob('delivered-section-*.json')),[])
+            self.assertEqual(list(self.root.glob('*.partial')),[])
+
 
 class ResearchAggregateTests(unittest.TestCase):
     def publication(self):

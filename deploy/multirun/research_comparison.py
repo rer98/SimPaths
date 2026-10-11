@@ -31,6 +31,7 @@ sys.path.insert(0,str(frontend_path()))
 from deploy.multirun.artifacts import ArtifactError, fingerprint, verify, write_attribution, write_json
 from deploy.multirun.research_calibration import checked_settings, configuration, read_calibration, status_model
 from deploy.multirun.prepared_dataset import verify_snapshot
+from deploy.multirun.visualiser.response_capture import AggregateCapture, observe_browser_response
 
 ENV='SIMPATHS_RESEARCH_COMPARISON'
 MIB=1024**2
@@ -49,14 +50,16 @@ def read_json(path):
     return json.loads(Path(path).read_text())
 
 
-def retained_run(folder,receipt,variant,*,check_files=True):
+def retained_run(folder,receipt,variant,*,check_files=True,repetitions=1):
     """Accept native completion or its verified cleanup supplement, never an unfinished run."""
+    if type(repetitions) is not int or not 1<=repetitions<=10:
+        raise ArtifactError('Select one to ten completed research repetitions')
     folder=Path(folder).resolve(strict=True);proof=folder/'model-proof'
     record=read_json(proof/'report.json');outer=read_json(folder/'report.json')
     settings=checked_settings(record['settings'])
     config=configuration(receipt,settings,variant)
     if (record.get('variant','baseline')!=variant or settings['population']!=100000
-            or settings['end_year']!=2070 or settings['repetitions']!=1
+            or settings['end_year']!=2070 or settings['repetitions']!=repetitions
             or record.get('failure') or outer.get('cleanup') is not True
             or not all(record.get(k) is True for k in
                 ('source_unchanged','input_copies_reclaimed','reservations_released'))
@@ -65,9 +68,8 @@ def retained_run(folder,receipt,variant,*,check_files=True):
             or record['model']!=receipt['identity']['model']
             or read_json(proof/'configuration.json')!=config.as_dict()
             or [a['outcome'] for a in record['attempts']]!=['success']
-            or len(record['verified_repetitions'])!=1
-            or record['verified_repetitions'][0]['seed']!='606'):
-        raise ArtifactError('Use the two completed, matched, one-seed research calibrations')
+            or [r['seed'] for r in record['verified_repetitions']]!=config.as_dict()['seed_plan']['seeds']):
+        raise ArtifactError('Use completed research calibrations with the requested original seeds')
     output=proof/'retained-output'
     if record['output_location']!=str(output):raise ArtifactError('Retained output location changed')
     provenance={name:fingerprint(proof/name) for name in
@@ -193,65 +195,6 @@ def browser_session(factory,record):
         browser=p.chromium.launch()
         try:yield p,browser
         finally:cleanup_action(record,'browser',browser.close)
-
-
-class AggregateCapture:
-    """Record the actual ASGI response stream without Chromium's inspector cache.
-
-    This wrapper belongs only to the proof. It forwards every message unchanged,
-    saves one bounded successful aggregate response privately and checksums later
-    responses. Headers/cookies and unrelated or denied response bodies are not saved.
-    """
-    def __init__(self,app,output,maximum_bytes):
-        self.app,self.output,self.maximum_bytes=app,Path(output),maximum_bytes
-        self.destination=self.output/'delivered-aggregates.json'
-        if self.destination.exists():raise FileExistsError('Aggregate evidence already exists')
-        self.responses=[];self.errors=[];self.sequence=0
-
-    async def __call__(self,scope,receive,send):
-        if (scope.get('type')!='http' or scope.get('method')!='GET'
-                or not re.fullmatch(r'/api/visualiser/[a-f0-9]{64}/data',scope.get('path',''))):
-            return await self.app(scope,receive,send)
-        self.sequence+=1
-        temporary=self.output/f'.aggregate-capture-{self.sequence}.partial'
-        stream=None;status=None;size=0;digest=hashlib.sha256();complete=False;owned=False
-        async def observed_send(message):
-            nonlocal stream,status,size,complete,owned
-            await send(message)
-            if message['type']=='http.response.start':status=message['status']
-            elif message['type']=='http.response.body' and status==200:
-                body=message.get('body',b'');size+=len(body)
-                if size>self.maximum_bytes:raise ArtifactError('Captured aggregate response exceeds its bound')
-                digest.update(body)
-                if stream is None and not self.destination.exists():
-                    fd=os.open(temporary,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600);owned=True
-                    stream=os.fdopen(fd,'wb')
-                if stream is not None:stream.write(body)
-                if not message.get('more_body',False):
-                    complete=True
-                    if stream is not None:
-                        stream.flush();os.fsync(stream.fileno());stream.close();stream=None
-                        # No-clobber publication; remove the temporary link before
-                        # any verification reads the completed evidence file.
-                        try:os.link(temporary,self.destination,follow_symlinks=False)
-                        except FileExistsError:pass
-                        temporary.unlink()
-                    self.responses.append(dict(path=scope['path'],status=status,bytes=size,
-                        sha256=digest.hexdigest(),capture='completed-asgi-response-v1'))
-        try:
-            await self.app(scope,receive,observed_send)
-            if status==200 and not complete:raise ArtifactError('Captured aggregate response did not finish')
-        except Exception as error:
-            self.errors.append(dict(error_type=type(error).__name__,error=str(error)[:500]));raise
-        finally:
-            if stream is not None:stream.close()
-            if owned:temporary.unlink(missing_ok=True)
-
-
-def observe_browser_response(response,responses):
-    """Event callbacks read metadata only; never ask DevTools to retain large bodies."""
-    if re.search(r'/api/visualiser/[a-f0-9]{64}/data$',response.url):
-        responses.append(dict(url=response.url,status=response.status))
 
 
 def unchanged_sources(sources):
@@ -444,6 +387,7 @@ def execute(settings,output):
             charts=pending.value;charts.set_default_timeout(60000)
             expect(charts.get_by_label('Displayed data source')).to_contain_text('Lower saving rate (0.04)',timeout=120000)
             expect(charts.get_by_label('Displayed data source')).to_contain_text('Baseline')
+            expect(charts.get_by_role('button',name='↓ CSV',exact=True).first).to_be_visible()
             charts.get_by_role('button',name=re.compile(r'^Health\s*▼$')).click()
             charts.get_by_role('button',name='Mental Component Summary (MCS)',exact=True).click()
             expect(charts.locator('svg').first).to_be_visible()
@@ -473,29 +417,65 @@ def execute(settings,output):
             key=charts.url.split('/visualiser/',1)[1].split('?',1)[0]
             published=service.visualiser.root/key/'published.json';before=fingerprint(published)
             charts.reload();expect(charts.get_by_label('Displayed data source')).to_contain_text('Lower saving rate (0.04)',timeout=120000)
+            expect(charts.get_by_role('button',name='↓ CSV',exact=True).first).to_be_visible()
             if fingerprint(published)!=before:raise AssertionError('Refresh reprocessed the native output')
-            body=(output/'delivered-aggregates.json').read_bytes();record['aggregate']=analyse_publication(body)
-            expected_path='/api/visualiser/'+key+'/data'
-            delivered=[r for r in capture.responses if r['path']==expected_path]
-            observed=[r for r in responses if r['url']==origin+expected_path and r['status']==200]
-            if (capture.errors or len(delivered)<2 or len(observed)<2
-                    or any(r['bytes']!=len(body) or r['sha256']!=record['aggregate']['response_sha256'] for r in delivered)):
-                raise AssertionError('Initial and refreshed browser requests lack matching complete response evidence')
-            for private in (b'id_Person',b'id_BenefitUnit',b'Person.csv',b'BenefitUnit.csv',str(fixture.root).encode()):
-                if private in body:raise AssertionError('Private raw-data information reached the browser')
+            if backend.supports_selective_views:
+                from deploy.multirun.vm_boundary import section_envelope
+                publication=json.loads(published.read_bytes())
+                record['stored_aggregate']=analyse_publication(published.read_bytes())
+                catalogue_path='/api/visualiser/'+key+'/catalogue'
+                catalogue_receipts=[r for r in capture.responses if r['path']==catalogue_path]
+                views=[r for r in capture.responses if r['path']=='/api/visualiser/'+key+'/view']
+                if len(catalogue_receipts)<2 or len(views)<2 or capture.errors:
+                    raise AssertionError('Selected initial/refreshed chart responses were not captured')
+                catalogue=section_envelope(json.loads((output/catalogue_receipts[0]['file']).read_bytes()))
+                for response in [*catalogue_receipts,*views]:
+                    body=(output/response['file']).read_bytes()
+                    if len(body)!=response['bytes'] or hashlib.sha256(body).hexdigest()!=response['sha256']:
+                        raise AssertionError('Selected response checksum changed')
+                    value=section_envelope(json.loads(body),catalogue=catalogue)
+                    if response in views:
+                        selected=value['selection']
+                        for series in value['series']:
+                            original=next(s['rows'] for s in publication['data']['series'] if s['configuration']==series['configuration'])
+                            expected=[r for r in original if r['variable']==selected['variable'] and r['stratifier']==selected['stratifier'] and
+                                (r['metric_type'] in ('mean','share') if selected['kind']=='levels' else r['metric_type']==selected['kind'])]
+                            if series['rows']!=expected:raise AssertionError('Chart rows differ from the approved publication')
+                    for private in (b'id_Person',b'id_BenefitUnit',b'Person.csv',b'BenefitUnit.csv',str(fixture.root).encode()):
+                        if private in body:raise AssertionError('Private raw-data information reached the browser')
+                if any(url.endswith('/data') for url in requests):raise AssertionError('Browser fetched the entire comparison')
+                record['aggregate']=dict(catalogue_bytes=catalogue_receipts[0]['bytes'],
+                    largest_view_bytes=max(r['bytes'] for r in views),total_browser_bytes=sum(r['bytes'] for r in capture.responses),
+                    all_delivered_rows_equal=True,full_comparison_downloaded=False)
+            else:
+                body=(output/'delivered-aggregates.json').read_bytes();record['aggregate']=analyse_publication(body)
+                expected_path='/api/visualiser/'+key+'/data'
+                delivered=[r for r in capture.responses if r['path']==expected_path]
+                observed=[r for r in responses if r['url']==origin+expected_path and r['status']==200]
+                if (capture.errors or len(delivered)<2 or len(observed)<2
+                        or any(r['bytes']!=len(body) or r['sha256']!=record['aggregate']['response_sha256'] for r in delivered)):
+                    raise AssertionError('Initial and refreshed browser requests lack matching complete response evidence')
+                for private in (b'id_Person',b'id_BenefitUnit',b'Person.csv',b'BenefitUnit.csv',str(fixture.root).encode()):
+                    if private in body:raise AssertionError('Private raw-data information reached the browser')
             if any(not url.startswith(origin+'/') for url in requests):raise AssertionError('External network request')
             if any('/downloads/' in url or '.csv' in url for url in requests):raise AssertionError('Browser requested raw outputs')
-            passed('authenticated HTTP response streams contain only bounded aggregates and seed metadata; initial and refreshed browser loads use the same checksum-verified publication')
+            passed('authenticated HTTP response streams contain only bounded aggregates and seed metadata; initial and refreshed charts use the same checksum-verified publication')
             for lease in leases:
                 assert page.request.get(origin+'/downloads/'+lease.job_id).status==403
             for name in ('runner.cjs','calculation.cjs','build.json','SimPaths_All_Aggregated_Outputs.csv'):
                 assert page.request.get(origin+'/visualiser-assets/'+name).status==404
             fixture.a.approve_email('bob@example.org');other=browser.new_context();bob=other.new_page();login(bob,'bob@example.org')
             assert bob.request.get(origin+'/api/visualiser/'+key+'/data').status==403
+            if backend.supports_selective_views:
+                assert bob.request.get(origin+catalogue_path).status==403
+                assert bob.request.get(origin+views[0]['path']+'?'+views[0]['query']).status==403
             bob.goto(charts.url);expect(bob.locator('.vm-source-message')).to_contain_text('Sign in with an approved email')
             expect(bob.locator('svg')).to_have_count(0)
             anonymous=p.request.new_context()
             assert anonymous.get(origin+'/api/visualiser/'+key+'/data').status==403
+            if backend.supports_selective_views:
+                assert anonymous.get(origin+catalogue_path).status==403
+                assert anonymous.get(origin+views[0]['path']+'?'+views[0]['query']).status==403
             anonymous.dispose();other.close()
             if errors:raise AssertionError('Uncaught browser errors: '+str(errors))
             assert all(row['attempts']==1 for row in fixture.fixture.sql('SELECT attempts FROM jobs'))

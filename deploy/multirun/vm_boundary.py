@@ -9,11 +9,12 @@ from contextlib import ExitStack
 from datetime import datetime, timezone
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import sys
 from urllib.error import HTTPError
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from uuid import UUID
 
@@ -91,6 +92,75 @@ def aggregate_envelope(value, *, limits=None):
     return value
 
 
+def section_envelope(value, *, catalogue=None):
+    """Independently check small catalogues/views, their fields and selection."""
+    from jasmine_web.batch.visualiser import validate_publication
+    from jasmine_web.batch.aggregate_sections import query, VIEW_LIMIT, VIEW_ROWS, CATALOGUE_LIMIT
+    if type(value) is not dict or not re.fullmatch('[a-f0-9]{64}',str(value.get('publication',''))):
+        raise ValueError('Unexpected Visualiser section')
+    if value.get('format')=='simpaths.visualiser.catalogue.v1':
+        if (set(value)!={'format','publication','configurations','seeds','notice','comparison_available','limits','variables'}
+                or type(value['configurations']) is not list or not 1<=len(value['configurations'])<=100
+                or type(value['variables']) is not list or len(value['variables'])>256
+                or type(value['seeds']) is not list or len(value['seeds'])>1000
+                or any(not isinstance(s,str) or not re.fullmatch('[0-9]{1,20}',s) for s in value['seeds'])
+                or type(value['comparison_available']) is not bool or not isinstance(value['notice'],str)
+                or len(value['notice'])>500 or value['limits']!=dict(response_bytes=VIEW_LIMIT,response_rows=VIEW_ROWS)):
+            raise ValueError('Unexpected Visualiser catalogue')
+        ids,roles=set(),set()
+        for config in value['configurations']:
+            if (type(config) is not dict or set(config)!={'id','name','role','key'}
+                    or any(not isinstance(config[k],str) or not 1<=len(config[k])<=(200 if k=='name' else 160) for k in config)
+                    or config['role'] not in ('Baseline','Scenario') or config['id'] in ids or config['key'] in roles
+                    or (config['role']=='Baseline' and config['key']!='baseline')
+                    or (config['role']=='Scenario' and not re.fullmatch('scenario(?:_[1-9][0-9]*)?',config['key']))):
+                raise ValueError('Unexpected Visualiser configuration')
+            ids.add(config['id']);roles.add(config['key'])
+        names=set()
+        for variable in value['variables']:
+            if (type(variable) is not dict or set(variable)!={'name','module','years','views'}
+                    or any(not isinstance(variable[k],str) for k in ('name','module'))
+                    or variable['name'] in names or type(variable['years']) is not list
+                    or len(variable['years'])>1000 or any(type(y) is not int for y in variable['years'])
+                    or type(variable['views']) is not list or len(variable['views'])>100):
+                raise ValueError('Unexpected Visualiser variable')
+            names.add(variable['name'])
+            for view in variable['views']:
+                if (type(view) is not dict or set(view)!={'stratifier','kind','bytes','rows'}
+                        or not isinstance(view['stratifier'],str) or view['kind'] not in ('levels','wage_bin','income_bin','pyramid_bin')
+                        or any(type(view[k]) is not int or view[k]<0 for k in ('bytes','rows'))):
+                    raise ValueError('Unexpected Visualiser view')
+        maximum=CATALOGUE_LIMIT
+    elif value.get('format')=='simpaths.visualiser.view.v1':
+        if (set(value)!={'format','publication','selection','series'} or catalogue is None
+                or value['publication']!=catalogue['publication'] or type(value['series']) is not list):
+            raise ValueError('Unexpected Visualiser view')
+        selected=query(value['selection'],catalogue)
+        if (len(value['series'])!=len(selected['configurations'])
+                or any(type(s) is not dict or set(s)!={'configuration','rows'} for s in value['series'])
+                or [s['configuration'] for s in value['series']]!=selected['configurations']):
+            raise ValueError('Unexpected Visualiser series')
+        count=0
+        for series in value['series']:
+            rows=series['rows']
+            if type(rows) is not list:raise ValueError('Unexpected Visualiser rows')
+            count+=len(rows)
+            if rows:
+                validate_publication(dict(rows=rows,notice='',comparison_available=catalogue['comparison_available']))
+                config=next(c for c in catalogue['configurations'] if c['id']==series['configuration'])
+                if any(r['variable']!=selected['variable'] or r['stratifier']!=selected['stratifier']
+                       or r['scenario']!=config['role'].lower()
+                       or (r['metric_type'] not in ('mean','share') if selected['kind']=='levels' else r['metric_type']!=selected['kind'])
+                       for r in rows):
+                    raise ValueError('Visualiser rows differ from the selected chart')
+        if count>VIEW_ROWS:raise ValueError('Too many Visualiser rows')
+        maximum=VIEW_LIMIT
+    else:raise ValueError('Unexpected Visualiser section format')
+    if len(json.dumps(value,ensure_ascii=False,separators=(',',':')).encode())>maximum:
+        raise ValueError('Oversized Visualiser section')
+    return value
+
+
 def privacy_checks(get, name, marker, *, cookie='', other_cookie='', experiment=None,
                    restricted_job=None, visualiser_key=None, extra_paths=()):
     checks = []
@@ -133,15 +203,30 @@ def privacy_checks(get, name, marker, *, cookie='', other_cookie='', experiment=
                 checks.append(result)
     if visualiser_key and cookie:
         from jasmine_web.batch.visualiser import MAX_COMPARISON_ARTIFACT
-        path = '/api/visualiser/'+visualiser_key+'/data'
-        result, body = check(get, path, cookie=cookie, maximum=MAX_COMPARISON_ARTIFACT)
-        aggregate_envelope(json.loads(body))
-        if marker in body or any(s in body for s in (b'id_Person', b'id_BenefitUnit', b'/srv/', b'/home/', b'/work/')):
-            raise ValueError('Raw columns or private paths in Visualiser data')
-        checks.append(result)
-        for account in ['', *([other_cookie] if other_cookie else [])]:
-            result, _ = check(get, path, denied=True, cookie=account)
-            checks.append(result)
+        base='/api/visualiser/'+visualiser_key
+        response=get(base+'/catalogue',cookie=cookie,maximum=512*1024)
+        if response[0]==200:
+            result,body=check(lambda *a,**kw:response,base+'/catalogue',cookie=cookie,maximum=512*1024)
+            catalogue=section_envelope(json.loads(body));checks.append(result)
+            paths=[base+'/catalogue']
+            variable=next((v for v in catalogue['variables'] if any(s['kind']=='levels' and s['stratifier']=='Overall' for s in v['views'])),None)
+            if variable is None:raise ValueError('Select a comparison with an Overall chart')
+            path=base+'/view?'+urlencode([('variable',variable['name']),('stratifier','Overall'),('kind','levels'),
+                ('configuration',catalogue['configurations'][0]['id'])])
+            result,view=check(get,path,cookie=cookie,maximum=8*1024**2)
+            section_envelope(json.loads(view),catalogue=catalogue);checks.append(result);paths.append(path)
+            bodies=[body,view]
+        elif response[0] in (400,404):
+            # Older pinned applications retain their original full-data API.
+            path=base+'/data';result,body=check(get,path,cookie=cookie,maximum=MAX_COMPARISON_ARTIFACT)
+            aggregate_envelope(json.loads(body));checks.append(result);paths=[path];bodies=[body]
+        else:raise ValueError('Owned Visualiser catalogue is unavailable')
+        for body in bodies:
+            if marker in body or any(s in body for s in (b'id_Person',b'id_BenefitUnit',b'/srv/',b'/home/',b'/work/')):
+                raise ValueError('Raw columns or private paths in Visualiser data')
+        for path in paths:
+            for account in ['', *([other_cookie] if other_cookie else [])]:
+                result,_=check(get,path,denied=True,cookie=account);checks.append(result)
     if other_cookie and experiment:
         result, _ = check(get, '/api/results/'+experiment, denied=True, cookie=other_cookie)
         checks.append(result)

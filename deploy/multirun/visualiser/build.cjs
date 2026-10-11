@@ -35,7 +35,7 @@ function revision(){
 const hashes={};
 const licences=new Map();
 const selected=['App.js','parseCore.js','useAggregatedData.js','DashboardSection.js','localFolderParser.js',
-  'AggregateDataPanel.js','aggregateDataSource.js','csvParse.js','tooltipContent.js'];
+  'AggregateDataPanel.js','aggregateDataSource.js','useAggregateView.js','csvParse.js','tooltipContent.js'];
 fs.mkdirSync(args.output,{recursive:true,mode:0o700});
 const staging=path.join(args.output,'source');
 fs.mkdirSync(staging,{mode:0o700});
@@ -50,6 +50,7 @@ for(const name of selected){
 }
 fs.copyFileSync(path.join(__dirname,'entry.jsx'),path.join(staging,'entry.jsx'));
 fs.copyFileSync(path.join(__dirname,'comparison_data.mjs'),path.join(staging,'comparison_data.mjs'));
+fs.copyFileSync(path.join(__dirname,'section_source.mjs'),path.join(staging,'section_source.mjs'));
 const entry=fs.readFileSync(path.join(staging,'entry.jsx'),'utf8');
 fs.writeFileSync(path.join(staging,'entry.js'),babel.transformSync(entry,{
   filename:'entry.jsx',presets:[[reactPreset,{runtime:'automatic'}]],
@@ -130,7 +131,7 @@ const compile=(entry,filename,target)=>new Promise((resolve,reject)=>{
   }
   const identity={format:'simpaths.visualiser.build.v1',
     revision:revision(),
-    mode:'development-paired',source_hashes:hashes,dependencies,
+    mode:'development-paired',transport:'simpaths.visualiser.catalogue.v1',source_hashes:hashes,dependencies,
     toolchain:{node:process.version,webpack:webpack.version,babel:babel.version},files};
   fs.writeFileSync(path.join(args.output,'build.json'),JSON.stringify(identity,null,2),{mode:0o600});
   fs.rmSync(staging,{recursive:true});

@@ -430,3 +430,112 @@ configuration and four concurrent users. This is a heavier workload than the
 Server aggregation keeps raw output outside the browser but does not make large
 CSV processing or large aggregate sets free of memory/time limits.
 Local-folder manifest names and sweep metadata remain a separate upstream enhancement.
+
+## Selected-chart transport — 10 October 2026
+
+The latest integration builds a small catalogue and indexed chart sections after
+the maintained server aggregation finishes. Each online chart request selects a
+variable, population breakdown, metric kind and displayed alternatives. The
+baseline remains available for paired comparisons. No scientific value is changed:
+indexing partitions already validated rows, and chart requests read verified sections
+without recalculating the comparison or decoding the full publication.
+
+The catalogue limit is 512 KiB. Each view is limited to 8 MiB and 20,000 rows;
+oversized selections receive a controlled message asking for fewer scenarios or
+a smaller breakdown. There is no two-alternative chart restriction: twelve are
+covered in the maintained chart tests. Existing service configuration-count and
+server publication limits remain in force. Standard limits are 16 MiB/50,000 rows
+for single/pair publications and 64 MiB/200,000 rows for comparison sets (50,000
+per configuration). The separate research proof uses explicit, larger limits;
+it does not change production defaults or establish ten-repetition capacity.
+
+The browser uses a per-page in-memory LRU cache with 64 entries and a conservative
+32 MiB accounting allowance, not an exact browser-heap measurement. A current view
+is independently bounded, including combinations of cached sections. Every
+selection rechecks access through the small catalogue, even when its rows are
+cached. New requests fetch only missing configuration sections. Abandoned requests
+are cancelled, late replies ignored, and failed/denied loads hide charts and exports.
+Refresh reloads metadata and the current chart; private browser disk caching,
+prefetch and CDN caching are not enabled. Protected responses remain `no-store`.
+
+Indexed sections are additional private aggregate files; the complete publication
+remains available to legacy clients. Both copies count toward existing cache and
+processing-storage limits and expire together. Include this extra aggregate
+storage when sizing a host. Raw output is neither copied nor sent to the browser.
+Upgrading transport changes cache identity: prepare retained results again with
+the new build. This reprocesses output without rerunning the simulations.
+
+### Saved 100,000-person, 2019–2070 comparison
+
+The local `section_proof.py` check reads the checksum-verified aggregate publication
+from the two successful native runs. All 270,112 rows across 404 sections match
+their original serialisation exactly, including null/suppressed values and paired
+fields. The catalogue is 22.2 KiB; representative two-configuration views are:
+
+| View | Response | Rows |
+| --- | ---: | ---: |
+| Education, overall | 200.0 KiB | 416 |
+| MCS, overall | 50.6 KiB | 104 |
+| MCS, gender | 99.7 KiB | 208 |
+| Hourly earnings distribution, overall | 487.4 KiB | 1,040 |
+| Population pyramid, gender | 668.0 KiB | 1,456 |
+
+These replace the initial 124.1 MiB complete HTTP package for those views.
+Indexing took about 15 seconds once. Selected helper reads took 0.16–0.27 seconds
+locally; these timings exclude HTTP/network transfer and browser rendering.
+Sections add about 124.1 MiB of aggregate storage to this research publication.
+
+The compiled application check uses Node/JSDOM, not Chromium, and supplies only
+these indexed sections. Its level and paired CSV exports match the previously
+checked full-data bundle byte-for-byte over all 52 years. It also checks cached
+navigation, refresh, scenario identity and denied reloads. All 53 native
+PostgreSQL/helper checks passed in `postgres-queue-20261010-183603`. Standard
+Chromium acceptance passed all ten stages in
+`vm-visualiser-selective-20261010-185859`, using fictional native CSVs and the
+`/tmp-codex/visualiser-build-20261010-selective-e` bundle. Navigation and refresh
+requested only catalogues and selected sections. Simultaneous alternatives,
+paired/named CSV exports, PNG exports, local-file processing and owner/source
+denials passed; there were no uncaught browser errors. Both enclosing reports
+confirm database cleanup. A receiver-sensitive compiled regression covers the
+corrected native `fetch` binding; chart readiness checks select the primary
+time-series CSV control alongside the normal cross-section export.
+
+The full-size retained-output Chromium check passed in
+[`research-comparison-selective-20261010-194701`](/tmp-codex/research-comparison-selective-20261010-194701/model-proof/report.json).
+It drew all 52 years and checked named level/paired exports, scenario toggles,
+refresh and anonymous/other-owner/raw-download denials. The native level,
+paired-impact and baseline-only CSV exports also match the previous native
+full-package exports byte-for-byte. All delivered rows match the approved
+publication; no full comparison response was requested. Exact response sizes:
+
+- Catalogue: 22,765 bytes (22.2 KiB).
+- Education/Overall view: 204,780 bytes (200.0 KiB), the largest view tested in Chromium.
+- MCS/Overall view: 51,817 bytes (50.6 KiB).
+- Initial two catalogue requests plus Education view: 250,310 bytes (244.4 KiB),
+  replacing the earlier 124.1 MiB complete response for that initial chart.
+- All captured aggregate responses across the tested navigation and refresh:
+  620,732 bytes (606.2 KiB).
+
+Both reports confirm success and cleanup; browser/capture errors are empty,
+original outputs are preserved and no simulations or raw-data copies were made.
+The complete proof took 861.635 seconds including fresh server aggregation and
+verification. This is not chart-loading latency, and hosted connection speeds
+still need measurement. Server preparation still computes the full publication
+once; selected delivery avoids downloading and decoding it in the browser.
+The repeatable `research_comparison.py` command is documented in [VM.md](VM.md).
+The local section and compiled application evidence is retained under
+`/tmp-codex/visualiser-selective-20261010/real-sections`.
+
+Build from Ross's updated connected checkout, using its reviewed dependencies:
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths
+node deploy/multirun/visualiser/build.cjs \
+  --source "$HOME/git/SimPathsWeb/SimPaths-Policy-Impacts-Visualiser" \
+  --dependencies /tmp-codex/visualiser-update-20261009/repository/node_modules \
+  --output /tmp-codex/visualiser-build-YYYYMMDD-selective
+```
+
+Use a new output directory and retain the build receipt. The working branch is
+`feat/aggregate-data-source`; the optional selected-chart interface belongs in
+that upstream PR. The calculation source `parseCore.js` is unchanged.

@@ -61,7 +61,8 @@ class VisualiserBackend:
         self.paired=manifest['mode']=='development-paired'
         # Advertise a set only when the verified application bundle includes
         # its v2 reader. Older pinned builds still support the original pair.
-        self.supports_comparison_sets=b'simpaths.visualiser.v2' in self.assets['visualiser.js']
+        self.supports_selective_views=b'simpaths.visualiser.catalogue.v1' in self.assets['visualiser.js']
+        self.supports_comparison_sets=self.supports_selective_views or b'simpaths.visualiser.v2' in self.assets['visualiser.js']
         self.public_datasets=frozenset(public_datasets)
         self.identity=dict(build=manifest,publication='own-and-public-preview-v1',
                            public_datasets=sorted(self.public_datasets),node=version,memory_mib=memory_mib)

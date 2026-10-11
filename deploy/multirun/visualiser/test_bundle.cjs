@@ -32,16 +32,26 @@ test('the compiled connected application boots, loads every alternative and draw
     w.ResizeObserver=class {constructor(cb){this.cb=cb;}observe(){this.cb([{contentRect:{width:900,height:500}}]);}disconnect(){}};
     w.SVGElement.prototype.getBBox=()=>({width:40,height:12,x:0,y:0});
     w.SVGElement.prototype.getComputedTextLength=()=>40;
+    w.TextEncoder=TextEncoder;w.TextDecoder=TextDecoder;w.URLSearchParams=URLSearchParams;
     w.addEventListener('error',event=>errors.push(event.message));
     const configs=[{id:'base',role:'Baseline',name:'Reference'},{id:'a',role:'Scenario',name:'Policy A'},
       {id:'b',role:'Scenario',name:'Policy B <img src="canary">'}];
     let denied=false;
-    w.fetch=async url=>{
-      requests.push(url);assert.equal(url,'/api/visualiser/'+key+'/data');
-      if(denied)return {ok:false,json:async()=>({error:'Sign in with an approved email'})};
-      return {ok:true,json:async()=>({format:'simpaths.visualiser.v2',configurations:configs,
-        comparison:{baseline:'base',scenarios:['a','b']},data:{comparison_available:true,notice:'Fictional paired results',
-          series:configs.map((c,i)=>({configuration:c.id,rows:[row(i?'scenario':'baseline',40+5*i)]}))}})};
+    const metadata={format:'simpaths.visualiser.catalogue.v1',publication:'b'.repeat(64),
+      configurations:configs.map((c,i)=>({...c,key:i?'scenario_'+i:'baseline'})),seeds:['606','607','608'],
+      comparison_available:true,notice:'Fictional paired results',limits:{response_bytes:8*1024**2,response_rows:20000},
+      variables:[{name:row('baseline',40).variable,module:'Health',years:[2019],
+        views:[{stratifier:'Overall',kind:'levels',bytes:2000,rows:3}]}]};
+    w.fetch=async function(url){
+      if(this?.document!==doc)throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
+      requests.push(url);assert.ok(url.startsWith('/api/visualiser/'+key+'/'));
+      if(denied)return new Response(JSON.stringify({error:'Sign in with an approved email'}),{status:403});
+      if(url.endsWith('/catalogue'))return new Response(JSON.stringify(metadata));
+      const params=new URL(url,'http://localhost').searchParams;
+      const ids=params.getAll('configuration');
+      return new Response(JSON.stringify({format:'simpaths.visualiser.view.v1',publication:metadata.publication,
+        selection:{variable:params.get('variable'),stratifier:params.get('stratifier'),kind:params.get('kind'),configurations:ids},
+        series:ids.map(id=>{const i=configs.findIndex(c=>c.id===id);return{configuration:id,rows:[row(i?'scenario':'baseline',40+5*i)]};})}));
     };
     new vm.Script(fs.readFileSync(path.join(build,'visualiser.js'),'utf8')).runInContext(dom.getInternalVMContext());
     await waitFor(()=>doc.body.textContent.includes('Policy B'));
@@ -55,15 +65,17 @@ test('the compiled connected application boots, loads every alternative and draw
     assert.equal(doc.querySelector('img[src="canary"]'),null);
     button('Δ Baseline → Scenario').click();
     await waitFor(()=>doc.body.textContent.includes('uncertainty intervals use paired run differences'));
-    assert.deepEqual(requests,['/api/visualiser/'+key+'/data']);
+    assert.equal(requests.filter(url=>url.includes('/view?')).length,1);
+    assert.ok(requests.every(url=>!url.endsWith('/data')));
     denied=true;
     button('View Online Results').click();
     await waitFor(()=>doc.querySelector('.vm-source-message')?.textContent.includes('Sign in with an approved email'));
     assert.equal(doc.querySelectorAll('svg').length,0);
-    assert.deepEqual(requests,['/api/visualiser/'+key+'/data','/api/visualiser/'+key+'/data']);
+    assert.equal(requests.at(-1),'/api/visualiser/'+key+'/catalogue');
     assert.deepEqual(errors,[]);
   }catch(error){
     error.message+='; fictional fixture state: '+JSON.stringify({errors,
+      sourceMessages:Array.from(dom.window.document.querySelectorAll('.vm-source-message')).map(p=>p.textContent),
       paths:dom.window.document.querySelectorAll('svg path[fill="none"][stroke-dasharray]:not([stroke-dasharray="none"])').length,
       buttons:Array.from(dom.window.document.querySelectorAll('button')).map(b=>b.textContent.trim())});
     throw error;

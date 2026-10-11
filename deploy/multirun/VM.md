@@ -365,7 +365,8 @@ frozen inputs, all 52 annual CSV years, options and original repetition hashes;
 all 54 focused cleanup/calibration regressions pass without skips. This workload
 needs new storage measurements/settings:
 the old 256 MiB per-repetition increment is not established for 52 annual years
-and 100,000 people. Four-user concurrency and repeated-seed demand remain untested.
+and 100,000 people. The later two-seed measurement is recorded below; ten-seed
+demand and four-user concurrency still need testing.
 
 The matching alternative completed on 10 October using the same prepared inputs
 and seed 606, changing only `savingRate` from 0.056 to 0.04. It finished all 52 years
@@ -375,6 +376,28 @@ retained output**. Container lifetime was 5,934.9 seconds (98.9 minutes); model
 initialisation was 106.9 seconds. Hashes, original settings, reclaimed input copies,
 container removal and released reservations passed. Native evidence is
 `/tmp-codex/research-alternative-100000-2070-20261010-092207/model-proof/report.json`.
+
+The baseline's **two-repetition test passed on 11 October**, using seeds 606 and
+607 sequentially in one attempt. Retained output is **6.93 GiB** and the sampled
+workspace peak is **9.30 GiB** under the 12 GiB trial allowance. The second seed
+made no extra large input snapshot. The container grew automatically from
+**5 to 6 GiB** during the second repetition, with the same JVM and **4 GiB maximum
+heap**. Sampled working RAM peaked at **4.39 GiB** and sampled heap at **3.66 GiB**.
+Container lifetime was 3 hours 9 minutes; proof time including verification was
+3 hours 21 minutes. All 1,097 measured status requests returned 200, no browser
+errors were recorded, and output/options/hash checks and container/database/
+reservation cleanup passed. All 38 worker/resource-recovery database regressions
+also passed. This supports the separate long-workload storage candidate; it
+does not establish ten-repetition capacity, kernel workspace enforcement or
+four-user hosted concurrency. See
+[the native report](/tmp-codex/research-storage-audit-20261010-two-seed-trial/model-proof/report.json)
+and [storage measurements](RESEARCH_STORAGE.md#completed-two-repetition-test--11-october-2026).
+
+The original one-seed baseline and alternative outputs were archived losslessly
+to make room for this test. Their reports and manifests remain unchanged; follow
+[the restoration instructions](/tmp-codex/storage-cleanup-20261010/README.md)
+before using the original comparison commands again. The new two-seed output
+is retained uncompressed for its storage audit.
 
 Use `research_comparison.py` to compare these retained runs without rerunning
 either model. Its `--baseline` and `--alternative` arguments take the enclosing
@@ -446,8 +469,8 @@ adoption in a deployment. One matched seed supports policy comparison; it cannot
 estimate uncertainty across repetitions. Upstream one-seed zero-width intervals
 are retained, pending scientific guidance.
 
-Run the full retained-output browser proof with a newly reviewed build containing
-the annual reader:
+Run the full retained-output browser proof with the reviewed selected-chart build
+containing the annual reader:
 
 ```bash
 cd ~/git/SimPathsWeb/SimPaths &&
@@ -457,8 +480,8 @@ TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 \
     --prepared /tmp-codex/research-prepared-100000-20261009-232734/package \
     --baseline /tmp-codex/research-100000-2070-20261009-232734 \
     --alternative /tmp-codex/research-alternative-100000-2070-20261010-092207 \
-    --build /tmp-codex/visualiser-build-20261010-research-final \
-    --output "/tmp-codex/research-comparison-$(date +%Y%m%d-%H%M%S)"
+    --build /tmp-codex/visualiser-build-20261010-selective-e \
+    --output "/tmp-codex/research-comparison-selective-$(date +%Y%m%d-%H%M%S)"
 ```
 
 It needs 2 GiB free for bounded aggregate evidence and disposable dependencies,
@@ -468,6 +491,15 @@ and continued denial of provider raw downloads. `--dry-run` shows the plan witho
 running services. `--aggregate-only` checks the native server calculations and
 delivered schema without PostgreSQL or a browser; it does not replace the browser
 proof. The full comparison/browser proof has passed for these two retained runs.
+The selected-chart version also passed in
+[`research-comparison-selective-20261010-194701`](/tmp-codex/research-comparison-selective-20261010-194701/model-proof/report.json):
+the initial catalogue/chart requests totalled 244.4 KiB, replacing the previous
+124.1 MiB full response. All captured aggregate responses across navigation and
+refresh totalled 606.2 KiB; native level, paired-impact and baseline-only CSV
+exports match the earlier full-data exports byte-for-byte. Browser/capture errors
+are empty; original outputs, permissions and cleanup are verified without model
+reruns. The proof's 861.635-second total includes fresh aggregation and verification,
+not just chart loading. See [VISUALISER.md](VISUALISER.md) for delivery/cache bounds.
 
 The read-only server calculation passed on 10 October in **548.5 seconds
 (9.1 minutes)**. It produced 135,095 baseline and 135,017 alternative aggregate
@@ -492,8 +524,12 @@ or four-user concurrency.
 settings are explicit operator calibration options. `--dry-run` shows the plan
 without launching anything. The driver rejects plans exceeding its 48-hour proof
 deadline; a later ten-repetition measurement may use `--max-attempts 1` after the
-one-run results establish adequate starting resources. Measure baseline/alternative
-aggregation and browser charts next, then output growth across repetitions. Choose
+one-run results establish adequate starting resources. Baseline/alternative
+aggregation and browser charts have passed, as has two-seed output growth. The
+[retained-output audit and research storage trial](RESEARCH_STORAGE.md) prepare
+a separate 4 GiB fixed + 4 GiB-per-repetition candidate for the measured long
+workload; the existing 256 MiB increment stays unchanged for the earlier workload.
+The completed two-seed trial required 15 GiB free and 9 GiB available RAM. Choose
 the final repetition policy and measure four-user concurrency on the intended VM
 before widening service population/year limits or confirming hosting capacity.
 

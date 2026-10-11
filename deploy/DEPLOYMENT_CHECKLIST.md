@@ -27,8 +27,22 @@ passing browser run records no uncaught errors and confirms database cleanup.
 Earlier browser reports below cover previous bundles.
 Restricted-provider aggregate release rules still require separate approval.
 Two one-seed 100,000-person/2070 simulations and their retained-output browser
-comparison have now passed locally. Repeated-seed storage and hosted concurrency
-still require calibration.
+comparison have passed locally. A two-seed baseline also passed on 11 October,
+with live memory growth and verified output/cleanup. Ten-seed capacity and hosted
+concurrency still require calibration.
+
+The [10 October selected-chart connection](multirun/VISUALISER.md) loads a small
+catalogue and only the displayed variable/breakdown/scenario sections, with
+bounded per-page caching and access checks. All 53 native PostgreSQL/helper cases
+and ten Chromium stages pass for the `selective-e` bundle, with no uncaught
+browser errors and confirmed cleanup. The full-size retained 100k/52-year
+selective Chromium check also passes: initial catalogue/chart requests total
+244.4 KiB rather than the previous 124.1 MiB complete response, and all captured
+aggregate responses total 606.2 KiB. All three native CSV exports match the
+earlier full-data exports byte-for-byte; original outputs, permissions and
+cleanup are verified without model reruns.
+Server publication/configuration/storage limits remain; index files count toward
+cache capacity, and hosted concurrency still needs calibration.
 
 The reports test different recorded source revisions and images. They do not
 collectively certify an unspecified future build. Record the exact selected release
@@ -110,10 +124,13 @@ The older real-model drivers use `status: "passed"` rather than that report form
 | Backup preservation of confirmed increases and safe abortion of pending external changes in the inactive target | [Recovery backup report](/tmp/codex-rer/resource-recovery-backup-check/report.json) | Native disposable PostgreSQL dump/restore and fictional files |
 | Full-length real-model completion under kernel quotas, frozen seeds/resources, verified output/input-copy cleanup and released capacity | [Quota storage report](/home/rer/simpaths-benchmarks/multirun-quota-storage-20261005-101156/report.json) and [model proof](/home/rer/simpaths-benchmarks/multirun-quota-storage-20261005-101156/postgres-proof/model-proof/report.json) | Real public 50,000-person runs, 2019–2026, one/three repetitions under 4.5/5.5 GiB XFS limits; disposable local filesystem |
 | Twelve repetitions under a smaller allowance, long-output lease renewal, verified publication/input cleanup and released capacity | [Trial report](/home/rer/simpaths-benchmarks/multirun-quota-256-12-20261005-135803/report.json) and [model proof](/home/rer/simpaths-benchmarks/multirun-quota-256-12-20261005-135803/postgres-proof/model-proof/report.json) | Real public 50,000-person runs, 2019–2026, 4 GiB + 256 MiB/repetition under a 7 GiB XFS limit; proof-only policy |
+| Two sequential 100,000-person/2070 repetitions, original seeds/settings, live memory growth and verified output/cleanup | [Trial report](/tmp-codex/research-storage-audit-20261010-two-seed-trial/report.json) and [model proof](/tmp-codex/research-storage-audit-20261010-two-seed-trial/model-proof/report.json) | Seeds 606/607 in one attempt; 6.93 GiB retained output, 9.30 GiB sampled workspace under a 12 GiB application-monitored allowance; 5-to-6 GiB container growth with unchanged 4 GiB heap; 4.39 GiB sampled working RAM; 38 database regressions and 1,097 successful status requests; cleanup confirmed |
 | Read-only operator inventory of jobs, reservations, storage, cleanup, notices and releases | [Operator report](/home/rer/simpaths-benchmarks/postgres-queue-20261003-142214/report.json) | Disposable PostgreSQL and fictional files |
 | Maintained Visualiser page, configuration names, separate alternatives, comparison ZIPs, aggregate-only VM responses and owner/source guards | [Visualiser report](/home/rer/simpaths-benchmarks/vm-visualiser-20261006-153932/report.json) and [browser proof](/home/rer/simpaths-benchmarks/vm-visualiser-20261006-153932/model-proof/report.json) | Real browser and aggregation code with fictional CSVs through the private-file/helper pipeline; nine workflow checks; no uncaught browser errors; cleanup confirmed |
 | Updated maintained Visualiser, simultaneous alternatives, seed-paired impacts, named exports and aggregate-only owner/source guards | [Backend log](/home/rer/simpaths-benchmarks/vm-visualiser-paired-20261009-183331/tests.log), [Visualiser report](/home/rer/simpaths-benchmarks/vm-visualiser-paired-20261009-184750/report.json) and [browser proof](/home/rer/simpaths-benchmarks/vm-visualiser-paired-20261009-184750/model-proof/report.json) | 91 focused database cases and nine browser stages; pinned `paired-c` build from `b981df5`; fictional native CSVs; no uncaught browser errors; cleanup confirmed |
+| Selected-chart loading, bounded catalogues/views, simultaneous alternatives, named/paired exports, local files and owner/source guards | [Backend report](/home/rer/simpaths-benchmarks/postgres-queue-20261010-183603/report.json), [Visualiser report](/home/rer/simpaths-benchmarks/vm-visualiser-selective-20261010-185859/report.json) and [browser proof](/home/rer/simpaths-benchmarks/vm-visualiser-selective-20261010-185859/model-proof/report.json) | 53 PostgreSQL/helper cases and ten Chromium stages; pinned `selective-e` bundle; fictional native CSVs; navigation/refresh avoid whole-package downloads; no uncaught browser errors; cleanup confirmed |
 | Retained 100,000-person/2070 baseline and alternative, all 52 years, named level/paired exports, refresh and aggregate-only owner guards | [Research comparison report](/tmp-codex/research-comparison-20261010-144946/report.json) and [browser proof](/tmp-codex/research-comparison-20261010-144946/model-proof/report.json) | Real completed scientific outputs and Chromium; one matched seed; private calibration budgets; identical 124.1 MiB initial/refreshed aggregate responses; originals unchanged, no model reruns or browser errors; cleanup confirmed |
+| Selected-chart loading with the retained 100,000-person/2070 results, all years, identical native exports and aggregate-only owner guards | [Selective research report](/tmp-codex/research-comparison-selective-20261010-194701/report.json) and [browser proof](/tmp-codex/research-comparison-selective-20261010-194701/model-proof/report.json) | Real completed outputs and Chromium; pinned `selective-e` bundle; 244.4 KiB initial metadata/chart requests and 606.2 KiB total captured aggregate responses; all three CSVs match previous native exports; originals unchanged, no model reruns or browser/capture errors; cleanup confirmed |
 | MultiRun TLS/cookies, private-file denial, large ZIP preparation, slow transfer, restart/resume, deletion and revocation | [MultiRun HTTPS report](/home/rer/simpaths-benchmarks/https-rehearsal-20261004-003741/report.json) | Real local Nginx/TLS and fictional output |
 | SingleRun TLS/ownership, controls/charts, long ZIP transfer, disconnect cleanup and restart access | [SingleRun HTTPS report](/home/rer/simpaths-benchmarks/singlerun-https-20261004-071322/report.json) | Real local Nginx/TLS and fictional models |
 | STARTTLS sign-in/completion mail, durable delivery retries, expiry warnings, actual file deletion and reader protection | [Mail and retention report](/home/rer/simpaths-benchmarks/mail-retention-20261004-080335/report.json) | Local SMTP server and disposable files; not external inbox delivery |
@@ -148,12 +165,12 @@ load when the host is selected.
 Single trials do not establish general performance or suitable sizes for other
 populations/horizons/collectors. No default heap/container setting was changed.
 
-The current hosted Visualiser integration is a pinned **development levels
-preview** for owner-supplied inputs and explicitly verified public training data.
-Confidential provider derivatives are ineligible. Multiple alternatives are supplied
-separately, with the current charts displaying one alternative alongside the baseline.
-Paired policy impacts/uncertainty, simultaneous charts and local-folder comparison
-sets depend on maintained Visualiser support. See [the connection scope](multirun/VISUALISER.md).
+The current hosted Visualiser integration is a pinned **development preview**
+for owner-supplied inputs and explicitly verified public training data.
+Confidential provider derivatives are ineligible. Online charts display the baseline
+and multiple selected alternatives together, using the maintained seed-paired
+policy-impact and uncertainty calculations. Manifest-aware local-folder comparison
+sets remain a later option. See [the connection scope](multirun/VISUALISER.md).
 
 The Visualiser receives only aggregate results from the VM. Separate authenticated
 downloads of eligible owner-supplied output are intentional; provider-derived raw
@@ -210,7 +227,21 @@ not install services, choose providers or change security settings.
   encoded comparison. The full private retained-output browser proof also passed:
   charts, named level/paired exports, scenario toggles, refresh and permissions
   were verified with a 124.1 MiB authenticated response and unchanged originals.
-  Repeated-seed output growth, hosted performance and four-user concurrency remain
+  The [read-only storage audit](multirun/RESEARCH_STORAGE.md) also passed:
+  native hashes and all annual files match; Person/BenefitUnit account for 98.11%
+  of retained output, with annual CSV bytes growing from 48.2 to 76.1 MiB.
+  A separate 4 GiB fixed + 4 GiB-per-repetition research candidate was tested with
+  two seeds on 11 October after verified archival freed enough space. Both seeds
+  passed in one attempt: 6.93 GiB retained output, 9.30 GiB sampled workspace,
+  4.39 GiB sampled working RAM, live container growth from 5 to 6 GiB with unchanged
+  4 GiB heap, no second input snapshot and confirmed cleanup. All 38 native worker/
+  recovery checks and 1,097 owner status requests passed. The earlier 60 audit/
+  comparison/calibration checks and dry-run also pass. The
+  [two-seed read-only audit](/tmp-codex/research-storage-audit-20261011-two-seed/report.json)
+  verified all 25 retained files and all 52 annual years in nine CSVs per seed.
+  Ten seeds still project to
+  about 34.65 GiB retained output per configuration; ten repetitions, different
+  policies, kernel quota, hosted performance and four-user concurrency remain
   to measure. One seed cannot estimate uncertainty across repetitions. This does
   not widen the current 50,000-person/2026 service limits or adopt new defaults.
 - [ ] Measure the intended research horizon, repetitions, preparation,

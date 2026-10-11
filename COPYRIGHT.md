@@ -81,7 +81,16 @@ Upstream baseline used to identify new files: `b223738b9cdf1d814cc3c6f09b04bc493
 - `deploy/multirun/test_research_calibration.py`
 - `deploy/multirun/research_comparison.py`
 - `deploy/multirun/test_research_comparison.py`
+- `deploy/multirun/research_storage_audit.py`
+- `deploy/multirun/test_research_storage_audit.py`
+- `deploy/multirun/RESEARCH_STORAGE.md`
 - `deploy/multirun/visualiser/test_runner.cjs`
+- `deploy/multirun/visualiser/section_source.mjs`
+- `deploy/multirun/visualiser/test_section_source.mjs`
+- `deploy/multirun/visualiser/section_proof.py`
+- `deploy/multirun/visualiser/response_capture.py`
+- `deploy/multirun/visualiser/test_research_sections.cjs`
+- `deploy/multirun/test_visualiser_sections.py`
 - `deploy/acceptance/run_vm_acceptance.py`
 - `deploy/acceptance/run_user_data_browser_acceptance.py`
 - `deploy/acceptance/test_vm_acceptance.py`
@@ -138,3 +147,8 @@ their existing attribution and licences; metadata attribution does not relicense
 Generated memory-monitor acceptance reports and fictional allocation logs are
 attributed by the `COPYRIGHT.md` saved alongside each evidence set. Tested JARs
 and runtime images retain their existing attribution and licences.
+
+Generated selected-chart indexes, catalogue/view envelopes and test reports have
+the attribution recorded in `section_proof.py`'s evidence `COPYRIGHT.md`. This
+attributes the integration artifacts without changing JSON/scientific row bytes
+or claiming ownership of the Visualiser's calculations or simulation data.

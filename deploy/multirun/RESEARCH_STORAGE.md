@@ -333,7 +333,132 @@ TMPDIR=/tmp-codex ~/simpaths-browser-tests/venv/bin/python deploy/multirun/resea
   --output "/tmp-codex/research-case-c-fixed-6g-heap-5g-$(date +%Y%m%d-%H%M%S)"
 ```
 
+### A/B/C comparison record
+
+Use the same release, prepared inputs, collectors, two-CPU allowance, seeds
+606/607 and two repetitions through 2070. Record test dates and competing laptop
+activity. A/B changes only the container ceiling; B/C changes only the heap
+ceiling. Repeat a case if the observed difference is too small or variable to
+support a decision. Keep production safeguards separate from these fixed tests.
+
+| Measurement | A: 4 GiB heap / 5 GiB container | B: 4 GiB heap / 6 GiB container | C: 5 GiB heap / 6 GiB container |
+| --- | --- | --- | --- |
+| Status | Passed | Running; result pending | Not started |
+| Container lifetime | 3h 31m 13s | Pending | Pending |
+| Last sampled JVM elapsed time | 3h 30m 31s | Pending | Pending |
+| GC counter time | 5m 58s (2.8% of last sampled JVM elapsed time) | Pending | Pending |
+| Sampled working RAM / heap peak | 4.38 / 3.74 GiB | Pending | Pending |
+| Total cgroup memory / pressure | Approximately container ceiling; retain native readings | Pending | Pending |
+| Sampled workspace peak / retained output | 9.30 / 6.93 GiB | Pending | Pending |
+| Attempts / growth | One / none | Verify | Verify |
+| Status latency p95 / maximum | 104.1 / 182.7 ms | Pending | Pending |
+| Annual output / seed/settings / hashes | Verified; known BenefitUnit differences recorded | Pending | Pending |
+| Settled cleanup / compact evidence | Confirmed and archived | Pending | Pending |
+
+Use native reports for exact values rather than deriving them from terminal
+sampling lines. Preserve B's evidence and compare hashes before removing its
+bulk output to make room for C. The command above is ready but has not been run.
+The telemetry elapsed value is the final sample's JVM timer, not an independent
+measurement of the complete simulation phase. These single trials can identify
+feasible allocations and suggest follow-up timing tests; they cannot establish
+a dependable speed benefit from a larger container or heap. Keep BenefitUnit
+mismatches visible, and align annual output by seed rather than timestamped folder.
+
+### Automated comparison, archival and disposal
+
+`research_benchmarks.py` uses only the Python standard library. Its `compare`
+command reads bounded completion metadata or compact archives, not the bulk CSVs
+or a running trial's progress log. Missing/in-progress cases stay pending or
+incomplete; failed/unconfirmed-cleanup cases are reported without timing claims.
+It rejects changes to model/image, prepared inputs, seeds, collectors, calibration
+driver/monitor or other frozen settings beyond A/B/C's intended memory changes.
+Annual CSVs are aligned by seed and filename, ignoring timestamped folder names.
+
+Equal-size BenefitUnit hash differences are explicit unresolved reproducibility
+warnings. BenefitUnit size changes and mismatches in other annual CSVs are
+unexpected mismatches; the command writes the evidence and exits nonzero.
+It does not certify scientific equivalence or select a production resource profile.
+GC percentages use the last sampled JVM elapsed timer. Status percentiles use
+nearest rank with counts, and exclude unsuccessful requests from the successful
+latency distribution while counting those responses separately.
+
+An unchanged-allocation `waiting` pressure notice does not mean growth occurred.
+Case A has one such notice. The comparator accepts it only at the exact original
+two-CPU/RAM/storage allocation; confirmed growth, changed observed ceilings and
+resource retries make a trial ineligible for this fixed-memory comparison.
+
+The existing Case A audit has been preserved in a portable compact archive:
+[`case-a-archive`](/tmp-codex/research-benchmark-tool-20261011/case-a-archive/archive.json).
+The [initial generated comparison](/tmp-codex/research-benchmark-tool-20261011/comparison-final/comparison.md)
+contains Case A and marks B incomplete and C pending. It performs no new model
+execution or bulk-output read/deletion. To create a fresh comparison:
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths &&
+python3 -m deploy.multirun.research_benchmarks compare \
+  --case A=/tmp-codex/research-benchmark-tool-20261011/case-a-archive \
+  --case B=/tmp-codex/research-case-b-fixed-6g-20261011 \
+  --output "/tmp-codex/research-benchmark-comparison-$(date +%Y%m%d-%H%M%S)"
+```
+
+Once C completes, add `--case C=` followed by its actual completed evidence
+directory. Preserve each native report as historical evidence. Comparison reads
+their recorded hashes; it does not attest to the current state of bulk files.
+
+After B completes with confirmed cleanup, run the existing read-only
+`research_storage_audit.py` on B with the pinned preparation before reclaiming
+space. This full audit reads the original CSVs and verifies all file hashes and
+annual counts. Then use these separate, explicitly requested operations, selecting
+the real successful audit and a new archive directory:
+
+```bash
+python3 -m deploy.multirun.research_benchmarks archive \
+  --completed /tmp-codex/research-case-b-fixed-6g-20261011 \
+  --audit /path/to/case-b-storage-audit/report.json \
+  --output /tmp-codex/research-case-b-compact-archive
+```
+
+Archival copies only the small completion records and audit statistics. It binds
+them to the original reports/manifests and stores no scientific rows. It records
+a historical audit, not a fresh output hash check. Review the archive and comparison
+before invoking disposal:
+
+```bash
+python3 -m deploy.multirun.research_benchmarks dispose \
+  --archive /tmp-codex/research-case-b-compact-archive \
+  --completed /tmp-codex/research-case-b-fixed-6g-20261011
+```
+
+Disposal requires the same successful completion and unchanged evidence, hashes
+every remaining bulk file before deleting the first, and rechecks file identities
+immediately before unlinking. Symlinks, extra/missing files without its journal,
+changed files and concurrent disposal are rejected. A durable per-file journal
+allows rerunning the identical command after interruption; an unexpected change
+still requires investigation. It removes only manifest-listed output files,
+preserving directories, native reports, prepared inputs and other runs. Byte
+counts are logical bytes removed, not a promise of free-space gain from shared
+blocks, hard links or open files. Recheck physical free space before launching C.
+
+The comparison/archival/disposal tests use tiny fictional files and no Docker,
+database, models or emails. The focused command is:
+
+```bash
+TMPDIR=/tmp-codex python3 -m unittest deploy.multirun.test_research_benchmarks -v
+```
+
+Validated on 11 October: all **21 checks pass**, including metadata/file changes,
+running/failed trials, symlinks, exclusive disposal locking and restart after an
+interruption between unlink and journal update. Native Case A's archive reads
+successfully and its original completion records remain unchanged. See the
+[verification receipt](/tmp-codex/research-benchmark-tool-20261011/verification.json)
+and [test log](/tmp-codex/research-benchmark-tool-20261011/tests-complete.log).
+No real bulk-output disposal has been performed by the new tool.
+
 ## Remaining host checks
+
+Follow the [hosted load-test plan](../HOSTED_LOAD_TEST_PLAN.md) for sequential
+capacity stages, four-user workflows, provisional responsiveness targets and
+shared-versus-dedicated processor decisions.
 
 1. On the selected host, measure ten repetitions, different permitted policy
    settings and the native workspace quota. Confirm peak RAM and runtime as well

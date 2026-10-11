@@ -267,6 +267,15 @@ not install services, choose providers or change security settings.
   policies, kernel quota, hosted performance and four-user concurrency remain
   to measure. One seed cannot estimate uncertainty across repetitions. This does
   not widen the current 50,000-person/2026 service limits or adopt new defaults.
+- [ ] Execute the [hosted load-test plan](HOSTED_LOAD_TEST_PLAN.md): separate
+  four-user access from admitted model concurrency, increase load in stages,
+  include aggregation/downloads, and agree queue/completion-time expectations.
+  Record repeated sustained-load results before choosing shared or dedicated
+  processors; budget retained output as well as active scratch.
+  Use separate bounded client timing samples for percentiles; the existing
+  operational summaries provide means/peaks only. Count active workspace output
+  once, distinguish pressure notices from confirmed increases, and repeat close
+  performance comparisons before adopting starting profiles.
 - [ ] Measure the intended research horizon, repetitions, preparation,
   aggregation and retained-data growth. Increase concurrency only within measured
   CPU/RAM/disk headroom; include interactive slots and backup activity. Laptop

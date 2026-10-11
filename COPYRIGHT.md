@@ -83,7 +83,10 @@ Upstream baseline used to identify new files: `b223738b9cdf1d814cc3c6f09b04bc493
 - `deploy/multirun/test_research_comparison.py`
 - `deploy/multirun/research_storage_audit.py`
 - `deploy/multirun/test_research_storage_audit.py`
+- `deploy/multirun/research_benchmarks.py`
+- `deploy/multirun/test_research_benchmarks.py`
 - `deploy/multirun/RESEARCH_STORAGE.md`
+- `deploy/HOSTED_LOAD_TEST_PLAN.md`
 - `deploy/multirun/visualiser/test_runner.cjs`
 - `deploy/multirun/visualiser/section_source.mjs`
 - `deploy/multirun/visualiser/test_section_source.mjs`

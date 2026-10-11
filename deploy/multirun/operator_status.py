@@ -65,6 +65,15 @@ def collect(queue, state, *, limit=20, read_database=True):
         result.update(database=None, complete=False)
         result['warnings'].append('database_unavailable_or_schema_not_current')
     try:
+        if result['database'] is None:
+            raise RuntimeError('Database connection unavailable')
+        from jasmine_web.batch.observability import history
+        result['metrics']=history(queue,model_limit=limit)
+    except Exception:
+        result['metrics']=None
+        result['warnings'].append('operational_history_unavailable')
+        result['complete']=False
+    try:
         result['storage'] = filesystem_inventory(state,locations)
         if result['database'] is None:
             result['storage']['prepared_datasets'] = None
@@ -177,12 +186,46 @@ def render(report):
     if models:
         lines.append(f"Model releases: {len(models['releases'])} retained; selected default {models['selected_default']}")
         for row in models['releases']:
+            profiles=row['resource_policy'].get('profiles')
+            if profiles:
+                lines.append('  '+literal(row['name'])+f" [{row['id']}]: {len(profiles)} tested workload profiles")
+                continue
             policy=row['resource_policy']['simulation']['storage']
             lines.append('  '+literal(row['name'])+f" [{row['id']}]: {policy['setup_mib']/1024:g} GiB fixed + {policy['per_repetition_mib']} MiB/repetition")
         if last.get('available') and last['model_release']!=models['selected_default']:
             lines.append('  Selected default differs from last application launch; restart loads the selection for new work')
     else:
         lines.append('Model releases: unavailable or invalid')
+    metrics=report.get('metrics')
+    if metrics:
+        collector=metrics['collector']
+        state=('stale' if collector and collector['stale'] else 'recent samples' if collector else 'not recorded')
+        lines.append(f'Operational history: {state}; {metrics["days"]} days; CPU/RAM/storage are actual use, not reservations')
+        if metrics['row_cap_reached']:
+            lines.append('  Row cap reached; oldest retained bucket '+str(metrics['oldest_retained_bucket'])+'; historical coverage may be shortened')
+        for row in metrics['measurements']:
+            if row['kind'] in ('host','model') and row['metric'] != 'unavailable':
+                lines.append(f'  {row["kind"]} {row["subject"]} {row["metric"]}: peak {row["peak"]:.1f}%; '
+                    f'>=80% {row["above80_seconds"]:.0f}s; >=90% {row["above90_seconds"]:.0f}s; sampled {row["measured_seconds"]:.0f}s')
+            elif row['kind']=='http':
+                unit=' ms' if row['metric'].endswith('_ms') else ''
+                lines.append(f'  HTTP {row["subject"]} {row["metric"]}: {row["count"]} observations; '
+                    f'mean {row["mean"]:.1f}{unit}; peak {row["peak"]:.1f}{unit}')
+            else:
+                lines.append(f'  {row["kind"]} {row["metric"]}: {row["total"]:g}')
+        jobs=metrics['jobs']
+        lines.append(f'  Configurations requested {jobs["requested"]}, succeeded {jobs["succeeded"]}, not started {jobs["not_started"]}')
+        for field in ('mean_queue_seconds','max_queue_seconds','mean_completion_seconds'):
+            value=jobs[field]
+            lines.append('  '+field+': '+(f'{value:.1f}s' if value is not None else 'unknown'))
+        for row in metrics['recovery']:
+            lines.append(f'  Recovery {row["kind"]} {row["action"]}: {row["count"]}')
+        for row in metrics['outcomes']:
+            lines.append(f'  Attempt outcome {row["outcome"]}: {row["count"]}')
+        if metrics['models_truncated']:
+            lines.append('  Model detail truncated; raise --limit to inspect more attempts')
+    else:
+        lines.append('Operational history: unavailable')
     if report['warnings']:
         lines.append('Incomplete sections: '+', '.join(report['warnings']))
     return '\n'.join(lines)+'\n'

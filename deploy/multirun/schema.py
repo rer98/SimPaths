@@ -28,6 +28,15 @@ class ConfigurationError(ValueError):
         super().__init__(f"{path}: {message}")
 
 
+class DeploymentLimitError(ConfigurationError):
+    """A validated supported-bound rejection eligible for numeric monitoring."""
+    def __init__(self, path, message, reason):
+        if reason not in ('population','horizon','repetitions','configurations','resources','unprofiled'):
+            raise ValueError('Unknown deployment limit')
+        self.supported_limit=reason
+        super().__init__(path,message)
+
+
 @dataclass(frozen=True)
 class Limits:
     """Trusted parser/expansion ceilings, not deployment capacity recommendations."""

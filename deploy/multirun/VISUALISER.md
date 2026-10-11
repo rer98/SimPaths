@@ -455,8 +455,10 @@ is independently bounded, including combinations of cached sections. Every
 selection rechecks access through the small catalogue, even when its rows are
 cached. New requests fetch only missing configuration sections. Abandoned requests
 are cancelled, late replies ignored, and failed/denied loads hide charts and exports.
-Refresh reloads metadata and the current chart; private browser disk caching,
-prefetch and CDN caching are not enabled. Protected responses remain `no-store`.
+The 11 October update below adds bounded browser storage and optional background
+hints. Refresh always reloads metadata, then reuses authorised stored sections
+where available. Protected responses remain `no-store`; shared HTTP/CDN caching
+is not enabled.
 
 Indexed sections are additional private aggregate files; the complete publication
 remains available to legacy clients. Both copies count toward existing cache and
@@ -526,14 +528,108 @@ The repeatable `research_comparison.py` command is documented in [VM.md](VM.md).
 The local section and compiled application evidence is retained under
 `/tmp-codex/visualiser-selective-20261010/real-sections`.
 
+## Browser section reuse and background hints — 11 October 2026
+
+The Online adapter now stores recently downloaded aggregate sections in a
+dedicated IndexedDB database on the user's device. This avoids another chart
+transfer after a page refresh or when returning to a viewed chart. It does not
+provide offline access: every foreground or hinted view first obtains a fresh,
+authenticated catalogue from the server. Expired, deleted or unauthorised source
+results cannot be reopened from this cache. Stored rows pass the same fixed-field,
+finite-number and selection checks as newly downloaded rows.
+
+The server supplies an opaque session-specific cache partition only after the
+catalogue's normal permission checks succeed. The partition is not a login
+credential and contains no email or owner identifier. Cache keys also include
+the comparison and immutable publication identity. A different session clears
+old sections; a changed publication cannot reuse them. No cookie or scientific
+calculation changes are required. An older host without the partition response
+header continues with memory/network loading.
+
+Browser storage has one global budget per origin: at most 64 sections and a
+conservative 32 MiB accounting allowance, shared across chart tabs and
+comparisons. Metadata updates and eviction are atomic across concurrent writers.
+The allowance includes encoded text/key overhead; it is not an exact physical
+disk measurement. An entry is reusable for up to 12 hours from creation, without
+renewal on reads. Expired entries are deleted on subsequent cache access/update,
+not by a timer while the browser is closed. Unsupported, blocked, unavailable or
+full storage falls back to the existing bounded memory/network loader. Cache
+operations have bounded waits. The separate per-page memory and current-view
+limits still apply.
+
+Sign-out deletes only the dedicated chart database and invalidates online charts
+in other open tabs. Other site storage is left intact. The Visualiser also offers
+**Clear saved data for these charts**: this clears the current comparison and
+reloads its authorised current view. Neither action can erase copies or exports
+that a user has already saved elsewhere.
+
+The maintained sidebar supplies optional pointer/keyboard hints. A 300 ms dwell
+can prepare one likely next variable using the selected alternatives and a
+compatible breakdown. A foreground selection cancels background work and takes
+priority. Pointer/focus departure, closing the source, a hidden tab or a reported
+data-saving/very slow connection cancels the hint. There is no speculative
+whole-comparison download.
+
+Background chart responses are limited to 2 MiB and 5,000 rows each, with one
+request in flight, a four-second deadline, at most 20 attempts and an 8 MiB total
+chart-response allowance per source lifetime. Small fresh authorisation
+catalogues are separate from that chart-byte allowance. Oversized catalogue
+estimates are skipped; response limits are enforced again while receiving data.
+Failed prefetch does not interrupt ordinary chart selection. Prefetched sections
+use the same cache budgets, validation and access checks as selected sections.
+
+The real Chromium/IndexedDB proof passes all 11 stages, with no browser errors
+and confirmed cleanup:
+[`visualiser-cache-browser-20261011-212432`](/tmp-codex/visualiser-cache-browser-20261011-212432/report.json).
+It verifies concurrent byte/count limits and eviction, fixed-age expiry,
+comparison/session isolation, corrupt/oversized rejection, storage fallback,
+connection deletion, refresh without another chart transfer, a useful dwelled
+hint, denied access and sign-out across tabs. It uses small fictional responses;
+it is not a hosted latency measurement or a new scientific calculation check.
+Local checks also cover 19 loader cases, 15 maintained React/chart cases, 11
+Results/logout cases, two in-process route/scope cases and the compiled bundle.
+Evidence is under `/tmp-codex/visualiser-cache-20261011`.
+
+The 25 native database cases pass, including stable catalogue partition headers,
+permission rechecks and absence of partition headers on denied responses:
+[`cache backend checks`](/home/rer/simpaths-benchmarks/vm-visualiser-cache-20261011-213657/tests.log).
+The complete service/browser rehearsal passes all 12 stages against `cache-b`,
+with no browser errors and confirmed cleanup:
+[`cache service/browser report`](/home/rer/simpaths-benchmarks/vm-visualiser-cache-20261011-215418/report.json)
+and [browser proof](/home/rer/simpaths-benchmarks/vm-visualiser-cache-20261011-215418/model-proof/report.json).
+Refresh makes fresh catalogue access checks and adds zero chart transfers.
+The real website sign-out handler clears charts in both open tabs; a newly
+authorised session can load results again. Source deletion and other-owner
+denials also remain effective.
+
+The complete service/browser rehearsal also checks refresh reuse and the actual
+website sign-out handler alongside the existing charts, exports, local-file and
+owner/source-denial checks. To repeat this check:
+
+```bash
+cd ~/git/JAS-mine/JAS-mine-web
+TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 ~/simpaths-browser-tests/venv/bin/python tests/browser/batch_visualiser.py \
+  --backend-pattern test_visualiser.py \
+  --build /tmp-codex/visualiser-build-20261011-cache-b \
+  --output "$HOME/simpaths-benchmarks/vm-visualiser-cache-$(date +%Y%m%d-%H%M%S)"
+```
+
+This uses disposable PostgreSQL and fictional output, not simulations or emails.
+The cache-only native check can be repeated without Docker or a database:
+
+```bash
+cd ~/git/JAS-mine/JAS-mine-web
+TMPDIR=/tmp-codex ~/simpaths-browser-tests/venv/bin/python tests/browser/batch_visualiser_cache.py
+```
+
 Build from Ross's updated connected checkout, using its reviewed dependencies:
 
 ```bash
 cd ~/git/SimPathsWeb/SimPaths
 node deploy/multirun/visualiser/build.cjs \
   --source "$HOME/git/SimPathsWeb/SimPaths-Policy-Impacts-Visualiser" \
-  --dependencies /tmp-codex/visualiser-update-20261009/repository/node_modules \
-  --output /tmp-codex/visualiser-build-YYYYMMDD-selective
+  --dependencies /tmp-codex/visualiser-cache-20261011/dependencies/node_modules \
+  --output /tmp-codex/visualiser-build-YYYYMMDD-cache
 ```
 
 Use a new output directory and retain the build receipt. The working branch is

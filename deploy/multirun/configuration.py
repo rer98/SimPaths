@@ -18,7 +18,7 @@ import sys
 import yaml
 
 from .schema import (
-    COLLECTOR_FIELDS, ConfigurationError, Field, FIXED_MODEL, INT_MAX, Limits,
+    COLLECTOR_FIELDS, ConfigurationError, DeploymentLimitError, Field, FIXED_MODEL, INT_MAX, Limits,
     LONG_MAX, LONG_MIN, MODEL_FIELDS, OUTPUT_CONTRACT, PROFILE_VERSION,
     REQUIRED_OUTPUT, SCHEMA_VERSION, SEED_PROFILE,
 )
@@ -50,6 +50,8 @@ def _name(value, path):
 
 
 def _count(value, path, maximum):
+    if path=='seed_plan.repetitions' and type(value) is int and value>maximum:
+        raise DeploymentLimitError(path,f'expected an integer from 1 to {maximum}','repetitions')
     if type(value) is not int or not 1 <= value <= maximum:
         raise ConfigurationError(path, f"expected an integer from 1 to {maximum}")
     return value
@@ -274,12 +276,14 @@ def normalise(document, *, limits=Limits()):
         if fingerprint in fingerprints:
             raise ConfigurationError(path, "duplicate effective configuration; review the Run Sets")
         if len(run_sets) >= limits.max_run_sets or (len(run_sets) + 1) * seed_plan["repetitions"] > limits.max_simulations:
-            raise ConfigurationError("run_sets", "expanded work exceeds the configured limits")
+            raise DeploymentLimitError("run_sets", "expanded work exceeds the configured limits",'configurations')
         ids.add(identifier)
         fingerprints.add(fingerprint)
         run_sets.append({"id": identifier, "name": name, **settings, **overrides})
 
     manual = document.get("run_sets", [])
+    if type(manual) is list and len(manual)>limits.max_run_sets:
+        raise DeploymentLimitError('run_sets','expected a bounded list','configurations')
     if type(manual) is not list or len(manual) > limits.max_run_sets:
         raise ConfigurationError("run_sets", "expected a bounded list")
     for i, item in enumerate(manual):

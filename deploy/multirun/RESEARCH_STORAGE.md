@@ -237,6 +237,102 @@ and requires **47 GiB free** for the local proof. It projects about **34.65 GiB
 retained output** per configuration from the largest measured repetition. This
 is a projection from two seeds; it does not establish ten-seed capacity or runtime.
 
+## Fixed memory benchmarks — 11 October 2026
+
+Case A repeated the same baseline with **100,000 people, 52 annual years and
+seeds 606 and 607**, using two CPUs, a **4 GiB maximum heap** and a **fixed
+5 GiB container**. Initial and maximum container allocations were equal;
+the heap ceiling stayed at its starting value, storage growth was prevented
+and only one attempt was permitted. Monitoring remained enabled. Both the
+[model report](/tmp-codex/research-case-a-fixed-5g-20261011/model-proof/report.json)
+and [driver report](/tmp-codex/research-case-a-fixed-5g-20261011/report.json)
+record success, all original annual outputs and confirmed cleanup.
+
+| Measurement | Earlier run with live growth | Case A, fixed memory |
+| --- | ---: | ---: |
+| Maximum Java heap | 4 GiB | 4 GiB |
+| Observed container allowances | 5 then 6 GiB | 5 GiB throughout |
+| Sampled working-RAM peak | 4.39 GiB | 4.38 GiB |
+| Sampled heap peak | 3.66 GiB | 3.74 GiB |
+| Container lifetime | 3h 9m 30s | 3h 31m 13s |
+| Garbage-collection counter time | 5m 23s | 5m 58s |
+| GC counter time / measured JVM execution | 2.9% | 2.8% |
+| Retained output | 6.93 GiB | 6.93 GiB |
+| Sampled workspace peak | 9.30 GiB | 9.30 GiB |
+
+Case A establishes that the tested two-seed configuration **can complete within
+a fixed 5 GiB container**. The earlier live increase was a pressure-triggered
+safeguard, not proof that 5 GiB would fail. Total container memory including file
+cache reached approximately the hard limit; working RAM excludes inactive file
+cache and is not a measure of freely available container or host capacity.
+
+Case A's container lifetime was approximately **11.5% longer** than the earlier
+run. A single laptop comparison cannot attribute this to memory pressure or
+establish a dependable speed difference. GC counters increased by about
+35 seconds; they do not explain the entire 22-minute runtime difference and
+must not be interpreted as a measured saving available from a larger heap.
+Container lifetime includes staging and initialisation as well as execution.
+
+All **1,222** measured status requests returned 200: median **71.1 ms**, p95
+**104.1 ms**, maximum **182.7 ms**. There were no browser errors. The complete
+proof, including output validation, took **3h 42m 49s**. Scientific output hashes
+are compared for matching seeds: **eight of nine annual CSVs match for each
+seed** against the earlier two-seed run. `BenefitUnit.csv` differs at equal byte
+size, consistent with the existing reproducibility limitation. File equality is
+recorded explicitly rather than assumed for every native output.
+
+Retain native reports, per-file hashes and sizes, per-year counts and frozen
+settings before deleting bulk benchmark output. The original completion reports
+remain historical evidence; a separate disposal receipt records removed output.
+Deleting microdata prevents rerunning aggregation checks on it, but does not
+remove the recorded memory, runtime and storage measurements.
+
+The [Case A output audit](/tmp-codex/research-case-a-fixed-5g-audit-20261011/report.json)
+verified every original file hash and all annual counts. Following a further
+unchanged-file check, all **25 bulk output files** were removed. The
+[compact evidence](/tmp-codex/research-case-a-disposal-20261011/compact-evidence.json)
+retains these statistics, frozen identities, timings and same-seed comparisons;
+the [disposal report](/tmp-codex/research-case-a-disposal-20261011/disposal-report.json)
+confirms unchanged native reports/manifests and prepared inputs. This leaves
+**18.60 GiB free** on `/tmp-codex`, sufficient for the next trial's disk preflight.
+
+The remaining sequential benchmarks are:
+
+| Case | Maximum Java heap | Fixed container memory | Purpose |
+| --- | ---: | ---: | --- |
+| B | 4 GiB | 6 GiB | Measure the larger container without changing the heap |
+| C | 5 GiB | 6 GiB | Measure a 25% larger heap within the same container |
+
+Case C's 5 GiB maximum heap was agreed on 11 October. The difference between
+container and maximum heap is **1 GiB**, matching Case A; Case B leaves 2 GiB.
+These are differences between configured limits, not measurements of native
+memory use. Compare B/C runtime, GC and actual working RAM together; increasing
+the maximum heap can also increase actual memory usage.
+
+Reuse the pinned preparation and seeds, two CPUs and 12 GiB storage allowance.
+Set equal initial/maximum container memory and one attempt, preventing expansion
+and resource retries during the measurements. Case B/C require **15 GiB free
+disk** and **8 GiB available RAM** under the existing proof preflight. These
+tests do not change production defaults or disable production recovery.
+Final starting profiles await the remaining cases and hosted workload tests.
+An earlier check found **7.2 GiB RAM available**, below Case B's 8 GiB preflight
+requirement. The test-service reserve was not reduced. Case B has now been
+started from the native terminal; its result remains pending. Case C has not
+started. After B finishes, preserve its file hashes, annual counts and resource
+measurements, reclaim bulk output and recheck free space before executing C:
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths &&
+TMPDIR=/tmp-codex ~/simpaths-browser-tests/venv/bin/python deploy/multirun/research_calibration.py \
+  --frontend "$HOME/git/JAS-mine/JAS-mine-web" \
+  --prepared /tmp-codex/research-prepared-100000-20261009-232734/package \
+  --population 100000 --end-year 2070 --repetitions 2 \
+  --heap-mib 5120 --memory-mib 6144 --max-memory-mib 6144 \
+  --storage-mib 12288 --setup-seconds 900 --repetition-seconds 14400 \
+  --max-attempts 1 \
+  --output "/tmp-codex/research-case-c-fixed-6g-heap-5g-$(date +%Y%m%d-%H%M%S)"
+```
+
 ## Remaining host checks
 
 1. On the selected host, measure ten repetitions, different permitted policy

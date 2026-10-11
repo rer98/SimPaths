@@ -152,3 +152,10 @@ Generated selected-chart indexes, catalogue/view envelopes and test reports have
 the attribution recorded in `section_proof.py`'s evidence `COPYRIGHT.md`. This
 attributes the integration artifacts without changing JSON/scientific row bytes
 or claiming ownership of the Visualiser's calculations or simulation data.
+
+The new browser-section storage and native cache checks in
+`deploy/multirun/visualiser/section_cache.mjs` and `test_native_cache.mjs` are
+attributed in their headers. Generated cache-test evidence carries the notice
+in its accompanying `COPYRIGHT.md`; no attribution is inserted into JSON rows.
+Upstream Visualiser calculations and dependencies retain their existing notices
+and licences.

@@ -104,10 +104,14 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
     print('Default model release: '+releases[default].get('name',default)+
           f' ({default}); {len(releases)} retained version(s)',flush=True)
     storage=releases[default]['resource_policy']['simulation']['storage']
-    print(f"Default working storage: {storage['setup_mib']/1024:g} GiB fixed + "
-          f"{storage['per_repetition_mib']} MiB per repetition"+
-          ('; larger input copies can raise the fixed term' if storage['per_repetition_mib'] else '; retained fixed policy'),
-          flush=True)
+    profiled=releases[default]['resource_policy'].get('profiles')
+    if profiled:
+        print(f'Starting resources: {len(profiled)} tested workload profiles; unmatched settings require operator review',flush=True)
+    else:
+        print(f"Default working storage: {storage['setup_mib']/1024:g} GiB fixed + "
+              f"{storage['per_repetition_mib']} MiB per repetition"+
+              ('; larger input copies can raise the fixed term' if storage['per_repetition_mib'] else '; retained fixed policy'),
+              flush=True)
     adapter=DispatchAdapter(PreparationAdapter(datasets,releases,state/'artifacts'))
     execution=private_directory(state/'execution')
     with q._connection() as c:
@@ -169,6 +173,8 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                 yield
     @asynccontextmanager
     async def running(app):
+        if hasattr(service,'monitor'):
+            service.monitor.start()
         thread=threading.Thread(target=dispatch,name='multirun-dispatcher',daemon=True)
         thread.start()
         def notify():
@@ -196,6 +202,8 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
         # stopping the frontend. The next start adopts surviving attempts.
         await asyncio.to_thread(thread.join,30)
         await asyncio.to_thread(notifications.join,30)
+        if hasattr(service,'monitor'):
+            await asyncio.to_thread(service.monitor.close)
         print('Frontend stopped. Submitted jobs remain recorded; restart the service to resume dispatch.',flush=True)
     from jasmine_web.batch.browser import create_app
     import uvicorn
@@ -211,6 +219,13 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                         resource_recovery=recovery,recovery_storage_ceiling_mib=recovery_storage_ceiling)
     print('Automatic resource recovery: '+('enabled for new reviews; frozen ceilings and original retry/time budgets apply'
                                           if recovery else 'disabled'),flush=True)
+    if getattr(args,'operational_metrics',False):
+        from jasmine_web.batch.observability import OperationalMonitor, Settings, model_reader
+        service.monitor=OperationalMonitor(q,state,settings=Settings(
+            sample_seconds=getattr(args,'metrics_sample_seconds',15),
+            retention_days=getattr(args,'metrics_retention_days',30),
+            max_rows=getattr(args,'metrics_max_rows',20000)),model_reader=model_reader(q,executor))
+        print('Operational metrics: background numeric summaries enabled',flush=True)
     from .queue_adapter import result_catalogue, result_name, result_deletion_targets, result_inputs, result_settings
     from jasmine_web.batch.output_management import OutputManagement
     service.results=Results(service,executor,result_catalogue,name=result_name,

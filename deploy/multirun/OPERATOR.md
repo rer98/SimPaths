@@ -59,6 +59,86 @@ Use the actual installed config path if it differs from the example.
 
 ## Output
 
+### Operational history
+
+Enable the optional collector on the next laptop launch with
+`--operational-metrics` (default sampling interval: 15 seconds). For a VM, set
+`[monitoring] enabled = true` in its TOML; the example includes this section.
+Existing TOML files without the section keep collection disabled. The interval
+can be 5–300 seconds. Default retention is 30 days, with at most 20,000 hourly
+summary rows per pool. Retention and the row cap are configurable on the VM.
+Apply the reviewed batch migration 022 before starting the updated service;
+status inspection itself never migrates a database.
+
+The same status command reports the last seven days under `metrics` in JSON:
+
+- Host CPU utilisation, hypervisor CPU steal time, RAM use based on Linux
+  `MemAvailable`, and the fraction used on the state filesystem. Host readings
+  include SingleRun, aggregation, PostgreSQL and other processes.
+- Per-attempt MultiRun CPU utilisation relative to its observed CPU allowance,
+  total cgroup memory and working memory after subtracting inactive file cache.
+  Storage percentages use the verified native project-quota counters. Without
+  those counters, per-model storage is unknown; the collector does not repeatedly
+  scan large output directories. Per-model details do not include SingleRun.
+- Sampled seconds at or above 80% and 90%, sample counts, means and peaks.
+  These are estimates from observations, not continuous monitoring. Gaps, resets,
+  unavailable readings and intervals crossing a changed resource limit are not
+  charged as pressure at that limit. Missing readings are unknown, not zero.
+- Request counts, mean/peak time to response headers, mean/peak full-response
+  duration and interrupted transfers, grouped by fixed route category and status
+  class. Full download duration includes the client's transfer time. No request
+  URLs, cookies, query strings, names, owner IDs, emails or bodies are recorded.
+- Authenticated supported-bound rejections and accepted form reviews. Counts
+  identify the first rejected population, horizon, repetition, configuration,
+  resource or unprofiled-workload bound, not individual researchers. YAML imports
+  and sweep generation also record classified bound rejections. Invalid syntax
+  and unauthorised requests are not counted as legitimate workload demand.
+- Initial queue waiting time (submission to first reservation), successful
+  completion time including waiting/retries, attempt outcomes and confirmed
+  resource-growth/retry events, read from the existing queue records. Preparation
+  jobs are excluded from configuration timing averages. Counts are restricted to
+  the selected pool and reporting period.
+
+Collection uses a separate background thread and bounded queues/transactions.
+HTTP callers only enqueue numeric observations; collection never renews leases,
+authenticates sessions, claims jobs or changes resource allowances. Hourly writes
+use a separate advisory lock and do not lock the scheduler's pool row. A flush
+receipt prevents a lost commit reply from counting the same snapshot twice.
+On overload or database outage, bounded buffers can discard measurements; the
+report includes discarded/unavailable counts and collector timestamps. A stale
+collector is reported explicitly. “Recent samples” is not proof that an
+application process is alive. The row cap can shorten the retained period on a
+busy service; `last_recorded_at` and sample coverage help interpret each series.
+
+Migration 022 adds operational history only and leaves existing jobs/policies
+unchanged. Native backup/restore includes these tables with the other schema
+records. Older application code cannot open the newer schema; follow the existing
+verified restore procedure when rolling back to code that lacks this migration.
+
+### Focused proof
+
+After any ongoing scientific calibration has finished, run:
+
+```bash
+cd ~/git/JAS-mine/JAS-mine-web &&
+TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 ~/simpaths-browser-tests/venv/bin/python scripts/test_batch_queue.py \
+  --proof-only \
+  --proof-script "$HOME/git/SimPathsWeb/SimPaths/deploy/multirun/monitoring_proof.py" \
+  --proof-requirements "$HOME/git/SimPathsWeb/SimPaths/deploy/multirun/requirements.txt" requirements-vm.txt
+```
+
+The proof uses disposable PostgreSQL and fictional files. It checks scheduler
+isolation, retention/caps, numeric-only reports, streaming observations, migration
+compatibility, frozen starting profiles and runtime lifecycle. It launches no
+scientific simulations and sends no emails. A pass requires no skipped cases.
+
+**Validated 11 October 2026:** all **154 cases** passed, with no failures, errors
+or skips. The [native proof report](/home/rer/simpaths-benchmarks/postgres-queue-20261011-193041/model-proof/report.json)
+records the checks; the [driver report](/home/rer/simpaths-benchmarks/postgres-queue-20261011-193041/report.json)
+confirms success and temporary database cleanup. Starting-profile compatibility
+is verified with fictional workloads; scientific allocation recommendations
+still require the remaining calibration and hosted tests.
+
 Add `--json` for the `simpaths.operator.status.v1` machine-readable report. Counts
 remain complete; unfinished job details default to 20 and can be increased with
 `--limit 1..200`. `details_truncated` identifies an abbreviated job list.

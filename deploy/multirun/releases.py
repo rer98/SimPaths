@@ -321,6 +321,14 @@ def main(argv=None):
         releases = registry.load()
         for index, (key, entry) in enumerate(releases.items()):
             storage=entry['resource_policy']['simulation']['storage']
+            profiles=entry['resource_policy'].get('profiles')
+            if profiles:
+                print(f'{"default" if key==next(iter(releases)) else "retained"} {key} | {entry["name"]} | {entry["image"]} | {len(profiles)} tested starting profiles')
+                for profile in profiles:
+                    print(f'  {profile["id"]}: <= {profile["max_population"]} people, {profile["max_years"]} years, {profile["max_repetitions"]} repetitions; '
+                          f'{profile["memory_mib"]} MiB container, {profile["heap_mib"]} MiB heap; '
+                          f'{profile["storage"]["setup_mib"]} + {profile["storage"]["per_repetition_mib"]} MiB/repetition')
+                continue
             print(('default ' if index == 0 else 'retained ')+key+' | '+entry['name']+' | '+entry['image']+
                   f" | working storage: {storage['setup_mib']/1024:g} GiB + {storage['per_repetition_mib']} MiB/repetition")
     return 0

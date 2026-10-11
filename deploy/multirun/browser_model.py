@@ -15,7 +15,7 @@ from .public_workbooks import public_workbooks
 from .browser_yaml import BrowserYaml
 from .browser_sweep import BrowserSweep
 from .browser_copy import BrowserCopy
-from .schema import COLLECTOR_FIELDS, REQUIRED_OUTPUT, ConfigurationError, Limits
+from .schema import COLLECTOR_FIELDS, REQUIRED_OUTPUT, ConfigurationError, DeploymentLimitError, Limits
 
 
 class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
@@ -99,10 +99,14 @@ class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
         required = {'name','common','repetitions','run_sets','baseline','auto_retry'}
         if (not isinstance(form,dict) or not required <= set(form) or set(form) - required - {'first_seed','model_release'}
                 or not isinstance(form['common'],dict) or set(form['common']) != {'population','start_year','end_year'}
-                or not isinstance(form['run_sets'],list) or not 1 <= len(form['run_sets']) <= self.max_configurations
-                or type(form['repetitions']) is not int or not 1 <= form['repetitions'] <= self.max_repetitions
+                or not isinstance(form['run_sets'],list) or not form['run_sets']
+                or type(form['repetitions']) is not int or form['repetitions'] < 1
                 or type(form['auto_retry']) is not bool):
             raise ArtifactError(f'Supply the experiment fields, 1–{self.max_configurations} configurations and 1–{self.max_repetitions} repetitions')
+        if len(form['run_sets']) > self.max_configurations:
+            raise DeploymentLimitError('run_sets',f'this deployment supports at most {self.max_configurations} configurations','configurations')
+        if form['repetitions'] > self.max_repetitions:
+            raise DeploymentLimitError('seed_plan.repetitions',f'this deployment supports at most {self.max_repetitions} repetitions','repetitions')
         for run in form['run_sets']:
             if not isinstance(run,dict) or set(run) - {'id','name','model_args','collector_args','dataset_revision','common','generation'} or not {'id','name','model_args'} <= set(run):
                 raise ArtifactError('Each configuration needs a name and model settings')
@@ -122,7 +126,8 @@ class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
         for path, common in [('common', canonical['common'])] + [(f'run_sets[{i}].common', r['common'])
                 for i,r in enumerate(canonical['run_sets']) if 'common' in r]:
             if common['population'] > 50000 or common['end_year'] > 2026:
-                raise ConfigurationError(path, 'this deployment supports up to 50,000 people and a last year of 2026')
+                raise DeploymentLimitError(path, 'this deployment supports up to 50,000 people and a last year of 2026',
+                                           'population' if common['population']>50000 else 'horizon')
         return dict(configuration=canonical,baseline=form['baseline'],auto_retry=form['auto_retry'])
 
     def browser_summary(self, request):

@@ -51,6 +51,7 @@ for(const name of selected){
 fs.copyFileSync(path.join(__dirname,'entry.jsx'),path.join(staging,'entry.jsx'));
 fs.copyFileSync(path.join(__dirname,'comparison_data.mjs'),path.join(staging,'comparison_data.mjs'));
 fs.copyFileSync(path.join(__dirname,'section_source.mjs'),path.join(staging,'section_source.mjs'));
+fs.copyFileSync(path.join(__dirname,'section_cache.mjs'),path.join(staging,'section_cache.mjs'));
 const entry=fs.readFileSync(path.join(staging,'entry.jsx'),'utf8');
 fs.writeFileSync(path.join(staging,'entry.js'),babel.transformSync(entry,{
   filename:'entry.jsx',presets:[[reactPreset,{runtime:'automatic'}]],

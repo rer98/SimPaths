@@ -108,6 +108,56 @@ Training images with different populations may share the same model JAR.
 
 ## Resource policy interface
 
+### Tested starting-allocation profiles
+
+The optional `simpaths.multirun.resources.v2` format adds an operator-owned
+`profiles` list to the existing version-1 `preparation` and `simulation` fields.
+Register it using the existing `releases register --resource-policy POLICY.json`
+option. A changed policy produces a distinct retained release identity; the
+default version-1 policy is still **4 GiB + 256 MiB per repetition**. No profile
+is enabled simply by updating the source code.
+
+Each profile has these exact fields:
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Unique bounded profile identifier. |
+| `max_population`, `max_years`, `max_repetitions` | Tested envelope, including both the first and last simulation years. |
+| `collectors` | Complete normalised collector settings, including CSV/database exports, persisted tables and dump timing. Exact matching is required. |
+| `cpu_millis`, `memory_mib` | Full starting reservation for this configuration. |
+| `heap_mib`, `native_headroom_mib` | JVM maximum heap and required native/off-heap headroom. Their sum must fit the starting container RAM. |
+| `storage` | `setup_mib` and `per_repetition_mib`. Verified input-copy requirements can increase the fixed term. |
+
+There can be 1–64 profiles. Envelopes with identical collectors must nest; duplicate
+or overlapping incomparable envelopes are rejected. The smallest covering envelope
+is selected. A workload outside all envelopes requires operator review; version-2
+policies never silently fall back to the old generic allocation. Different output
+collector settings require a matching tested profile. Profile coverage does not
+expand the service's separate population/year/repetition admission limits.
+
+The selection, policy checksum, starting heap, native headroom and CPU/RAM/storage
+reservation are frozen into the review and accepted configuration. Pending input
+publication verifies the same retained policy. The prepared receipt takes priority
+over changed in-memory/default settings. The launcher rechecks the profile against
+the complete normalised workload and frozen receipt. It uses the selected heap
+even with automatic recovery disabled. Version-1 releases retain their existing
+heaps and allocations.
+
+Live growth and resource-specific retries remain separate optional safeguards.
+Enable them with ceilings above the tested starting allocations where appropriate;
+growth still requires shared capacity and physical storage, and does not reserve
+that additional headroom at launch. A starting profile is not a guarantee for
+every input distribution or scientific parameter choice. Calibrate representative
+inputs/settings and preserve safety margins when approving an envelope.
+
+**Calibration checkpoint, 11 October 2026:** Cases A/B/C are intended to measure
+fixed allocations with expansion and resource retries disabled. Their final
+recommended numbers have not been adopted. The private 100,000-person/2070
+research trials do not widen the public service's current workload limits.
+The focused [monitoring/profile proof](OPERATOR.md#focused-proof) checks selection,
+frozen preparations, retries, launcher heaps and legacy compatibility using
+fictional inputs; it does not establish scientific workload resource requirements.
+
 The immutable release manifest owns this policy; new prepared receipts carry it
 forward. Accepted configurations record calculated CPU, RAM and storage allocations
 in PostgreSQL. Waiting configurations resolve from the policy in their preparation

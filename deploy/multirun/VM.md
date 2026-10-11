@@ -31,6 +31,16 @@ Do not substitute its Compose template for this MultiRun service.
 Use [operator status](OPERATOR.md) to inspect recorded work, shared reservations,
 storage, cleanup, notifications and retained releases from the service account.
 
+The optional `[monitoring]` section records bounded background host/MultiRun
+CPU, RAM and storage summaries, 80%/90% pressure durations, web-request timings,
+supported-bound rejections and queue/recovery history. See
+[operational history](OPERATOR.md#operational-history) for scope, enablement,
+unknown readings and the focused disposable proof. It requires reviewed batch
+migration 022. Existing configurations without the section remain disabled.
+Starting resource profiles are independently selected through an immutable
+[versioned release policy](RELEASES.md#tested-starting-allocation-profiles);
+calibration and selected-host tests must establish their actual allocations.
+
 The optional Visualiser is still the pinned **development levels preview**. It
 accepts user-supplied inputs and explicitly imported public training datasets.
 Confidential provider derivatives remain ineligible. This preparation does not

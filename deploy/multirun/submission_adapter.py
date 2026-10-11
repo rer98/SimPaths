@@ -20,7 +20,8 @@ from .prepared_dataset import INPUT_FORMAT, allocation, check_input_receipt, ver
 from .queue_adapter import read_prepared
 from .schema import (DEFAULT_MAX_CONFIGURATIONS, DEFAULT_MAX_REPETITIONS, Limits,
                      deployment_configuration_limit, deployment_repetition_limit)
-from .resource_policy import LEGACY_POLICY, check_policy, simulation_resources, simulation_storage
+from .resource_policy import (LEGACY_POLICY, PROFILE_FORMAT, check_policy, simulation_resources,
+                              simulation_storage, starting_allocation, workload)
 
 
 class SubmissionModel:
@@ -61,7 +62,8 @@ class SubmissionModel:
 
     def heap_limits(self, spec):
         """Freeze the launcher's existing initial heaps, independently of browsers."""
-        return {run['id']:3072 if normalise(run['parameters']).as_dict()['common']['population']>20000
+        return {run['id']:run['starting_allocation']['heap_mib'] if 'starting_allocation' in run else
+                3072 if normalise(run['parameters']).as_dict()['common']['population']>20000
                 else 2048 for run in spec['run_sets']}
 
     def experiment(self, resolved, request):
@@ -107,8 +109,8 @@ class SubmissionModel:
             policy=receipt['identity'].get('release',{}).get('resource_policy',
                 selected.get('resource_policy',LEGACY_POLICY))
             from .queue_adapter import workspace_required_bytes
-            minimum=workspace_required_bytes(receipt['identity']) if policy['simulation']['storage']['per_repetition_mib'] else 0
-        details=simulation_storage(policy,repetitions=data['seed_plan']['repetitions'],minimum_setup_bytes=minimum)
+            minimum=workspace_required_bytes(receipt['identity']) if (policy['format']==PROFILE_FORMAT or policy['simulation']['storage']['per_repetition_mib']) else 0
+        details=simulation_storage(policy,**workload(data),minimum_setup_bytes=minimum)
         # Small standalone proof receipts keep their original separate quota.
         details['storage_mib']=resources.storage_mib
         return dict(details,provisional=pending and bool(details['per_repetition_mib']))
@@ -134,8 +136,8 @@ class SubmissionModel:
                     or common['population']>50000):
                 raise ArtifactError('Configuration must match the selected inputs and supported population/years')
             release=resolved['definition']['model']['release']
-            resources=simulation_resources(release.get('resource_policy',LEGACY_POLICY),
-                population=common['population'],repetitions=len(seeds))
+            policy=release.get('resource_policy',LEGACY_POLICY)
+            resources=simulation_resources(policy,**workload(data))
             result=dict(id=run['id'],parameters=config.editable_configuration())
         else:
             receipt=read_prepared(resolved['location'])
@@ -145,8 +147,16 @@ class SubmissionModel:
             args=container_submission(config.editable_configuration(),resolved['location'],resolved['model_digest'])
             result=args['run_sets'][0]
             selected=self.releases.get(data['model_release'],{})
+            policy=receipt['identity'].get('release',{}).get('resource_policy',selected.get('resource_policy',LEGACY_POLICY))
             resources=allocation(receipt,population=data['common']['population'],repetitions=len(seeds),
-                                 resource_policy=selected.get('resource_policy',LEGACY_POLICY))
+                                 resource_policy=policy,years=workload(data)['years'],collectors=workload(data)['collectors'])
+        starting=starting_allocation(policy,**workload(data))
+        if starting is not None:
+            if 'starting_allocation' in run and run['starting_allocation'] != starting:
+                raise ArtifactError('Reviewed starting profile differs from the frozen input release')
+            result['starting_allocation']=starting
+        elif 'starting_allocation' in run:
+            raise ArtifactError('Reviewed starting profile is missing from the input release')
         return result,Resources(**resources)
 
     def replace_run(self, previous, resolved, run, seeds):

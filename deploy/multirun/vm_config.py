@@ -16,6 +16,7 @@ from .resource_recovery_settings import DEFAULTS as RECOVERY_DEFAULTS, validate 
 
 
 DEFAULTS = {
+    'monitoring': {'enabled': False, 'sample_seconds': 15, 'retention_days': 30, 'max_rows': 20000},
     'recovery': RECOVERY_DEFAULTS,
     'service': {'origin': None, 'port': 5002, 'pool_id': 'simpaths-online',
                 'dedicated_storage': True},
@@ -108,6 +109,9 @@ def load_config(path):
         raise ValueError('Training imports must be under private_root, outside the service state')
     limits = sections['limits']
     validate_recovery(sections['recovery'])
+    monitoring = sections['monitoring']
+    for key, low, high in (('sample_seconds',5,300),('retention_days',1,90),('max_rows',100,100000)):
+        number(monitoring[key],'monitoring.'+key,low,high)
     deployment_configuration_limit(limits['max_configurations'])
     deployment_repetition_limit(limits['max_repetitions'])
     for key, low, high in (('max_unfinished_jobs', 1, 10000), ('pool_unfinished_jobs', 1, 10000),
@@ -151,6 +155,8 @@ def load_config(path):
     if len(os.fsencode(quota_socket))>100:
         raise ValueError('workspaces.quota_socket exceeds the Unix socket path bound')
     options = SimpleNamespace(**limits, **paths, **service, image=image,
+        operational_metrics=monitoring['enabled'],metrics_sample_seconds=monitoring['sample_seconds'],
+        metrics_retention_days=monitoring['retention_days'],metrics_max_rows=monitoring['max_rows'],
         **{'recovery_'+key:value for key,value in sections['recovery'].items()},
         workspace_quota_socket=quota_socket,
         workspace_guard=absolute(sections['workspaces']['guard'],'workspaces.guard'),

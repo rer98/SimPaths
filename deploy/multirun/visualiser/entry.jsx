@@ -20,7 +20,10 @@ function Page(){
     cancel();const serial=++generation.current,abort=new AbortController();pending.current=abort;
     setLocal(null);setCatalogue(null);setProcessing(false);setMessage('Loading online results…');
     try{
-      const source=new SectionSource(key);client.current=source;
+      const source=new SectionSource(key,{onInvalidated:text=>{
+        if(serial!==generation.current)return;
+        setCatalogue(null);setMessage(text);
+      }});client.current=source;
       const value=await source.metadata(abort.signal);
       if(serial!==generation.current)return;
       setCatalogue(value);setMessage('');
@@ -41,6 +44,7 @@ function Page(){
   const viewSource=useMemo(()=>catalogue?{
     scenarioNames:catalogue.configurations.filter(c=>c.role==='Scenario').map(c=>c.key),
     variables:catalogue.variables,load:client.current.load.bind(client.current),
+    hint:client.current.hint.bind(client.current),cancelHint:client.current.cancelHint.bind(client.current),
   }:undefined,[catalogue]);
   const alternatives=catalogue?.configurations.filter(c=>c.role==='Scenario').length||0;
   const controls=<>
@@ -48,6 +52,7 @@ function Page(){
     <button className="vm-source-button" onClick={vm}>View Online Results</button>
     <button className="vm-source-button" onClick={localFiles} disabled={processing}>Visualise Locally Saved Data</button>
     <p className="vm-source-help">Local files are processed in this browser and are never uploaded.</p>
+    {catalogue&&<p className="vm-source-help">Recently viewed online charts can be reused on this device for up to 12 hours. Access is checked again before they are shown. <button className="vm-source-button" onClick={async()=>{await client.current?.clear();vm();}}>Clear saved data for these charts</button></p>}
     {message&&<p className="vm-source-message" role="status">{message} <a href="/">Return to SimPaths Online</a></p>}
     {alternatives>0&&<p className="vm-source-help">Use the scenario buttons to show or hide any of the {alternatives} selected alternatives. Online charts load the data for your current selection.</p>}
   </>;

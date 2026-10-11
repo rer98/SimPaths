@@ -37,6 +37,18 @@ class VMConfigTests(unittest.TestCase):
         self.path.write_text(text or self.text)
         return load_config(self.path)
 
+    def test_operational_metrics_are_bounded_opt_in_and_checks_have_no_side_effects(self):
+        options=self.config()
+        self.assertTrue(options.operational_metrics)
+        self.assertEqual((options.metrics_sample_seconds,options.metrics_retention_days,options.metrics_max_rows),(15,30,20000))
+        legacy=self.text[:self.text.index('[monitoring]')]+self.text[self.text.index('[pool]'):]
+        self.assertFalse(self.config(legacy).operational_metrics)
+        for old,new in (('sample_seconds = 15','sample_seconds = 0'),
+                        ('retention_days = 30','retention_days = 365'),
+                        ('max_rows = 20000','max_rows = 2000000'),
+                        ('enabled = true','enabled = 1')):
+            with self.subTest(new=new),self.assertRaises(ValueError):self.config(self.text.replace(old,new,1))
+
     def test_configuration_check_has_no_side_effects_and_scales_runtime(self):
         options = self.config()
         self.assertEqual(options.capacity, dict(cpu_millis=3000, memory_mib=6144, storage_mib=13312))
@@ -175,6 +187,7 @@ class VMConfigTests(unittest.TestCase):
         def get(path, cookie='', headers=None, **kwargs):
             calls.append((path, cookie, headers))
             value = None
+            if path == '/api/visualiser/key/catalogue' and cookie == 'owner':return (404,{},b'Legacy fixture')
             if path == '/api/session': value = dict(signed_in=True)
             if path == '/api/results/experiment' and cookie == 'owner':
                 value = dict(configurations=[dict(id='restricted', state='succeeded', output_state='retained',

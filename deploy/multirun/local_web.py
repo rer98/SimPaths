@@ -140,6 +140,10 @@ def parse_args(argv=None):
                         help='Retained upload allowance per user in whole GiB (default: %(default)s); does not allocate disk space')
     from .resource_recovery_settings import arguments as recovery_arguments, DEFAULTS as recovery_defaults, validate as validate_recovery
     recovery_arguments(parser)
+    parser.add_argument('--operational-metrics',action='store_true',
+        help='Record bounded background CPU/RAM/storage, request and demand summaries')
+    parser.add_argument('--metrics-sample-seconds',type=int,default=15,
+        choices=range(5,301),metavar='5..300',help='Background measurement interval; default 15 seconds')
     parser.add_argument('--download-threshold-mib',type=int,default=512,
                         help='Prepare resumable compressed ZIPs at this selected file size (default: %(default)s MiB)')
     parser.add_argument('--download-cache-gib',type=int,default=10,

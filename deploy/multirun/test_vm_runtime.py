@@ -6,6 +6,7 @@ Checks HTTPS access, worker completion/restart, health and operator pool changes
 """
 from contextlib import ExitStack, contextmanager
 import io
+import json
 import os
 from pathlib import Path
 import signal
@@ -129,6 +130,24 @@ class VMRuntimeTests(unittest.TestCase):
             self.assertEqual(client.post('/api/logout', json={}, headers={'Origin':'https://wrong.example.org'}).status_code, 403)
             self.access.approve_email('alice@example.org', seconds=None)
             self.assertEqual(client.get('/api/dashboard').status_code, 403)
+
+    def test_opt_in_monitor_lifecycle_records_http_and_host_without_owner_data(self):
+        from jasmine_web.batch.observability import history
+        self.args.operational_metrics=True
+        app=self.app()
+        monitor=app.state.submissions.monitor
+        with TestClient(app,base_url=self.origin) as client:
+            until(lambda:client.get('/healthz').status_code==200)
+            self.sign_in(client)
+            self.assertEqual(client.get('/api/dashboard').status_code,200)
+            self.assertEqual(client.get('/api/session?private-canary=secret').status_code,200)
+        self.assertFalse(monitor.thread.is_alive())
+        record=history(self.q)
+        self.assertTrue(record['recorded'])
+        self.assertTrue(any(r['kind']=='http' for r in record['measurements']))
+        self.assertTrue(any(r['kind']=='host' for r in record['measurements']))
+        text=json.dumps(record)
+        for value in ('alice@example.org','private-canary','secret',DSN):self.assertNotIn(value,text)
 
     def test_restore_marker_blocks_application_and_registry_before_assembly_changes(self):
         from .artifacts import ArtifactError

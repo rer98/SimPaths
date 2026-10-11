@@ -314,6 +314,27 @@ class BackupRestoreTests(unittest.TestCase):
     def activate(self):
         return backup.activate(self.target_q,self.backup,self.target,image_check=lambda image:None)
 
+    def test_operational_history_and_flush_receipts_survive_native_inactive_restore(self):
+        from jasmine_web.batch.observability import Settings, Summary, history, write_summaries
+        from datetime import datetime, timezone
+        now=datetime.now(timezone.utc)
+        summary=Summary();summary.add(90,15)
+        pending={(now.replace(minute=0,second=0,microsecond=0),'host','host','memory'):summary}
+        receipt=str(uuid4())
+        write_summaries(self.q,pending,Settings(),flush_id=receipt,sampled_at=now)
+        before=history(self.q)
+        self.save();restored=self.restore()
+        self.assertTrue(restored['inactive'])
+        after=history(self.target_q)
+        self.assertEqual(after['measurements'],before['measurements'])
+        self.assertEqual(after['jobs'],before['jobs'])
+        with self.target_q._connection() as c:
+            count=c.execute('SELECT count(*) AS n FROM operational_metric_flushes WHERE pool_id=%s AND id=%s',
+                            (self.target_q.pool_id,receipt)).fetchone()['n']
+        self.assertEqual(count,1)
+        from .maintenance import GATE
+        self.assertTrue((self.target/GATE).exists())
+
     def test_real_dump_restore_verifies_all_rows_files_external_deduplication_and_preserved_deadlines(self):
         before=self.f.sql('SELECT * FROM jobs ORDER BY id')
         result=self.save(); manifest=backup.verify(self.backup)

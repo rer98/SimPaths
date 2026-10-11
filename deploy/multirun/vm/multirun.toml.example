@@ -27,6 +27,14 @@ image = "sha256:REPLACE_WITH_64_HEXADECIMAL_DIGITS"
 # Must match the default selected by deploy.multirun.releases; old bundles/images
 # remain retained. See deploy/multirun/RELEASES.md before changing versions.
 
+[monitoring]
+# Numeric hourly history only; no user names, URLs, input rows or model logs.
+# Existing configurations without this section keep collection disabled.
+enabled = true
+sample_seconds = 15
+retention_days = 30
+max_rows = 20000
+
 [pool]
 # These are TOTAL allocations for model/result work. When SingleRun joins this
 # pool, reserve interactive headroom here and configure its VM_SHARED_POOL_ID.

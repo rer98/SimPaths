@@ -7,7 +7,7 @@ SimPaths Online deployment readiness, verified local evidence and installation o
 
 # SimPaths Online deployment readiness
 
-**Reviewed:** 10 October 2026. **Deployment status:** local implementation and
+**Reviewed:** 12 October 2026. **Deployment status:** local implementation and
 rehearsals are recorded below; no production VM or domain has been selected.
 
 Use this checklist to prepare and validate the first SimPaths Online installation,
@@ -29,7 +29,9 @@ Restricted-provider aggregate release rules still require separate approval.
 Two one-seed 100,000-person/2070 simulations and their retained-output browser
 comparison have passed locally. A two-seed baseline also passed on 11 October,
 with live memory growth and verified output/cleanup. Ten-seed capacity and hosted
-concurrency still require calibration.
+concurrency still require calibration. Fixed-memory Cases A/B/C have now also
+passed; [their comparison](multirun/RESEARCH_STORAGE.md#abc-comparison-record)
+records the feasible sizes and single-observation timings.
 
 The [10 October selected-chart connection](multirun/VISUALISER.md) loads a small
 catalogue and only the displayed variable/breakdown/scenario sections, with
@@ -65,7 +67,8 @@ and [tested workload starting profiles](multirun/RELEASES.md) are implemented.
 Their native 154-case proof passes without skips, including scheduler isolation,
 numeric-only history, frozen profiles, legacy releases, runtime shutdown and
 inactive backup/restore preservation. Scientific starting allocations remain
-subject to calibration; the fixed-memory Cases B/C and hosted tests are pending.
+subject to calibration. Fixed-memory Cases A/B/C have passed; repeat timings and
+hosted tests remain pending.
 
 MultiRun also has operator-enabled [automatic resource recovery](multirun/VM.md#automatic-resource-recovery):
 bounded live workspace/container-RAM growth and resource-specific retries preserve
@@ -142,7 +145,9 @@ The older real-model drivers use `status: "passed"` rather than that report form
 | Both production retirement steps remove settled failed/successful containers while preserving diagnostics and completed output | [Retirement report](/tmp/codex-rer/resource-retirement-20261006-a/report.json) and [native check](/tmp/codex-rer/resource-retirement-20261006-a/model-proof/report.json) | Small real Docker workloads and disposable PostgreSQL; repeated cleanup and atomic progress replacement |
 | Backup preservation of confirmed increases and safe abortion of pending external changes in the inactive target | [Recovery backup report](/tmp/codex-rer/resource-recovery-backup-check/report.json) | Native disposable PostgreSQL dump/restore and fictional files |
 | Background operational history, scheduler isolation, immutable starting profiles, legacy policies and inactive restore preservation | [Monitoring/profile report](/home/rer/simpaths-benchmarks/postgres-queue-20261011-193041/report.json) and [native proof](/home/rer/simpaths-benchmarks/postgres-queue-20261011-193041/model-proof/report.json) | 154 cases, no failures/errors/skips; disposable PostgreSQL and fictional workloads; cleanup confirmed; no scientific allocation recommendation |
-| Two 100,000-person/2070 repetitions complete within fixed 5 GiB container RAM and 4 GiB maximum heap | [Case A report](/tmp-codex/research-case-a-fixed-5g-20261011/model-proof/report.json) and [compact evidence](/tmp-codex/research-case-a-disposal-20261011/compact-evidence.json) | Seeds 606/607, 52 annual years, one attempt, no expansion/retry; 4.38 GiB sampled working RAM, 3h31m container lifetime, 9.30 GiB sampled workspace; cleanup confirmed; original evidence retained after bulk-output disposal; Cases B/C pending |
+| Two 100,000-person/2070 repetitions complete within fixed 5 GiB container RAM and 4 GiB maximum heap | [Case A report](/tmp-codex/research-case-a-fixed-5g-20261011/model-proof/report.json) and [compact evidence](/tmp-codex/research-case-a-disposal-20261011/compact-evidence.json) | Seeds 606/607, 52 annual years, one attempt, no expansion/retry; 4.38 GiB sampled working RAM, 3h31m container lifetime, 9.30 GiB sampled workspace; cleanup confirmed; original evidence retained after bulk-output disposal |
+| The same two-seed workload completes with fixed 6 GiB container RAM and 4 GiB maximum heap | [Case B report](/tmp-codex/research-case-b-fixed-6g-20261011/model-proof/report.json), [compact archive](/tmp-codex/research-case-b-compact-archive-20261011/archive.json) and [A/B comparison](/tmp-codex/research-benchmark-comparison-ab-after-disposal-20261011/comparison.md) | 4.21 GiB sampled working RAM; 3h26m47s container lifetime; 1,197 successful status requests, p95 92.9 ms; one attempt without expansion/retry; independent file/year audit and cleanup pass. Eight annual CSVs match per seed; BenefitUnit differences remain warnings. Single timings do not establish a speed benefit |
+| The same two-seed workload completes with fixed 6 GiB container RAM and 5 GiB maximum heap | [Case C report](/tmp-codex/research-case-c-fixed-6g-heap-5g-20261011/model-proof/report.json), [independent audit](/tmp-codex/research-case-c-fixed-6g-heap-5g-audit-20261012/report.json), [compact archive](/tmp-codex/research-case-c-compact-archive-20261012/archive.json) and [A/B/C comparison](/tmp-codex/research-benchmark-comparison-abc-archived-20261012/comparison.md) | 38 native regressions; one attempt without expansion/retry; 2h52m53s container lifetime; 4.63 GiB sampled working RAM, 3.92 GiB heap; 6.93 GiB retained output/9.30 GiB workspace; 1,010 successful status requests, p95 79.2 ms; independent 25-file/52-year audit and cleanup pass. C is 16.4% shorter than B in these single observations; heap causality and hosted performance remain unestablished, BenefitUnit warnings remain |
 | Full-length real-model completion under kernel quotas, frozen seeds/resources, verified output/input-copy cleanup and released capacity | [Quota storage report](/home/rer/simpaths-benchmarks/multirun-quota-storage-20261005-101156/report.json) and [model proof](/home/rer/simpaths-benchmarks/multirun-quota-storage-20261005-101156/postgres-proof/model-proof/report.json) | Real public 50,000-person runs, 2019–2026, one/three repetitions under 4.5/5.5 GiB XFS limits; disposable local filesystem |
 | Twelve repetitions under a smaller allowance, long-output lease renewal, verified publication/input cleanup and released capacity | [Trial report](/home/rer/simpaths-benchmarks/multirun-quota-256-12-20261005-135803/report.json) and [model proof](/home/rer/simpaths-benchmarks/multirun-quota-256-12-20261005-135803/postgres-proof/model-proof/report.json) | Real public 50,000-person runs, 2019–2026, 4 GiB + 256 MiB/repetition under a 7 GiB XFS limit; proof-only policy |
 | Two sequential 100,000-person/2070 repetitions, original seeds/settings, live memory growth and verified output/cleanup | [Trial report](/tmp-codex/research-storage-audit-20261010-two-seed-trial/report.json) and [model proof](/tmp-codex/research-storage-audit-20261010-two-seed-trial/model-proof/report.json) | Seeds 606/607 in one attempt; 6.93 GiB retained output, 9.30 GiB sampled workspace under a 12 GiB application-monitored allowance; 5-to-6 GiB container growth with unchanged 4 GiB heap; 4.39 GiB sampled working RAM; 38 database regressions and 1,097 successful status requests; cleanup confirmed |
@@ -200,6 +205,70 @@ downloads of eligible owner-supplied output are intentional; provider-derived ra
 downloads remain denied. Users may select their own locally saved raw files in the
 Visualiser. Those permissions must remain distinct during deployment acceptance.
 
+## Prepare a candidate release record
+
+[`release_record.py`](release_record.py) collects a private inventory of the four
+source checkouts, the selected JAR and immutable image references, a retained
+release catalogue, prepared receipts, declared database migrations and dependency
+files, and the Visualiser bundle/source hashes. It parses source declarations
+without importing the application. It makes bounded local Git reads and never
+starts models, services, Docker, builds or network requests.
+
+The [12 October candidate summary](/tmp-codex/deployment-release-record-20261012/SUMMARY.md)
+records the currently tested research JAR and `cache-b` Visualiser bundle.
+The bundle's 16 declared source hashes match the current Visualiser checkout,
+although its recorded build revision precedes the later commit. Both identities
+remain in the record. The JAR matches the retained default release; its historical
+source/build provenance still needs establishing. Case C's active files are not
+selected. The tool's 24 checks use only tiny fictional artifacts and temporary
+Git repositories, with no models, database or Docker.
+
+After C completed, the [refreshed A/B/C candidate record](/tmp-codex/deployment-release-record-20261012-abc/SUMMARY.md)
+adds its original model/driver reports to the evidence references. Both records
+preserve their point-in-time scope; neither approves deployment or replaces the
+independent output audit and hosted acceptance.
+
+Use a **new directory outside the source/artifact/service-state directories**:
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths &&
+TMPDIR=/tmp-codex nice -n 15 python3 deploy/release_record.py capture \
+  --simpaths "$HOME/git/SimPathsWeb/SimPaths" \
+  --core "$HOME/git/SimPathsWeb/JAS-mine-core" \
+  --frontend "$HOME/git/JAS-mine/JAS-mine-web" \
+  --visualiser "$HOME/git/SimPathsWeb/SimPaths-Policy-Impacts-Visualiser" \
+  --jar /tmp-codex/research-prepared-100000-20261009-232734/package/model.jar \
+  --image sha256:9521b8ec6b52cfb3a33bfb9e69943e504499e467c3b1c3bcba36b7eb160f5bbc \
+  --prepared /tmp-codex/research-prepared-100000-20261009-232734/package \
+  --visualiser-build /tmp-codex/visualiser-build-20261011-cache-b \
+  --catalogue "$HOME/simpaths-multirun-local/releases/catalogue.json" \
+  --evidence /tmp-codex/research-case-b-fixed-6g-20261011/model-proof/report.json \
+  --output "/tmp-codex/deployment-release-record-$(date +%Y%m%d-%H%M%S)"
+```
+
+For the recorded candidate:
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths &&
+TMPDIR=/tmp-codex nice -n 15 python3 deploy/release_record.py verify \
+  /tmp-codex/deployment-release-record-20261012/record.json
+```
+
+Recheck immediately before using a record. A later commit, status change or selected
+artifact/manifest change makes verification fail; capture a fresh record after
+committing rather than editing old evidence. It records current `HEAD`, tree and
+non-ignored status, not dirty-file contents or a source archive. Current checkout
+commits alone do not prove which sources produced an older JAR or bundle.
+
+Reads are bounded to 2 MiB per JSON/declaration, 128 MiB per hashed file and
+256 MiB total hashing. Prepared input **names and sizes** are checked against the
+receipt; the bulk input content hashes are retained as expected values and are
+explicitly **not rechecked**. Image IDs are references, not daemon verification.
+Installed dependencies, historical compiler/integration inputs, licence/data
+permissions, production data approval and host validation remain separate checks.
+No private configuration or raw logs are selected. The directory is private, but
+contains local paths and release identities; keep it as operator evidence.
+
 ## Remaining deployment checks
 
 Leave these items unchecked until their evidence comes from the selected installation.
@@ -210,7 +279,9 @@ not install services, choose providers or change security settings.
 
 - [ ] Record exact SimPaths, JAS-mine-core and JAS-mine-web commits, JAR hashes,
   immutable image IDs, retained release IDs, input receipts, catalogue, dependencies
-  and Visualiser build/source manifest. Retain the previous usable builds/images.
+  and Visualiser build/source manifest. The candidate tool above prepares this
+  inventory; select committed sources and verify the installed artifacts/dependencies
+  before completing this gate. Retain the previous usable builds/images.
 - [ ] Verify licences, notices and permitted redistribution for the selected
   model, dependencies, Visualiser and training inputs before publishing artifacts.
 - [ ] Set the initial data/profile scope and account approval rules. Retain the
@@ -267,6 +338,15 @@ not install services, choose providers or change security settings.
   policies, kernel quota, hosted performance and four-user concurrency remain
   to measure. One seed cannot estimate uncertainty across repetitions. This does
   not widen the current 50,000-person/2026 service limits or adopt new defaults.
+  All fixed-memory A/B/C cases have also passed. C's 5 GiB heap/6 GiB container
+  is a candidate for hosted validation: its observed duration was 16.4% below B
+  with 0.42 GiB more sampled working RAM, while the admission allowance was the
+  same. Repeat B/C in alternating order and under hosted load before selecting
+  profiles or claiming a dependable speed benefit; keep production recovery
+  safeguards subject to capacity and agreed ceilings.
+  Ross reports other Codex CLI work during A/B and leaving C alone overnight;
+  competing host activity was not measured. This is an uncontrolled timing
+  comparison, so reduced background load could explain some or all of the change.
 - [ ] Execute the [hosted load-test plan](HOSTED_LOAD_TEST_PLAN.md): separate
   four-user access from admitted model concurrency, increase load in stages,
   include aggregation/downloads, and agree queue/completion-time expectations.

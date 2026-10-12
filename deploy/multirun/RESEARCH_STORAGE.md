@@ -273,8 +273,8 @@ establish a dependable speed difference. GC counters increased by about
 must not be interpreted as a measured saving available from a larger heap.
 Container lifetime includes staging and initialisation as well as execution.
 
-All **1,222** measured status requests returned 200: median **71.1 ms**, p95
-**104.1 ms**, maximum **182.7 ms**. There were no browser errors. The complete
+All **1,222** measured status requests returned 200: nearest-rank median
+**71.0 ms**, p95 **104.3 ms**, maximum **182.7 ms**. There were no browser errors. The complete
 proof, including output validation, took **3h 42m 49s**. Scientific output hashes
 are compared for matching seeds: **eight of nine annual CSVs match for each
 seed** against the earlier two-seed run. `BenefitUnit.csv` differs at equal byte
@@ -296,12 +296,12 @@ the [disposal report](/tmp-codex/research-case-a-disposal-20261011/disposal-repo
 confirms unchanged native reports/manifests and prepared inputs. This leaves
 **18.60 GiB free** on `/tmp-codex`, sufficient for the next trial's disk preflight.
 
-The remaining sequential benchmarks are:
+The follow-up fixed-memory benchmarks are:
 
 | Case | Maximum Java heap | Fixed container memory | Purpose |
 | --- | ---: | ---: | --- |
-| B | 4 GiB | 6 GiB | Measure the larger container without changing the heap |
-| C | 5 GiB | 6 GiB | Measure a 25% larger heap within the same container |
+| B — passed | 4 GiB | 6 GiB | Measure the larger container without changing the heap |
+| C — passed | 5 GiB | 6 GiB | Measure a 25% larger heap within the same container |
 
 Case C's 5 GiB maximum heap was agreed on 11 October. The difference between
 container and maximum heap is **1 GiB**, matching Case A; Case B leaves 2 GiB.
@@ -314,12 +314,15 @@ Set equal initial/maximum container memory and one attempt, preventing expansion
 and resource retries during the measurements. Case B/C require **15 GiB free
 disk** and **8 GiB available RAM** under the existing proof preflight. These
 tests do not change production defaults or disable production recovery.
-Final starting profiles await the remaining cases and hosted workload tests.
+Final starting profiles await repeat timings and hosted workload tests.
 An earlier check found **7.2 GiB RAM available**, below Case B's 8 GiB preflight
-requirement. The test-service reserve was not reduced. Case B has now been
-started from the native terminal; its result remains pending. Case C has not
-started. After B finishes, preserve its file hashes, annual counts and resource
-measurements, reclaim bulk output and recheck free space before executing C:
+requirement. The test-service reserve was not reduced. Case B subsequently
+completed successfully from the native terminal. Ross subsequently ran Case C
+from the native terminal; it completed successfully on 12 October.
+B's compact evidence is preserved and its verified bulk output has been
+reclaimed. Free-space and available-RAM checks passed before preparing the
+the C command below; the driver rechecks them at launch. This is the command
+for reproducing the completed trial, not a further test needed to inspect its results:
 
 ```bash
 cd ~/git/SimPathsWeb/SimPaths &&
@@ -333,6 +336,183 @@ TMPDIR=/tmp-codex ~/simpaths-browser-tests/venv/bin/python deploy/multirun/resea
   --output "/tmp-codex/research-case-c-fixed-6g-heap-5g-$(date +%Y%m%d-%H%M%S)"
 ```
 
+### Completed fixed-memory Case B — 11 October 2026
+
+The same 100,000-person baseline completed seeds **606 and 607** through 2070
+with a **fixed 6 GiB container and 4 GiB maximum Java heap**. The
+[native model report](/tmp-codex/research-case-b-fixed-6g-20261011/model-proof/report.json)
+and [driver report](/tmp-codex/research-case-b-fixed-6g-20261011/report.json)
+both record success and confirmed cleanup. Observed memory limits stayed at
+6 GiB, with one successful attempt, no live increases and no resource retries.
+All original annual years, settings and output hashes were verified; input
+copies were reclaimed and capacity reservations released.
+
+The [A/B comparison](/tmp-codex/research-benchmark-comparison-ab-20261011/comparison.md)
+checks the same model, image, prepared inputs, configuration, seeds, collectors
+and calibration sources. B's container lifetime was **3h 26m 47s**, compared
+with **3h 31m 13s** for A: **4m 26s shorter, or 2.1%**. These single observations
+do not establish a causal or dependable speed benefit from the larger container.
+B's GC counters totalled **5m 39s**, 2.7% of its last sampled JVM elapsed time,
+about 19 seconds less than A. This does not explain the whole runtime difference.
+
+B's sampled working RAM peaked at **4.21 GiB**, and heap usage at **3.46 GiB**.
+These sampled peaks need not rise monotonically with a larger container limit;
+they depend on execution and collection timing. Total cgroup memory and its
+kernel peak counter reached **6 GiB**, including file cache. Working RAM excludes
+inactive file cache and must not be substituted for the admission allowance.
+Workspace peaked at **9.30 GiB**, with **6.93 GiB** retained output, matching A
+at the displayed precision. The complete proof took **3h 39m 11s**.
+
+All **1,197** measured status requests returned 200, without browser errors:
+nearest-rank median **69.9 ms**, p95 **92.9 ms**, p99 **104.1 ms**, maximum
+**151.6 ms**. For each matching seed, **eight of nine annual CSVs match A
+exactly**. `BenefitUnit.csv` differs at equal size for both seeds; these remain
+unresolved reproducibility warnings rather than evidence of scientific equivalence.
+No other annual output mismatch was found. Production defaults remain unchanged.
+
+The [independent B audit](/tmp-codex/research-case-b-fixed-6g-audit-20261011/report.json)
+verified every original hash in **25 files**, including all **52 years** in the
+**18 annual CSVs**. The
+[compact B archive](/tmp-codex/research-case-b-compact-archive-20261011/archive.json)
+preserves frozen completion records, per-file sizes/hashes, per-year counts/bytes
+and resource measurements. The
+[archived A/B comparison](/tmp-codex/research-benchmark-comparison-ab-archived-20261011/comparison.md)
+remains reproducible after removal of the original bulk files.
+
+The new disposal command then rehashed all remaining output before deleting the
+first file and removed only those **25 manifest-listed files**. Its
+[journal](/tmp-codex/research-case-b-fixed-6g-20261011/model-proof/benchmark-disposal.json)
+and [follow-up verification](/tmp-codex/research-case-b-compact-archive-20261011/post-disposal-verification.json)
+confirm unchanged native reports/manifests and prepared evidence, with no model
+run. Physical free space increased by **6.93 GiB**, to **18.14 GiB**; available
+RAM was **13.22 GiB**. C's **15 GiB disk / 8 GiB RAM** preflight and actual
+[driver dry-run](/tmp-codex/research-case-b-compact-archive-20261011/case-c-dry-run.json)
+passed with the original prepared snapshot. These are point-in-time checks, not
+reservations. No C output directory or simulation was created. The tool sandbox
+denies local sockets and runtime-image inspection through `/var/run/docker.sock`,
+so actual runtime verification and launch must use the native terminal.
+
+### Completed fixed-memory Case C — 12 October 2026
+
+Both the [native model report](/tmp-codex/research-case-c-fixed-6g-heap-5g-20261011/model-proof/report.json)
+and [driver report](/tmp-codex/research-case-c-fixed-6g-heap-5g-20261011/report.json)
+record success and confirmed cleanup. Seeds **606 and 607** completed through
+2070 with the same model, prepared inputs, settings, collectors, two-CPU allowance
+and measurement sources as A/B. The heap maximum was **5 GiB** and the container
+stayed at **6 GiB**. One attempt completed, without growth, waiting notices or
+retries; original output/years/settings were verified, repeated input copies
+reclaimed and reservations released. All **38** native worker/recovery checks pass.
+
+C's container lifetime was **2h 52m 53s**: **33m 54s shorter than B (16.4%)**
+and **38m 20s shorter than A (18.2%)** in these observations. Its last sampled
+JVM timer was **2h 52m 1s**, and the complete proof took **3h 4m 13s**.
+GC counters totalled **4m 53s**, about **2.8%** of the last sampled JVM timer.
+This is only **47 seconds less GC counter time than B**, which does not explain
+the entire 34-minute container-duration difference. The larger heap is promising,
+but these single trials do not isolate its effect from laptop load, thermal/power
+conditions and other execution variability. Repeat B/C in alternating order and
+on the selected host before claiming a dependable performance improvement.
+
+**Reported test conditions:** Ross subsequently noted that he used Codex CLI for
+other work during A/B, while C was left alone overnight. No corresponding host
+CPU/I/O/thermal trace was captured. The amount of competing local work is therefore
+unquantified, but the conditions were not controlled for a heap-performance
+comparison. Reduced background load could explain some or all of C's shorter
+duration. Treat the allocation-feasibility passes separately from any speed claim;
+repeat B under similarly idle conditions, ideally alternating B/C with the same
+power settings and no sleep, before selecting a heap for performance reasons.
+
+Sampled working RAM peaked at **4.63 GiB**, about **0.42 GiB above B**, with
+heap usage peaking at **3.92 GiB**. The JVM did not use the whole 5 GiB maximum
+in the samples. Total cgroup memory reached the 6 GiB ceiling including file
+cache; its kernel peak counter is 4 KiB above that displayed allowance. Working
+RAM excludes inactive file cache and is not an alternative admission budget.
+Workspace remained **9.30 GiB** and retained output **6.93 GiB** at the displayed
+precision. No production allocation or recovery policy has been changed.
+
+All **1,010** status requests returned 200, with no browser errors: nearest-rank
+median **63.6 ms**, p95 **79.2 ms**, p99 **92.4 ms**, maximum **126.5 ms**.
+The [complete A/B/C comparison](/tmp-codex/research-benchmark-comparison-abc-20261012/comparison.md)
+verifies frozen identities and matching seeds, with no unexpected annual CSV
+mismatches. For every pair of cases and each seed, **eight of nine annual CSVs
+match exactly**; equal-size `BenefitUnit.csv` differences remain unresolved
+reproducibility warnings. Successful benchmark comparison does not resolve that
+scientific issue.
+
+The [independent C audit](/tmp-codex/research-case-c-fixed-6g-heap-5g-audit-20261012/report.json)
+and [compact archive](/tmp-codex/research-case-c-compact-archive-20261012/archive.json)
+preserve each original file's verified hash/size and all 52 years in the 18
+annual CSVs. The small evidence can be compared after bulk output retirement;
+no model is rerun by auditing, archiving or comparing. C's bulk files were retained
+during the initial results review. On 12 October, before preparing the quiet
+overnight repeats, the existing compact archive was checked against the original
+completion records. The disposal tool then rehashed every remaining file and
+removed only the **25 manifest-listed bulk files**. Its
+[disposal journal](/tmp-codex/research-case-c-fixed-6g-heap-5g-20261011/model-proof/benchmark-disposal.json)
+confirms unchanged original reports and archived evidence. Prepared inputs and
+diagnostics remain. Free disk space was **18.20 GiB** after disposal; launch-time
+checks still apply.
+
+**Research profile candidate:** for this tested 100,000-person/52-year workload,
+include **5 GiB maximum heap / 6 GiB initial container RAM** in hosted validation
+alongside B's 4 GiB heap / 6 GiB container. C recorded the shortest duration,
+but its quieter reported background conditions prevent ranking the heaps on
+speed; both fit the same admission allowance. Keep opportunistic expansion and resource-specific retries available in
+production for unexpected demand, subject to capacity and agreed ceilings.
+Do not replace the current public profile or treat two repetitions as a proven
+bound for ten repetitions, other populations, policy settings or collector choices.
+
+### Unattended quiet repeats — prepared 12 October 2026
+
+`research_sequence.py` runs the selected cases **one at a time**. The default
+order is **B then A**, for comparison with the existing quiet C run. Each case
+uses the same pinned preparation/runtime, baseline, seeds 606/607, two CPUs and
+12 GiB storage, with its agreed fixed heap/container limits and one attempt.
+Production defaults and recovery safeguards are unchanged. The preparation is
+verified by the native calibration before and after each model run.
+
+For each successful case the sequence audits every retained file and annual CSV,
+creates a compact archive, compares the same-seed hashes with the selected
+reference/preceding cases, and then uses the checked disposal tool to reclaim
+the bulk files. Native reports, logs, frozen settings, hashes, file sizes and
+annual counts remain. An unexpected annual mismatch, failed model/audit/archive,
+changed selected sources or unconfirmed cleanup/deletion stops the sequence;
+the next model is not started. Equal-size `BenefitUnit.csv` differences remain
+explicit unresolved warnings. Reference evidence is never deleted by this runner.
+
+The runner rechecks free space and available RAM before each launch, streams
+native progress to the terminal and private stage logs, and prevents concurrent
+sequence runners using the same output parent. A new output directory is required;
+failed sequences are not resumed or retried automatically. A 60-second pause
+between cases lets completed test services settle. Power/sleep settings are
+managed by the operator; Ross confirms mains power and overnight operation.
+
+Run from the native terminal, leaving the laptop otherwise quiet:
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths &&
+TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 ~/simpaths-browser-tests/venv/bin/python deploy/multirun/research_sequence.py \
+  --frontend "$HOME/git/JAS-mine/JAS-mine-web" \
+  --prepared /tmp-codex/research-prepared-100000-20261009-232734/package \
+  --cases B A \
+  --reference-case C=/tmp-codex/research-case-c-compact-archive-20261012 \
+  --output "/tmp-codex/research-quiet-ba-$(date +%Y%m%d-%H%M%S)"
+```
+
+Append `--dry-run` to inspect the plan without starting models or writing/deleting
+evidence. To include another C after A, change only `--cases B A` to
+`--cases B A C`. The latest completed case supplies the final comparison entry;
+the original C archive remains preserved. The run directory contains `plan.json`,
+`report.json`, per-case `trials`, `audits`, `archives`, `logs` and comparisons.
+The final comparison path is printed on success. Earlier A/B proof durations
+total approximately 7.4 hours before the extra audits/pause; actual quiet-run
+durations are still to be measured. These tests have been prepared, not launched.
+All ten small sequencer checks pass, including failure/changed-source/output
+guards, reference preservation, exclusive locking and real subprocess logging.
+The actual B/A driver dry-runs and annual-audit imports pass in the selected
+virtual environment. Verification is recorded in
+[/tmp-codex/research-sequence-checks-20261012](/tmp-codex/research-sequence-checks-20261012).
+
 ### A/B/C comparison record
 
 Use the same release, prepared inputs, collectors, two-CPU allowance, seeds
@@ -343,21 +523,23 @@ support a decision. Keep production safeguards separate from these fixed tests.
 
 | Measurement | A: 4 GiB heap / 5 GiB container | B: 4 GiB heap / 6 GiB container | C: 5 GiB heap / 6 GiB container |
 | --- | --- | --- | --- |
-| Status | Passed | Running; result pending | Not started |
-| Container lifetime | 3h 31m 13s | Pending | Pending |
-| Last sampled JVM elapsed time | 3h 30m 31s | Pending | Pending |
-| GC counter time | 5m 58s (2.8% of last sampled JVM elapsed time) | Pending | Pending |
-| Sampled working RAM / heap peak | 4.38 / 3.74 GiB | Pending | Pending |
-| Total cgroup memory / pressure | Approximately container ceiling; retain native readings | Pending | Pending |
-| Sampled workspace peak / retained output | 9.30 / 6.93 GiB | Pending | Pending |
-| Attempts / growth | One / none | Verify | Verify |
-| Status latency p95 / maximum | 104.1 / 182.7 ms | Pending | Pending |
-| Annual output / seed/settings / hashes | Verified; known BenefitUnit differences recorded | Pending | Pending |
-| Settled cleanup / compact evidence | Confirmed and archived | Pending | Pending |
+| Status | Passed | Passed | Passed |
+| Container lifetime | 3h 31m 13s | 3h 26m 47s | 2h 52m 53s |
+| Last sampled JVM elapsed time | 3h 30m 31s | 3h 26m 1s | 2h 52m 1s |
+| GC counter time | 5m 58s (2.8% of last sampled JVM elapsed time) | 5m 39s (2.7%) | 4m 53s (2.8%) |
+| Sampled working RAM / heap peak | 4.38 / 3.74 GiB | 4.21 / 3.46 GiB | 4.63 / 3.92 GiB |
+| Total cgroup memory / pressure | Approximately 5 GiB ceiling; one unchanged-allocation waiting notice | 6 GiB ceiling; no resource events | Approximately 6 GiB ceiling; no resource events |
+| Sampled workspace peak / retained output | 9.30 / 6.93 GiB | 9.30 / 6.93 GiB | 9.30 / 6.93 GiB |
+| Attempts / growth | One / none | One / none | One / none |
+| Status latency p95 / maximum, nearest rank | 104.3 / 182.7 ms | 92.9 / 151.6 ms | 79.2 / 126.5 ms |
+| Annual output / seed/settings / hashes | Verified; known BenefitUnit differences recorded | Verified; eight annual CSVs per seed match A, BenefitUnit warnings retained | Verified; eight annual CSVs per seed match A/B, BenefitUnit warnings retained |
+| Settled cleanup / compact evidence | Confirmed and archived | Confirmed and archived; bulk output removed | Confirmed and archived; bulk output retained |
 
 Use native reports for exact values rather than deriving them from terminal
-sampling lines. Preserve B's evidence and compare hashes before removing its
-bulk output to make room for C. The command above is ready but has not been run.
+sampling lines. B's evidence and hash comparison are now archived, and its bulk
+output has been removed to make room for C. C has also completed, with its native
+reports and compact archive retained. All three cases are included in the
+[archived comparison](/tmp-codex/research-benchmark-comparison-abc-archived-20261012/comparison.md).
 The telemetry elapsed value is the final sample's JVM timer, not an independent
 measurement of the complete simulation phase. These single trials can identify
 feasible allocations and suggest follow-up timing tests; they cannot establish
@@ -397,19 +579,20 @@ execution or bulk-output read/deletion. To create a fresh comparison:
 cd ~/git/SimPathsWeb/SimPaths &&
 python3 -m deploy.multirun.research_benchmarks compare \
   --case A=/tmp-codex/research-benchmark-tool-20261011/case-a-archive \
-  --case B=/tmp-codex/research-case-b-fixed-6g-20261011 \
+  --case B=/tmp-codex/research-case-b-compact-archive-20261011 \
+  --case C=/tmp-codex/research-case-c-compact-archive-20261012 \
   --output "/tmp-codex/research-benchmark-comparison-$(date +%Y%m%d-%H%M%S)"
 ```
 
-Once C completes, add `--case C=` followed by its actual completed evidence
-directory. Preserve each native report as historical evidence. Comparison reads
+All three cases have completed. Preserve each native report as historical evidence. Comparison reads
 their recorded hashes; it does not attest to the current state of bulk files.
 
-After B completes with confirmed cleanup, run the existing read-only
-`research_storage_audit.py` on B with the pinned preparation before reclaiming
-space. This full audit reads the original CSVs and verifies all file hashes and
-annual counts. Then use these separate, explicitly requested operations, selecting
-the real successful audit and a new archive directory:
+Before reclaiming each completed case with confirmed cleanup, run the read-only
+`research_storage_audit.py` with that case and the pinned preparation. This full
+audit reads the original CSVs and verifies all file hashes and annual counts.
+B's workflow is already completed; its CSV audit cannot be repeated after
+bulk-output removal. For a later completed case adapt the commands below,
+selecting its real successful audit and a new archive directory:
 
 ```bash
 python3 -m deploy.multirun.research_benchmarks archive \
@@ -437,7 +620,7 @@ allows rerunning the identical command after interruption; an unexpected change
 still requires investigation. It removes only manifest-listed output files,
 preserving directories, native reports, prepared inputs and other runs. Byte
 counts are logical bytes removed, not a promise of free-space gain from shared
-blocks, hard links or open files. Recheck physical free space before launching C.
+blocks, hard links or open files. Recheck physical free space before a new trial.
 
 The comparison/archival/disposal tests use tiny fictional files and no Docker,
 database, models or emails. The focused command is:
@@ -452,7 +635,10 @@ interruption between unlink and journal update. Native Case A's archive reads
 successfully and its original completion records remain unchanged. See the
 [verification receipt](/tmp-codex/research-benchmark-tool-20261011/verification.json)
 and [test log](/tmp-codex/research-benchmark-tool-20261011/tests-complete.log).
-No real bulk-output disposal has been performed by the new tool.
+The first real disposal has now removed B's 25 verified bulk files; its compact
+archive, unchanged original completion records and disposal journal are linked
+above. C's passing native reports, independent audit and compact archive are now
+linked above. Its bulk output is still retained; archival does not delete it.
 
 ## Remaining host checks
 

@@ -62,6 +62,8 @@ Upstream baseline used to identify new files: `b223738b9cdf1d814cc3c6f09b04bc493
 - `src/test/java/simpaths/experiment/SimPathsMultiRunConfigurationTest.java`
 - `src/test/resources/multirun/native-configuration.yml`
 - `deploy/test_release_workflows.py`
+- `deploy/release_record.py`
+- `deploy/test_release_record.py`
 - `deploy/web-quickstart/build_release.py`
 - `deploy/web-quickstart/promote_release.py`
 - `deploy/web-quickstart/test_release.py`
@@ -85,6 +87,8 @@ Upstream baseline used to identify new files: `b223738b9cdf1d814cc3c6f09b04bc493
 - `deploy/multirun/test_research_storage_audit.py`
 - `deploy/multirun/research_benchmarks.py`
 - `deploy/multirun/test_research_benchmarks.py`
+- `deploy/multirun/research_sequence.py`
+- `deploy/multirun/test_research_sequence.py`
 - `deploy/multirun/RESEARCH_STORAGE.md`
 - `deploy/HOSTED_LOAD_TEST_PLAN.md`
 - `deploy/multirun/visualiser/test_runner.cjs`
@@ -146,6 +150,12 @@ Generated MultiRun `releases/catalogue.json`, versioned release manifests and
 resource-policy records have the same attribution, also recorded in each new
 release bundle's `COPYRIGHT.md`. Copied JARs, workbooks and adapter sources retain
 their existing attribution and licences; metadata attribution does not relicense them.
+
+Generated candidate deployment `record.json`, summaries and verification evidence
+are attributed by their accompanying `COPYRIGHT.md`. This covers inventory
+metadata only; recording a checksum or a current source commit does not claim
+ownership of upstream code/data, establish historical build provenance or grant
+redistribution permission.
 
 Generated memory-monitor acceptance reports and fictional allocation logs are
 attributed by the `COPYRIGHT.md` saved alongside each evidence set. Tested JARs

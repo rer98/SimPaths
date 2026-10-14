@@ -74,6 +74,105 @@ The existing prepared-profile and query-account checks detect structural/profile
 and packaging problems. They cannot establish scientific compatibility with every
 model change. Review population-construction changes before reusing saved people.
 
+### Testing a security update through the separated SingleRun services
+
+For a local candidate before committing the final update, run the combined
+workflow below. It records the exact working sources, including interactive
+input files, and refuses source changes during acceptance. The normal Quick Start
+release route still requires committed Java sources. The candidate route cannot
+automatically promote images.
+
+```bash
+TMPDIR=/tmp-codex "$SIMPATHS_TEST_ENV/bin/python" deploy/acceptance/run_security_refresh.py \
+  --frontend "$JASMINE_WEB_REPO" --core "$JASMINE_CORE_REPO" \
+  --maven-repository /path/to/cached/maven-repository \
+  --output "/tmp-codex/security-refresh-$(date +%Y%m%d-%H%M%S)"
+```
+
+Use `--dry-run` first to inspect the stages. This workflow requires local Docker,
+Chromium, the two existing prepared Quick Start images and a complete offline
+Maven cache. Network access is still needed for Dockerfile package updates. It
+uses the quiet research sequence's lock in the output's parent directory, so keep
+both workflows under `/tmp-codex` to prevent them running together.
+
+The workflow builds/tests core and SimPaths, packages Quick Start 20,000 and
+50,000, and runs their real browser checks through independently running public
+and private processes. It then builds uniquely tagged training/user-data images
+and checks all four training preparation choices and the user-data workflow in a
+disposable PostgreSQL deployment. Original interactive aliases and catalogues are
+not changed. Image IDs, runtime and input hashes, source inventories and individual
+browser reports are retained. Missing private shutdown evidence or failed cleanup
+fails the workflow.
+
+If Quick Start passed but a later image build stopped, pass
+`--resume-from /path/to/original-security-refresh` and use a **new** `--output`
+directory. This verifies the original source receipt, both browser reports and
+their cleanup, the current runtime JAR, and the immutable Quick Start image IDs
+before continuing with training/user-data images. It does not rerun the accepted
+Quick Start models or Maven builds, and it preserves the original failure report.
+Changes to model/frontend/input sources require fresh acceptance. Only the two
+workflow orchestration drivers (`run_security_refresh.py` and
+`run_interactive_rpc_acceptance.py`), their guard test module and this maintainer
+guide may differ; those tooling changes are explicitly recorded in the continuation
+receipt. Individual browser-test scripts and deployed model/frontend code must match.
+
+If training finished exporting but user-data could not build, also pass
+`--reuse-training-from /path/to/retained-interactive-build`. It verifies that
+build's source receipt, exported immutable image ID and runtime before building
+only user-data. Training browser checks still run. A legacy combined-build log
+must show the training export completing before the user-data stage. New runs
+build each profile separately and record its image ID and input hashes after
+each successful build, so later failures retain a usable checkpoint. Use the
+original successful Quick Start evidence for `--resume-from`; the training build
+can come from a separate continuation directory.
+
+If both interactive images built and all four training browser modes passed,
+but user-data stopped, use `--resume-interactive-from /path/to/that-refresh`
+alongside the original `--resume-from`. This verifies both image IDs, runtime
+and input hashes, all four individual training reports, and the completed private
+shutdown and cleanup receipt. It runs only the user-data browser workflow and
+records the prior training report checksums in the combined acceptance record.
+The original failed report is preserved. Missing training checks or unconfirmed
+cleanup cannot be skipped. The standalone interactive runner's `--profile user-data`
+is a partial check; only the combined refresh verifies and carries forward the
+other evidence.
+
+An additional 8 GiB free-space check runs before interactive browser preparation,
+after the image builds. User-data preparation can consume several GiB before
+the first Build, which still requires its normal 2 GiB working-space reserve.
+The resume route does not rebuild Java or require a complete Maven dependency
+cache. If disposable duplicates are removed from the isolated cache after Java
+acceptance, refill it before another full offline Java build; preserve locally
+rebuilt artifacts that differ from the home cache.
+
+Use `--prune-build-cache` only when you intend to reclaim unused shared Docker
+build cache before and after each interactive image build. It keeps images,
+containers and volumes, but future builds can take longer without cached layers.
+That option uses Docker's default dangling-cache cleanup. If regular unused cache
+still prevents the free-space check passing, `docker builder prune -a -f` also
+clears unused build cache associated with older builds. It preserves tagged
+images, containers and volumes. Keep the 8 GiB pre-build free-space check; clearing
+cache does not replace the remaining space needed for packaging and preparation.
+
+These local processes use the same test account. They test native framing, real
+models and browser behaviour; they do not prove the installed distinct-user
+permissions, firewall or filesystem quotas. Follow the selected-host readiness
+checks before exposing the service publicly. Rebuilt `multirun.jar` is recorded by
+the Java build, but this SingleRun workflow does not build/register a new MultiRun
+release.
+
+To test restart and outage handling independently, using fictional model data with
+real local TLS, Nginx, PostgreSQL and Unix sockets:
+
+```bash
+TMPDIR=/tmp-codex "$SIMPATHS_TEST_ENV/bin/python" deploy/acceptance/run_https_rehearsal.py \
+  --frontend "$JASMINE_WEB_REPO" --private-rpc \
+  --output "/tmp-codex/singlerun-https-rpc-$(date +%Y%m%d-%H%M%S)"
+```
+
+This checks ownership, controls, downloads, public/private restarts and retained
+capacity. It does not install system services or perform a backup/restore.
+
 For ordinary compilation or the interactive-image route, run:
 
 ```bash

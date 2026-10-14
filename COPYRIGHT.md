@@ -7,6 +7,15 @@ Attribution scope and non-commentable/generated artifacts.
 
 # Attribution
 
+The SingleRun native acceptance additions carry inline notices:
+`deploy/acceptance/_single_rpc.py`,
+`deploy/acceptance/test_single_rpc_rehearsal.py`,
+`deploy/acceptance/run_interactive_rpc_acceptance.py` and
+`deploy/acceptance/run_security_refresh.py`.
+Their authored reports, source inventories, screenshots and fixture evidence are
+(C) Copyright 2026, by Ross Richardson; @author ross richardson. Scientific inputs
+and third-party packages retain their original attribution and licences.
+
 (C) Copyright 2026, by Ross Richardson.
 
 @author ross richardson

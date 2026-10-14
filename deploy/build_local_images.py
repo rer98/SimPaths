@@ -34,7 +34,11 @@ def main(argv=None):
                         help='Prune unused shared Docker build cache before and after builds; '
                              'never prune images, containers or volumes')
     parser.add_argument('--frontend', type=Path, help='JAS-mine-web checkout supplying shared tools; otherwise JASMINE_WEB_REPO or ~/git/JAS-mine/JAS-mine-web')
+    parser.add_argument('--tag-suffix', default='', help='Optional unique candidate suffix; preserves existing interactive aliases')
     args = parser.parse_args(argv)
+    import re
+    if args.tag_suffix and not re.fullmatch(r'[a-z0-9][a-z0-9_.-]{0,64}', args.tag_suffix):
+        parser.error('Use a short lowercase candidate tag suffix')
     if not math.isfinite(args.min_free_gib) or args.min_free_gib <= 0:
         parser.error('--min-free-gib must be finite and positive')
     args.repo = args.repo.expanduser().resolve()
@@ -48,7 +52,7 @@ def main(argv=None):
 
     shared = load_web_tool('local_images.py', args.frontend)
     jobs = [shared.ImageBuild(
-        name=profile, image=f'simpaths-interactive:uk-{profile}',
+        name=profile, image=f'simpaths-interactive:uk-{profile}' + ('-'+args.tag_suffix if args.tag_suffix else ''),
         package_command=(sys.executable, str(args.repo / f'deploy/web-{profile}/package_image.py')),
     ) for profile in profiles]
     return shared.build_images(

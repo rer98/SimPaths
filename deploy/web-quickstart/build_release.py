@@ -55,6 +55,22 @@ def git(repo, *args):
     return subprocess.check_output(['git', '-C', str(repo), *args], text=True).strip()
 
 
+def source_inventory(repo, *, include_inputs=False):
+    """Bind candidate worktree builds to exact tracked/untracked source bytes."""
+    names = subprocess.check_output(['git','-C',str(repo),'ls-files','-z','--cached','--others',
+                                    '--exclude-standard'], text=True).split('\0')
+    result = {}
+    for name in sorted(set(names)):
+        if not name or (not include_inputs and name.startswith('input/')):
+            continue  # Retained prepared inputs have a separate complete image receipt.
+        path = repo/name
+        if path.is_symlink():
+            raise ValueError('Source inventory cannot follow a symbolic link')
+        if path.is_file():
+            result[name] = digest(path)
+    return dict(revision=git(repo,'rev-parse','HEAD'), worktree=git(repo,'status','--short'), files=result)
+
+
 def deployment(population, image):
     return {'image': image, 'java_heap_gib': 2 if population == 20000 else 3,
             'memory': '4Gi' if population == 20000 else '5Gi', 'cpu': 2,
@@ -151,16 +167,22 @@ def main(argv=None):
     parser.add_argument('--base-20000', help='Local prepared image for 20,000; overrides the catalogue')
     parser.add_argument('--base-50000', help='Local prepared image for 50,000; overrides the catalogue')
     parser.add_argument('--offline', action='store_true', help='Run Maven offline using cached dependencies')
+    parser.add_argument('--candidate-worktree', action='store_true',
+                        help='Record exact working source for a test candidate; disables automatic promotion')
+    parser.add_argument('--maven-repository', type=Path, help='Optional isolated Maven dependency cache')
+    parser.add_argument('--private-rpc', action='store_true', help='Browser-test separate public/private processes')
     args = parser.parse_args(argv)
     for name in ('core', 'simpaths', 'frontend', 'work_root', 'output'):
         setattr(args, name, getattr(args, name).expanduser().resolve())
     args.catalogue = workflow.catalogue_path(args.frontend, args.catalogue)
+    if args.candidate_worktree and args.promote:
+        parser.error('Working-source candidates cannot be automatically promoted')
     base_references = selected_bases(args)
     plan = {'core': str(args.core), 'simpaths': str(args.simpaths), 'frontend': str(args.frontend),
             'temporary_root': str(args.work_root), 'output': str(args.output),
             'profiles': [profile_record(p, base) for p, base in base_references.items()],
-            'stages': ['Docker/configuration preflight', 'test/install committed core',
-                       'test/package committed SimPaths', 'repackage each prepared profile and verify hashes',
+            'stages': ['Docker/configuration preflight', 'test/install recorded core sources',
+                       'test/package recorded SimPaths sources', 'repackage each prepared profile and verify hashes',
                        'browser acceptance at each recommended allocation, including cleanup'],
             'host_disk_quota': 'Not configured or verified; application allowance only'}
     print(json.dumps(plan, indent=2), flush=True)
@@ -178,9 +200,9 @@ def main(argv=None):
         allowed = {'input/DatabaseCountryYear.xlsx', 'input/EUROMODpolicySchedule.xlsx'} if repo == args.simpaths else set()
         changed = set(git(repo, 'diff', '--name-only', 'HEAD').splitlines())
         untracked_source = [p for p in git(repo, 'ls-files', '--others', '--exclude-standard', 'src', 'pom.xml', 'deploy').splitlines() if p]
-        if untracked_source:
+        if untracked_source and not args.candidate_worktree:
             parser.error(f'Commit new source files first: {repo}: {untracked_source}')
-        if changed - allowed:
+        if changed - allowed and not args.candidate_worktree:
             parser.error(f'Commit Java repository changes first: {repo}: {sorted(changed - allowed)}')
     if not (args.frontend/'jasmine_web/heap_policy.py').is_file():
         parser.error('Update JAS-mine-web: jasmine_web/heap_policy.py is required')
@@ -205,15 +227,25 @@ def main(argv=None):
                            env={**os.environ, 'TMPDIR': str(args.work_root.resolve())})
     status = {'status': 'running', 'images': records}
     try:
+        sources = {name:source_inventory(repo) for name,repo in
+                   [('core',args.core),('simpaths',args.simpaths),('frontend',args.frontend)]}
+        (args.output/'source-inventory.json').write_text(json.dumps(sources,indent=2)+'\n')
+        status['candidate_worktree'] = args.candidate_worktree
+        status['source_inventory_sha256'] = digest(args.output/'source-inventory.json')
         revisions = {name: git(repo, 'rev-parse', 'HEAD') for name, repo in
                      [('core',args.core),('simpaths',args.simpaths),('frontend',args.frontend),('release_tools',ROOT)]}
         maven = ['mvn'] + (['-o'] if args.offline else []) + ['-Djava.awt.headless=true']
+        if args.maven_repository:
+            maven += ['-Dmaven.repo.local='+str(args.maven_repository.expanduser().resolve())]
         run('core-build', [*maven, 'install'], args.core)
         run('simpaths-build', [*maven, 'package'], args.simpaths)
         jar = args.simpaths/'singlerun.jar'
         stamp = datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')
         profile_for, profile_id, profile_readme = packager.profile_for, packager.profile_id, packager.profile_readme
         for population, base in bases.items():
+            if sources != {name:source_inventory(repo) for name,repo in
+                           [('core',args.core),('simpaths',args.simpaths),('frontend',args.frontend)]}:
+                raise ValueError('Source changed while candidate was building')
             print(f'package-{population}', flush=True)
             base_container = client.containers.create(base.id)
             try:
@@ -228,6 +260,8 @@ def main(argv=None):
             record = {'population': population, 'tag': tag, 'base_image': base.id, 'base_reference': base_references[population],
                       'revisions': revisions, 'runtime_jar_sha256': digest(jar),
                       'frontend_worktree_status': git(args.frontend, 'status', '--short'),
+                      'candidate_worktree': args.candidate_worktree,
+                      'source_inventory_sha256': status['source_inventory_sha256'],
                       'source_prepared_hashes': {**hashes, 'input_files': input_hashes},
                       'query_access_setup': 'restricted account; receipt in /app/query-access.json', 'deployment': deployment(population, tag)}
             with tempfile.TemporaryDirectory(prefix=f'release-{population}-', dir=args.work_root) as temporary:
@@ -272,9 +306,13 @@ def main(argv=None):
             run(f'browser-{population}', [sys.executable,str(ROOT/'deploy/acceptance/run_browser_acceptance.py'),
                 '--frontend',str(args.frontend.resolve()),'--image',tag,'--population',str(population),
                 '--detailed-access','--deployment-profile','--storage-check',
+                *(['--private-rpc'] if args.private_rpc else []),
                 '--output',str((args.output/f'browser-{population}').resolve())])
             record['status'] = 'validated'
         catalogue = {'models': [profile_record(r['population'],r['tag']) for r in records]}
+        if sources != {name:source_inventory(repo) for name,repo in
+                       [('core',args.core),('simpaths',args.simpaths),('frontend',args.frontend)]}:
+            raise ValueError('Source changed during candidate acceptance')
         (args.output/'models.quickstart.json').write_text(json.dumps(catalogue,indent=2)+'\n')
         status['status'] = 'passed'
     except Exception as error:

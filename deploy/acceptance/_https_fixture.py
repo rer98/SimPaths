@@ -148,7 +148,7 @@ class FictionalJava:
         if action == 'parameters':
             return httpx.Response(200, json=value['parameters'])
         if path == '/simulation/logs/poll':
-            return httpx.Response(200, json=dict(logs=[dict(message='Fictional HTTPS model')],firstIndex=0,nextIndex=1))
+            return httpx.Response(200, json=dict(logs=['Fictional HTTPS model'],firstIndex=0,nextIndex=1,hasMore=False))
         return httpx.Response(404, json={'error':'Unsupported fictional Java route'})
 
 
@@ -189,5 +189,10 @@ def serve(settings):
     web.backend.on_app_startup()
     java = FictionalJava(get_vm_state(), containers, settings['archive'])
     web._vm_http_client = httpx.AsyncClient(transport=httpx.MockTransport(java.response), trust_env=False)
-    uvicorn.run(web.app, host='127.0.0.1', port=settings['app_port'], workers=1, access_log=False,
-                log_level='warning', proxy_headers=True, forwarded_allow_ips='127.0.0.1')
+    if settings.get('rpc_socket'):
+        sys.path.insert(0, str(root/'tests/browser'))
+        from single_rpc_fixture import run_private
+        asyncio.run(run_private(web, settings['rpc_socket'], settings['origin'], settings['rpc_evidence']))
+    else:
+        uvicorn.run(web.app, host='127.0.0.1', port=settings['app_port'], workers=1, access_log=False,
+                    log_level='warning', proxy_headers=True, forwarded_allow_ips='127.0.0.1')

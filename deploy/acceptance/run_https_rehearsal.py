@@ -130,7 +130,13 @@ def rehearsal(args, report):
             batch_schema='test_single_https_'+uuid4().hex, origin=f'https://localhost:{https_port}',
             app_port=app_port, secret=secrets.token_urlsafe(32), admin=secrets.token_urlsafe(32),
             catalogue=str(state/'catalogue.json'), archive=str(state/'fictional.zip'))
-        processes = Processes(work, args.output, args)
+        if args.private_rpc:
+            from deploy.acceptance._single_rpc import SingleRPCProcesses
+            processes = SingleRPCProcesses(work, args.output, args)
+            report['private_rpc'] = dict(same_uid_fixture=True, separate_processes=True,
+                                        host_privilege_isolation_tested=False)
+        else:
+            processes = Processes(work, args.output, args)
         store = None
         def passed(message):
             report['checks'].append(message); print('PASS: '+message, flush=True)
@@ -284,8 +290,11 @@ def rehearsal(args, report):
             report['phase'] = 'frontend-restart'
             before=allocations(queue); model_before=[json.loads((state/('model-'+sid+'.json')).read_text()) for sid in sessions]
             batch_before=queue.inspect('fictional-batch',batch)
+            executor_before=processes.executor.pid if args.private_rpc else None
             processes.stop_app(); processes.start_app(settings,script=Path(__file__).resolve(),workdir=args.frontend)
             until(ready,seconds=45)
+            if args.private_rpc:
+                assert processes.executor.pid == executor_before and processes.executor.poll() is None
             assert allocations(queue)==before and queue.inspect('fictional-batch',batch)==batch_before
             assert [json.loads((state/('model-'+sid+'.json')).read_text()) for sid in sessions]==model_before
             for sid,value in zip(sessions,private):
@@ -296,6 +305,30 @@ def rehearsal(args, report):
             receive_archive(alice,link,work/'received.zip',expected)
             until(lambda: streams_closed(state,4),seconds=15)
             passed('a fresh frontend process retains both ownership cookies, fictional models/settings and SingleRun/MultiRun reservations; the saved download URL still works')
+
+            if args.private_rpc:
+                report['phase']='private-executor-restart'
+                original_executor = processes.executor.pid
+                original_records = [store.peek_session(sid) for sid in sessions]
+                before = allocations(queue)
+                processes.stop_executor()
+                unavailable = alice.request('/status/'+a)
+                assert unavailable[0] == 503 and all(v.encode() not in unavailable[2] for v in credentials)
+                assert allocations(queue) == before
+                assert [store.peek_session(sid) for sid in sessions] == original_records
+                processes.stop_app()
+                processes.start_app(settings,script=Path(__file__).resolve(),workdir=args.frontend)
+                until(ready,seconds=45)
+                assert processes.executor.pid != original_executor
+                assert allocations(queue) == before
+                for sid,value in zip(sessions,original_records):
+                    current=store.peek_session(sid)
+                    assert all(current[key] == value[key] for key in ('container_id','host','backend_secret','reset_secret','resources','created_at'))
+                assert alice.api('/status/'+a)['status'] == 'running'
+                assert bob.api('/java/'+b+'/simulation/parameters')['seed'] == 909
+                receive_archive(alice,link,work/'received.zip',expected)
+                until(lambda: streams_closed(state,5),seconds=15)
+                passed('private outage returns 503 without changing capacity; a new executor keeps original model identities, credentials, cookies, settings and saved download access')
 
             report['phase'] = 'leave-and-capacity-release'
             assert alice.form('/leave/'+a)[0]==303 and not alice.cookies
@@ -314,6 +347,8 @@ def rehearsal(args, report):
             try: processes.close()
             except Exception as error: errors.append(type(error).__name__)
             if store is not None: store.close()
+            if args.private_rpc and (args.output/'private-rpc.json').is_file():
+                report['private_rpc_evidence']=json.loads((args.output/'private-rpc.json').read_text())
             try:
                 with psycopg.connect(dsn) as connection:
                     for name in (settings['schema'],settings['batch_schema']):
@@ -331,6 +366,7 @@ def main(argv=None):
     parser.add_argument('--nginx-image',default=os.environ.get('SIMPATHS_SINGLE_HTTPS_IMAGE','nginx:stable-alpine'))
     parser.add_argument('--payload-mib',type=int,default=int(os.environ.get('SIMPATHS_SINGLE_HTTPS_MIB','64')))
     parser.add_argument('--slow-seconds',type=int,default=int(os.environ.get('SIMPATHS_SINGLE_HTTPS_SECONDS','34')))
+    parser.add_argument('--private-rpc',action='store_true',default=os.environ.get('SIMPATHS_SINGLE_HTTPS_PRIVATE_RPC')=='1')
     parser.add_argument('--serve-fixture',type=Path,help=argparse.SUPPRESS)
     parser.add_argument('--execute-proof',action='store_true',help=argparse.SUPPRESS)
     args=parser.parse_args(argv); os.umask(0o077)
@@ -347,6 +383,7 @@ def main(argv=None):
     if not args.execute_proof:
         environment=dict(os.environ,SIMPATHS_SINGLE_HTTPS_IMAGE=args.nginx_image,
             SIMPATHS_SINGLE_HTTPS_MIB=str(args.payload_mib),SIMPATHS_SINGLE_HTTPS_SECONDS=str(args.slow_seconds))
+        environment['SIMPATHS_SINGLE_HTTPS_PRIVATE_RPC']='1' if args.private_rpc else '0'
         if args.nginx: environment['SIMPATHS_SINGLE_HTTPS_NGINX']=str(args.nginx)
         output=args.output or Path.home()/'simpaths-benchmarks'/('singlerun-https-'+datetime.now().strftime('%Y%m%d-%H%M%S'))
         return subprocess.run([sys.executable,str(args.frontend/'scripts/test_batch_queue.py'),'--proof-only',

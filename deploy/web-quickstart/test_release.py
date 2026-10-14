@@ -7,6 +7,8 @@ Test recommended deployment profiles and rejection of misleading heap evidence.
 import importlib.util
 from pathlib import Path
 import unittest
+from unittest.mock import patch
+import tempfile
 
 
 import runpy
@@ -19,6 +21,39 @@ def load(name):
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_interactive_inventory_includes_input_edits_while_prepared_route_excludes_them(self):
+        release=load('build_release')
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);source=root/'input/example.xlsx'
+            source.parent.mkdir();source.write_bytes(b'original')
+            def command(arguments,**kwargs):
+                return 'input/example.xlsx\0' if 'ls-files' in arguments else 'revision'
+            with patch.object(release.subprocess,'check_output',side_effect=command):
+                prepared=release.source_inventory(root)
+                interactive=release.source_inventory(root,include_inputs=True)
+                source.write_bytes(b'changed')
+                self.assertEqual(prepared,release.source_inventory(root))
+                self.assertNotEqual(interactive,release.source_inventory(root,include_inputs=True))
+
+    def test_worktree_inventory_detects_untracked_edits_and_rejects_source_links(self):
+        release=load('build_release')
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            (root/'new.py').write_text('original')
+            def command(arguments,**kwargs):
+                return 'new.py\0' if 'ls-files' in arguments else ('revision' if 'rev-parse' in arguments else '?? new.py')
+            with patch.object(release.subprocess,'check_output',side_effect=command):
+                before=release.source_inventory(root)
+                (root/'new.py').write_text('changed')
+                self.assertNotEqual(before,release.source_inventory(root))
+                (root/'new.py').unlink();(root/'new.py').symlink_to(root/'missing')
+                with self.assertRaises(ValueError):release.source_inventory(root)
+
+    def test_worktree_candidate_cannot_request_automatic_promotion(self):
+        release=load('build_release')
+        with self.assertRaises(SystemExit) as stopped:
+            release.main(['--output','/tmp-codex/unused-candidate-test', '--candidate-worktree','--promote','--dry-run'])
+        self.assertEqual(stopped.exception.code,2)
     def test_profile_hash_ignores_permissions_but_detects_content_changes(self):
         import io
         import tarfile

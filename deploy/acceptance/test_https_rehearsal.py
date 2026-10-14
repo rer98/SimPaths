@@ -214,6 +214,14 @@ class FictionalModelTests(unittest.IsolatedAsyncioTestCase):
         return httpx.Request('GET' if body is None else 'POST', 'http://172.30.0.2:7070'+path,
                              headers={'X-Jasmine-Backend-Token':credential}, json=body)
 
+    async def test_log_fixture_matches_bounded_java_string_page_contract(self):
+        response=await self.java.response(self.request(self.ids[0],'/simulation/logs/poll'))
+        page=response.json()
+        self.assertEqual(response.status_code,200)
+        self.assertTrue(all(isinstance(line,str) for line in page['logs']))
+        self.assertEqual(page['nextIndex']-page['firstIndex'],len(page['logs']))
+        self.assertIs(page['hasMore'],False)
+
     async def test_private_stream_records_partial_close_and_detect_double_close(self):
         stream = fixture.FileStream(self.archive, self.root, self.ids[0])
         part = await anext(stream.__aiter__())

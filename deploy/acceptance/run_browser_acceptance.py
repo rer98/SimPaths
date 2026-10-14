@@ -19,10 +19,15 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import traceback
 
 import runpy
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+from deploy.acceptance._single_rpc import completed_private_evidence, drain_process, public_environment
+
 load_tool = runpy.run_path(str(Path(__file__).resolve().parents[1] / '_tool_loader.py'))['load_tool']
 workflow = load_tool('_workflow.py')
 
@@ -120,6 +125,7 @@ def main():
     parser.add_argument("--headed", action="store_true")
     parser.add_argument("--step-only", action="store_true", help="Validate scheduled chart updates and reset/rebuild without continuous Start/Pause")
     parser.add_argument("--catalogue", type=Path, help="Catalogue for default image selection")
+    parser.add_argument("--private-rpc", action="store_true", help="Separate native gateway/executor fixture; same test UID")
     args = parser.parse_args()
     args.frontend = args.frontend.expanduser().resolve()
     args.image = workflow.quickstart_image(args.frontend, args.population, args.image, args.catalogue)
@@ -129,6 +135,8 @@ def main():
         parser.error("External mode requires a dedicated simpaths-acceptance- model ID")
     if args.storage_check and not args.detailed_access:
         parser.error("--storage-check requires --detailed-access")
+    if args.private_rpc and args.external_url:
+        parser.error("Private RPC mode owns its isolated gateway/executor; omit --external-url")
     import docker
     import httpx
     from playwright.sync_api import sync_playwright, expect, TimeoutError as PlaywrightTimeoutError
@@ -139,7 +147,9 @@ def main():
     report = {"status": "running", "checks": [], "page_errors": [], "console_errors": [], "failed_requests": [], "output": str(out)}
     report["step_only"] = args.step_only
     client = docker.from_env()
-    postgres_container = process = None
+    postgres_container = process = executor = None
+    executor_log = None
+    rpc_work = None
     model_id = args.model_id or "simpaths-acceptance-" + secrets.token_hex(6)
     report["model_id"] = model_id
     frontend_log = (out/"frontend.log").open("w")
@@ -147,6 +157,26 @@ def main():
     def passed(name, **detail):
         report["checks"].append({"name": name, "status": "passed", **detail})
         print("PASS:", name, flush=True)
+
+    def restart_gateway():
+        nonlocal process
+        old = process
+        old.terminate(); old.wait(timeout=45)
+        if old.returncode not in (0, -15) or executor.poll() is not None:
+            raise RuntimeError('Gateway restart interrupted the private executor')
+        process = subprocess.Popen([sys.executable, str(helper), '--role', 'frontend', '--settings', str(public_settings)],
+            cwd=work, env=public_env, stdout=frontend_log, stderr=subprocess.STDOUT)
+        deadline = time.monotonic()+45
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                raise RuntimeError('Replacement gateway exited')
+            try:
+                if httpx.get(base+'/health', trust_env=False).status_code == 200:
+                    return
+            except httpx.HTTPError:
+                pass
+            time.sleep(.1)
+        raise TimeoutError('Replacement gateway did not become ready')
 
     try:
         report["image_id"] = client.images.get(args.image).id
@@ -161,6 +191,9 @@ def main():
             tracked = subprocess.check_output(["git", "-C", str(frontend), "ls-files", "-z"]).decode().split("\0")
             tracked += [str(p.relative_to(frontend)) for p in (frontend/'jasmine_web').glob('vm_*.py')]
             tracked += [str(p.relative_to(frontend)) for p in (frontend/'jasmine_web').glob('vm_*.sql')]
+            if args.private_rpc:
+                tracked += ['tests/browser/single_rpc_fixture.py']
+                tracked += [str(p.relative_to(frontend)) for p in (frontend/'jasmine_web').glob('single_*.py')]
             # Do not silently exercise stale code when a new security module has
             # not yet been staged. The existing tracked-file copy stays explicit.
             required = ['jasmine_web/public_fetch.py', 'jasmine_web/request_limits.py',
@@ -193,19 +226,40 @@ def main():
             (out/"python-packages.txt").write_text(subprocess.check_output([sys.executable, "-m", "pip", "freeze"], text=True))
             postgres_port, web_port = free_port(), free_port()
             postgres_container, dsn_file = load_tool('acceptance/postgres_fixture.py').start_postgres(client, model_id, postgres_port, work)
-            env = {k: v for k, v in os.environ.items() if not k.startswith(("REDIS_", "JASMINE_", "VM_"))}
+            env = public_environment(os.environ)
             env.update(DEPLOY_MODE="vm", VM_STATE_BACKEND="postgres", VM_POSTGRES_DSN_FILE=str(dsn_file),
                 VM_POSTGRES_SCHEMA='jasmine_vm', VM_SECURITY_MODE="development", COOKIE_SECURE="false",
                 ADMIN_PASSWORD=secrets.token_urlsafe(32), SESSION_SECRET=secrets.token_urlsafe(32),
                 HARD_RESET_SECRET=secrets.token_urlsafe(32), PYTHONUNBUFFERED="1", PYTHON_DOTENV_DISABLED="1")
             (work/"acceptance_server.py").write_text("# (C) Copyright 2026, by Ross Richardson\n# Isolated browser-test server with deployment-scoped cleanup.\n# @author ross richardson\nimport app\nimport uvicorn\nuvicorn.run(app.app, host='127.0.0.1', port=PORT)\n".replace("port=PORT", f"port={web_port}"))
-            process = subprocess.Popen([sys.executable, "acceptance_server.py"], cwd=work, env=env,
-                stdout=frontend_log, stderr=subprocess.STDOUT)
             base = f"http://127.0.0.1:{web_port}"
+            if args.private_rpc:
+                rpc_work = Path(tempfile.mkdtemp(prefix='single-rpc-', dir=os.environ.get('TMPDIR', '/tmp-codex')))
+                os.chmod(rpc_work, 0o700)
+                socket_path = rpc_work/'control.sock'
+                helper = work/'tests/browser/single_rpc_fixture.py'
+                private_settings = rpc_work/'private.json'
+                public_settings = rpc_work/'public.json'
+                for path, values in ((private_settings, dict(origin=base, socket=str(socket_path), evidence=str(out/'private-rpc.json'))),
+                                     (public_settings, dict(origin=base, socket=str(socket_path), port=web_port))):
+                    path.write_text(json.dumps(values)); path.chmod(0o600)
+                executor_log = (out/'executor.log').open('w')
+                executor = subprocess.Popen([sys.executable, str(helper), '--role', 'executor', '--settings', str(private_settings)],
+                    cwd=work, env=env, stdout=executor_log, stderr=subprocess.STDOUT)
+                public_env = public_environment(os.environ)
+                process = subprocess.Popen([sys.executable, str(helper), '--role', 'frontend', '--settings', str(public_settings)],
+                    cwd=work, env=public_env, stdout=frontend_log, stderr=subprocess.STDOUT)
+                report['private_rpc'] = dict(same_uid_fixture=True, host_privilege_isolation_tested=False,
+                                            separate_processes=True, executor_pid=executor.pid, frontend_pid=process.pid)
+            else:
+                process = subprocess.Popen([sys.executable, "acceptance_server.py"], cwd=work, env=env,
+                    stdout=frontend_log, stderr=subprocess.STDOUT)
             deadline = time.monotonic()+60
             while True:
                 if process.poll() is not None:
                     raise RuntimeError("Frontend exited; see frontend.log")
+                if executor is not None and executor.poll() is not None:
+                    raise RuntimeError("Private executor exited; see executor.log")
                 try:
                     if httpx.get(base+"/health").status_code == 200:
                         break
@@ -295,7 +349,17 @@ def main():
                     passed("deployment heap, container, CPUs and storage policy verified", **verified)
                 for build in (1, 2):
                     started = time.monotonic()
-                    page.locator("#toolbar-build-btn").click()
+                    with page.expect_response(lambda response: '/build-json/' in response.url) as accepted:
+                        page.locator("#toolbar-build-btn").click()
+                    assert accepted.value.ok and accepted.value.json()['status'] == 'building'
+                    if args.private_rpc and build == 1:
+                        original_container = session_containers[0].id
+                        private_pid = executor.pid
+                        restart_gateway()
+                        assert executor.pid == private_pid and executor.poll() is None
+                        page.reload()
+                        assert client.containers.list(filters={'label':f'jasmine.model_id={model_id}'})[0].id == original_container
+                        passed('public gateway restart preserves accepted Build, owner cookie and original model container')
                     expect(page.locator("#step-btn")).to_be_enabled(timeout=600000)
                     expect(page.locator(".js-plotly-plot").first).to_be_visible(timeout=60000)
                     page.wait_for_function("n => (document.querySelector('#console').textContent.match(/Found processed dataset - preparing for simulation/g) || []).length >= n", arg=build)
@@ -517,13 +581,19 @@ def main():
         report["error"] = traceback.format_exc()
         print(report["error"], file=sys.stderr)
     finally:
-        if process is not None:
-            process.terminate()
+        cleanup_errors = []
+        for owned in (process, executor):
             try:
-                process.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
+                drain_process(owned)
+            except Exception as error:
+                cleanup_errors.append(type(error).__name__)
+        if executor is not None:
+            try:
+                report['private_rpc_evidence'] = completed_private_evidence(out/'private-rpc.json')
+            except Exception as error:
+                cleanup_errors.append(type(error).__name__)
+        if executor_log is not None:
+            executor_log.close()
         # Unique per-invocation model label ensures cleanup cannot remove another
         # deployment's containers, even when tests fail before obtaining a session.
         try:
@@ -535,7 +605,16 @@ def main():
                 postgres_container.remove(force=True)
         except Exception as error:
             report["cleanup_error"] = str(error)
-            report["status"] = "failed"
+            cleanup_errors.append(type(error).__name__)
+        if rpc_work is not None and not cleanup_errors:
+            try:
+                shutil.rmtree(rpc_work)
+            except Exception as error:
+                cleanup_errors.append(type(error).__name__)
+        report['cleanup'] = not cleanup_errors
+        if cleanup_errors:
+            report['cleanup_errors'] = cleanup_errors
+            report['status'] = 'failed'
         frontend_log.close()
         (out/"report.json").write_text(json.dumps(report, indent=2))
         print(f"{report['status'].upper()}: {out}/report.json", flush=True)

@@ -17,6 +17,25 @@ spec.loader.exec_module(build)
 
 
 class SimPathsBuildTests(unittest.TestCase):
+    def test_candidate_tags_preserve_existing_aliases_and_reject_invalid_suffixes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo=Path(directory)
+            for name in build.PROFILES:
+                path=repo/f'deploy/web-{name}/package_image.py'
+                path.parent.mkdir(parents=True);path.touch()
+            (repo/'singlerun.jar').touch()
+            shared=Mock()
+            shared.ImageBuild.side_effect=lambda **fields:fields
+            with patch.object(build,'load_web_tool',return_value=shared):
+                build.main(['--repo',directory,'--tag-suffix','security-test'])
+            self.assertEqual([job['image'] for job in shared.build_images.call_args.args[0]],
+                ['simpaths-interactive:uk-training-security-test','simpaths-interactive:uk-user-data-security-test'])
+            self.assertFalse(shared.build_images.call_args.kwargs['prune_build_cache'])
+            with patch.object(build,'load_web_tool') as load:
+                for suffix in ('../unsafe','has spaces','Uppercase','x'*66):
+                    with self.assertRaises(SystemExit):build.main(['--repo',directory,'--tag-suffix',suffix])
+                load.assert_not_called()
+
     def test_profiles_paths_tags_and_options_are_forwarded(self):
         for profile, expected in [('both', build.PROFILES), ('training', ('training',)),
                                   ('user-data', ('user-data',))]:

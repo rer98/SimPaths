@@ -8,6 +8,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <jackson.version>2.21.7</jackson.version>
         <jetty.version>12.1.12</jetty.version>
+        <mockito.version>5.23.0</mockito.version>
     </properties>
     <!-- Dependency management in a dependency's POM is not inherited here.
          Keep these security BOMs aligned with JAS-mine-core for the shaded JAR. -->
@@ -51,6 +52,7 @@
 				<artifactId>maven-surefire-plugin</artifactId>
 				<version>3.5.6</version>
 				<configuration>
+					<argLine>-javaagent:${settings.localRepository}/org/mockito/mockito-core/${mockito.version}/mockito-core-${mockito.version}.jar</argLine>
 					<excludes>
 						<exclude>**/*IntegrationTest.java</exclude>
 					</excludes>
@@ -61,6 +63,7 @@
 				<artifactId>maven-failsafe-plugin</artifactId>
 				<version>3.5.6</version>
 				<configuration>
+					<argLine>-javaagent:${settings.localRepository}/org/mockito/mockito-core/${mockito.version}/mockito-core-${mockito.version}.jar</argLine>
 					<includes>
 						<include>**/*IntegrationTest.java</include>
 					</includes>
@@ -204,14 +207,14 @@
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-core</artifactId>
-            <version>5.23.0</version>
+            <version>${mockito.version}</version>
             <scope>test</scope>
         </dependency>
         <!-- Mockito JUnit 5 Integration (Required for @Mock and extensions) -->
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-junit-jupiter</artifactId>
-            <version>5.23.0</version>
+            <version>${mockito.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>

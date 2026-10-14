@@ -136,6 +136,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
         out = self.root / 'evidence'
         with patch.dict(sys.modules, {'docker': SimpleNamespace(from_env=lambda: client)}), \
                 patch.object(release, 'git', side_effect=lambda repo, *args: 'revision' if args[0] == 'rev-parse' else ''), \
+                patch.object(release.subprocess, 'check_output', side_effect=lambda command, **kwargs:
+                    'webserver.properties\0COPYRIGHT.md\0' if Path(command[2]) == self.repo else ''), \
                 patch.object(release.subprocess, 'run', side_effect=run), \
                 patch.object(release.shutil, 'disk_usage', return_value=SimpleNamespace(free=20*1024**3)), \
                 patch.object(release, 'archive_file', side_effect=file), \
@@ -155,6 +157,10 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertEqual(report['images'][0]['revisions']['release_tools'], 'revision')
         self.assertNotIn('coordinator', report['images'][0]['revisions'])
         self.assertEqual(report['images'][0]['base_reference'], 'prepared:20000')
+        self.assertEqual(report['source_inventory_sha256'],release.digest(out/'source-inventory.json'))
+        self.assertEqual(report['images'][0]['source_inventory_sha256'],report['source_inventory_sha256'])
+        inventory=json.loads((out/'source-inventory.json').read_text())
+        self.assertEqual(inventory['simpaths']['files']['webserver.properties'],release.digest(self.repo/'webserver.properties'))
 
 
 if __name__ == '__main__':

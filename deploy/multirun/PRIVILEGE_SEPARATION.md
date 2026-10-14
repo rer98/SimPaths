@@ -119,6 +119,39 @@ persisted deadlines; replacement workers adopt surviving attempts using existing
 leases and identity checks. Fatal dispatcher errors restart the executor unit.
 The public `/healthz` reports 503 while its private service is unavailable.
 
+Background ZIP preparation can outlive the RPC request that starts it. Executor
+shutdown now stops new preparation and waits for builders, including source
+catalogue reads and final cleanup, before releasing file/database fences. It
+removes unfinished ZIPs and records interrupted preparation; the user can prepare
+the same completed results again after restart. Repeated shutdown cancellation
+does not detach the RPC drain or private background cleanup. A catalogue callback
+already hashing files may need to finish that synchronous operation before its
+worker can exit; service guards remain held during the wait. The executor's
+existing `TimeoutStopSec=infinity` supports that drain.
+
+The focused local native proof uses fictional output and no Docker, database,
+emails or scientific models:
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths &&
+TMPDIR=/tmp-codex ~/simpaths-browser-tests/venv/bin/python \
+  deploy/multirun/run_download_shutdown.py \
+  --frontend "$HOME/git/JAS-mine/JAS-mine-web" \
+  --output "/tmp-codex/download-shutdown-native-$(date +%Y%m%d-%H%M%S)"
+```
+
+Its report requires native socket I/O, successful tests without skips, and records
+the current source hashes. The local sandbox review passed 91 lifecycle and
+related guards with real worker threads and file locks, using a runner-only timer
+for blocked event-loop socket wakeups. The unadapted native proof subsequently
+passed all 39 checks without skips in
+`/tmp-codex/download-shutdown-native-20261014-233827/report.json` on 14 October 2026.
+All 14 recorded source hashes match the current files. Deploy matching frontend
+and SimPaths revisions: private runtime cleanup uses the frontend's shared
+`jasmine_web.async_cleanup` module.
+Neither this proof nor the earlier tiny-download update rehearsal replaces
+installed-host acceptance with the actual service accounts and retained outputs.
+
 ## Backups, resource changes and restore
 
 The existing quota broker continues authenticating `simpaths-online`, never

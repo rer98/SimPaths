@@ -17,6 +17,7 @@ from .vm_web import check_storage, database_dsn, preflight, verification_mail
 
 
 async def serve_private(bundle, socket_path, web_uid):
+    from jasmine_web.async_cleanup import finish_before_cancelling
     from jasmine_web.batch.service_rpc import RPCServer
     stopped=asyncio.Event()
     loop=asyncio.get_running_loop()
@@ -31,7 +32,7 @@ async def serve_private(bundle, socket_path, web_uid):
                 await stopped.wait()
             finally:
                 # Drain owned uploads/downloads before closing file and DB guards.
-                await asyncio.to_thread(server.close)
+                await finish_before_cancelling(asyncio.create_task(asyncio.to_thread(server.close)))
     finally:
         for signum in (signal.SIGTERM,signal.SIGINT):
             loop.remove_signal_handler(signum)

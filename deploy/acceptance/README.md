@@ -46,6 +46,14 @@ check. The retry passed all seven native stages, including public-only restart,
 update and rollback, completion of the original queued work, and gated schema
 restore with owner/provider denials. Its `verification.json` links the reports,
 loaded-code/PID records and six clean private shutdown receipts by checksum.
+
+Background ZIP shutdown has separate focused coverage in
+[the private executor lifecycle proof](../multirun/PRIVILEGE_SEPARATION.md).
+The original update/rollback receipt remains evidence for its recorded Git pair;
+it does not include subsequent ZIP lifecycle source fixes. The focused proof uses
+real threads, files and locks with fictional data. Installed service identities,
+database restoration and research-size hosted output remain separate acceptance
+checks.
 Use a new output directory when rerunning; retain the failed evidence.
 
 ## SingleRun browser acceptance

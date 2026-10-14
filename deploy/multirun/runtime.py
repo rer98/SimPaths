@@ -16,6 +16,7 @@ from functools import wraps
 from .browser_model import BrowserModel
 from .local_web import configuration_runtime, frozen_release, register_training, retire_finished
 from .submission_adapter import DispatchAdapter, PreparationAdapter
+from jasmine_web.async_cleanup import finish_before_cancelling
 from jasmine_web.batch.access import Access
 from jasmine_web.batch.attempt_cleanup import AttemptCleanup
 from jasmine_web.batch.completion_notifications import CompletionNotifications
@@ -42,6 +43,48 @@ def maintenance_guard(operation):
         with service_state(state), database_guard(q):
             return operation(args,q,state,*values,**settings)
     return guarded
+
+
+@asynccontextmanager
+async def private_processors(service, stop):
+    """Keep private cache and source guards until every background worker stops."""
+    def maintain():
+        while not stop.is_set():
+            try:
+                service.results.downloads.retire()
+                if hasattr(service,'visualiser'):
+                    service.visualiser.retire()
+            except Exception as error:
+                print('Private cache cleanup waiting: '+type(error).__name__,flush=True)
+            stop.wait(30)
+    def process():
+        while not service.visualiser.stop.is_set():
+            try:
+                service.visualiser.tick()
+            except Exception as error:
+                print('Private Visualiser processor waiting: '+type(error).__name__,flush=True)
+            service.visualiser.stop.wait(1)
+    maintenance=threading.Thread(target=maintain,name='multirun-private-cache',daemon=True)
+    processor=(threading.Thread(target=process,name='multirun-private-visualiser',daemon=True)
+               if hasattr(service,'visualiser') else None)
+    try:
+        maintenance.start()
+        if processor is not None:
+            processor.start()
+        yield
+    finally:
+        async def shutdown():
+            stop.set()
+            if processor is not None:
+                service.visualiser.close()
+            # close() now joins builders. Run it off the event loop and retain
+            # ownership even if the enclosing shutdown is cancelled again.
+            await asyncio.to_thread(service.results.downloads.close)
+            if maintenance.ident is not None:
+                await asyncio.to_thread(maintenance.join)
+            if processor is not None and processor.ident is not None:
+                await asyncio.to_thread(processor.join)
+        await finish_before_cancelling(asyncio.create_task(shutdown()))
 
 
 @maintenance_guard
@@ -171,45 +214,10 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
         with service_state(state), database_guard(q):
             async with running(app):
                 if private_service:
-                    async with private_processors():
+                    async with private_processors(service,stop):
                         yield
                 else:
                     yield
-    @asynccontextmanager
-    async def private_processors():
-        # These jobs formerly belonged to the browser lifespan. Their files,
-        # database and subprocesses remain wholly inside the trusted service.
-        def maintain():
-            while not stop.is_set():
-                try:
-                    service.results.downloads.retire()
-                    if hasattr(service,'visualiser'):
-                        service.visualiser.retire()
-                except Exception as error:
-                    print('Private cache cleanup waiting: '+type(error).__name__,flush=True)
-                stop.wait(30)
-        def process():
-            while not service.visualiser.stop.is_set():
-                try:
-                    service.visualiser.tick()
-                except Exception as error:
-                    print('Private Visualiser processor waiting: '+type(error).__name__,flush=True)
-                service.visualiser.stop.wait(1)
-        maintenance=threading.Thread(target=maintain,name='multirun-private-cache',daemon=True)
-        processor=(threading.Thread(target=process,name='multirun-private-visualiser',daemon=True)
-                   if hasattr(service,'visualiser') else None)
-        maintenance.start()
-        if processor is not None:
-            processor.start()
-        try:
-            yield
-        finally:
-            stop.set()
-            if processor is not None:
-                service.visualiser.close()
-                await asyncio.to_thread(processor.join)
-            service.results.downloads.close()
-            await asyncio.to_thread(maintenance.join)
     @asynccontextmanager
     async def running(app):
         if hasattr(service,'monitor'):
@@ -238,13 +246,15 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
         try:
             yield
         finally:
-            stop.set()
-            # Keep lifecycle fences until in-flight publication/cleanup finishes.
-            # Containers retain independent deadlines and survive this process.
-            await asyncio.to_thread(thread.join)
-            await asyncio.to_thread(notifications.join)
-            if hasattr(service,'monitor'):
-                await asyncio.to_thread(service.monitor.close)
+            async def shutdown():
+                stop.set()
+                # Keep lifecycle fences until in-flight publication/cleanup finishes.
+                # Containers retain independent deadlines and survive this process.
+                await asyncio.to_thread(thread.join)
+                await asyncio.to_thread(notifications.join)
+                if hasattr(service,'monitor'):
+                    await asyncio.to_thread(service.monitor.close)
+            await finish_before_cancelling(asyncio.create_task(shutdown()))
             print(('Executor' if private_service else 'Frontend')+' stopped. Submitted jobs remain recorded; restart the service to resume dispatch.',flush=True)
     # Explicit, reviewed local recovery from laptop suspension/reconciliation
     # delay. Hosted services keep this disabled unless their operator opts in.

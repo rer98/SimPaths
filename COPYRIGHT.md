@@ -13,6 +13,9 @@ shutdown receipts and update/rollback reports are (C) Copyright 2026, by Ross
 Richardson; @author ross richardson, recorded in the evidence `COPYRIGHT.md`.
 Copied application sources and third-party logs retain their existing notices.
 
+Generated native ZIP shutdown reports from `run_download_shutdown.py` carry the
+adjacent evidence attribution without adding comments to JSON or altering reports.
+
 The SingleRun native acceptance additions carry inline notices:
 `deploy/acceptance/_single_rpc.py`,
 `deploy/acceptance/test_single_rpc_rehearsal.py`,
@@ -33,6 +36,9 @@ bytes; the notice attributes the project artifact, not third-party data or logs.
 Upstream baseline used to identify new files: `b223738b9cdf1d814cc3c6f09b04bc4930d3c667`.
 
 ## Files with inline notices
+
+- `deploy/multirun/test_download_shutdown.py`
+- `deploy/multirun/run_download_shutdown.py`
 
 - `deploy/multirun/PrepareDataset.java`
 - `deploy/multirun/PrepareDatasetScheduleTest.java`

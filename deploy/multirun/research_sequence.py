@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """(C) Copyright 2026, by Ross Richardson
 
-Run fixed-memory research cases sequentially, preserving audited compact evidence
+Run fixed-resource research cases sequentially, preserving audited compact evidence
 before reclaiming each case's bulk output. Never resumes or retries failed cases.
 @author ross richardson
 """
@@ -32,7 +32,8 @@ GIB = 1024**3
 
 def settings(label):
     heap, memory = bench.CASE_LIMITS[label]
-    return dict(COMMON, heap_mib=heap, memory_mib=memory, max_memory_mib=memory)
+    return dict(COMMON, cpu_millis=bench.CASE_CPUS[label],
+                heap_mib=heap, memory_mib=memory, max_memory_mib=memory)
 
 
 def snapshot(prepared, frontend):
@@ -44,6 +45,8 @@ def snapshot(prepared, frontend):
     paths = [Path(__file__), ROOT/'deploy/multirun/research_calibration.py',
              ROOT/'deploy/multirun/research_storage_audit.py',
              ROOT/'deploy/multirun/research_benchmarks.py',
+             ROOT/'deploy/multirun/resource_policy.py', ROOT/'deploy/multirun/container_run.sh',
+             ROOT/'deploy/multirun/container_adapter.py', ROOT/'deploy/multirun/resource_recovery_proof.py',
              ROOT/'deploy/acceptance/SimPathsResourceProbe.java',
              ROOT/'deploy/multirun/requirements.txt', ROOT/'deploy/acceptance/requirements.txt',
              frontend/'scripts/test_batch_queue.py', frontend/'requirements-batch-web.txt',
@@ -77,7 +80,7 @@ def make_plan(args):
     for item in args.reference_case:
         label, separator, name = item.partition('=')
         if not separator or label not in bench.CASE_LIMITS or label in references or not name:
-            raise ArtifactError('Specify distinct references as C=PATH, A=PATH or B=PATH')
+            raise ArtifactError('Specify distinct references as LABEL=PATH, with a label A..E')
         references[label] = bench.ordinary(Path(name).expanduser().absolute())
     for source in (ROOT, frontend, prepared, *references.values()):
         if output == source or source in output.parents or output in source.parents:
@@ -91,7 +94,7 @@ def make_plan(args):
         case = bench.load_case(label, path)
         if case['state'] != 'complete':raise ArtifactError('Use complete, verified reference cases')
         record = case['record']
-        if (record['settings'] != settings(label) or record.get('variant') != 'baseline'
+        if ({'cpu_millis':2000, **record['settings']} != settings(label) or record.get('variant') != 'baseline'
                 or record['prepared_sha256'] != receipt['sha256'] or record['model'] != identity['model']
                 or record['image'] != identity['source_image']
                 or any(frozen[str(ROOT/name)]['sha256'] != digest
@@ -107,9 +110,13 @@ def make_plan(args):
         command += ['--output', str(directory)]
         cases.append(dict(label=label, settings=settings(label), completed=str(directory), command=command,
                           audit=str(output/'audits'/label), archive=str(output/'archives'/label)))
+    selected_labels = set(args.cases)|set(references)
+    family = ('cpu' if selected_labels <= set(bench.CASE_FAMILIES['cpu']) else 'all') if selected_labels&{'D','E'} else 'memory'
     return dict(format=FORMAT, cases=cases, references={k:str(v) for k,v in references.items()},
+                comparison_family=family,
                 output=str(output), prepared=str(prepared), frontend=str(frontend), frozen=frozen,
-                limits=dict(cpu_millis=2000, live_expansion=False, resource_retries=False),
+                limits=dict(cpu_millis_by_case={c['label']:c['settings']['cpu_millis'] for c in cases},
+                            jvm_active_processor_count=2, live_expansion=False, resource_retries=False),
                 delete_bulk_after_verified_archive=True, pause_seconds=args.pause_seconds,
                 note='Run on mains power with sleep disabled and other substantial work stopped. '
                      'Cases execute one at a time; original reference evidence is never deleted.')
@@ -187,7 +194,7 @@ def execute(plan, *, runner=run_command, pause=time.sleep):
                 record['last_preflight'] = resources(output/'trials', case['settings']['memory_mib']);save()
                 step(label, 'run', case['command'])
                 _, (native, _, _, _) = bench.completion(directory)
-                if native['settings'] != case['settings'] or native.get('variant') != 'baseline':
+                if {'cpu_millis':2000, **native['settings']} != case['settings'] or native.get('variant') != 'baseline':
                     raise ArtifactError('Completed case differs from its planned fixed settings')
                 step(label, 'audit', [sys.executable, str(ROOT/'deploy/multirun/research_storage_audit.py'),
                      '--frontend', str(frontend), '--prepared', str(prepared), '--completed', str(directory),
@@ -197,7 +204,7 @@ def execute(plan, *, runner=run_command, pause=time.sleep):
                      '--audit', str(Path(case['audit'])/'report.json'), '--output', str(archive)])
                 selected[label] = str(archive)
                 comparison = output/'comparisons'/f'{index+1:02d}-after-{label}'
-                command = tool+['compare', '--output', str(comparison)]
+                command = tool+['compare', '--family', plan['comparison_family'], '--output', str(comparison)]
                 for name, path in selected.items():command += ['--case', name+'='+path]
                 step(label, 'compare', command)
                 compared, _ = bench.read_json(comparison/'report.json')
@@ -224,6 +231,7 @@ def main(argv=None):
     parser.add_argument('--frontend', type=Path, default=Path.home()/'git/JAS-mine/JAS-mine-web')
     parser.add_argument('--prepared', type=Path, required=True)
     parser.add_argument('--cases', nargs='+', choices=tuple(bench.CASE_LIMITS), default=['B', 'A'])
+    parser.description += '\nCPU-quota comparison: --cases A D E (2, 1.5 and 1 vCPU; each uses a 4 GiB heap / 5 GiB container).'
     parser.add_argument('--reference-case', action='append', default=[], metavar='C=ARCHIVE',
                         help='Completed/archived comparison reference; never runs or deletes this case')
     parser.add_argument('--output', type=Path, default=Path('/tmp-codex')/

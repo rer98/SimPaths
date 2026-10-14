@@ -114,6 +114,24 @@ class SequenceTests(unittest.TestCase):
             bench.read_archive(self.root/'sequence/archives'/label)
         self.assertEqual((self.root/'sequence').stat().st_mode & 0o777, 0o700)
 
+    def test_cpu_sequence_freezes_distinct_quotas_and_reclaims_each_case_before_the_next(self):
+        plan = sequence.make_plan(self.arguments(cases=['A','D','E']))
+        self.assertEqual(plan['comparison_family'], 'cpu')
+        self.assertEqual(plan['limits']['cpu_millis_by_case'], dict(A=2000,D=1500,E=1000))
+        for case in plan['cases']:
+            settings = case['settings'];command = case['command']
+            self.assertEqual(int(command[command.index('--cpu-millis')+1]), bench.CASE_CPUS[case['label']])
+            self.assertEqual((settings['heap_mib'],settings['memory_mib'],settings['max_memory_mib']),
+                             (4096,5120,5120))
+            self.assertEqual(settings['max_attempts'], 1)
+        result = self.run_plan(plan)
+        self.assertTrue(result['passed'])
+        self.assertEqual(self.events, [(label,stage) for label in ('A','D','E')
+                                     for stage in ('run','audit','archive','compare','dispose')])
+        comparison = json.loads((self.root/'sequence/comparisons/03-after-E/report.json').read_text())
+        self.assertTrue(comparison['complete'])
+        self.assertEqual(list(comparison['cases']), ['A','D','E'])
+
     def test_failed_model_audit_or_disposal_never_starts_second_case(self):
         plan = sequence.make_plan(self.arguments())
         for stage in ('run', 'audit', 'dispose'):

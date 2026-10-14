@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """(C) Copyright 2026, by Ross Richardson
 
-Compare fixed-memory research trials and archive audited evidence before disposal.
+Compare fixed-resource research trials and archive audited evidence before disposal.
 Maintainer-only, standard-library tooling; never launches models or reads progress.
 @author ross richardson
 """
@@ -31,9 +31,12 @@ REPORT_FORMAT = 'simpaths.research-benchmark-comparison.v1'
 DISPOSAL_FORMAT = 'simpaths.research-benchmark-disposal.v1'
 EVIDENCE = ('report.json', 'model-proof/report.json', 'model-proof/configuration.json',
             'model-proof/output-manifest.json')
-SETTINGS = {'population', 'end_year', 'repetitions', 'heap_mib', 'memory_mib',
+SETTINGS = {'population', 'end_year', 'repetitions', 'cpu_millis', 'heap_mib', 'memory_mib',
             'max_memory_mib', 'storage_mib', 'setup_seconds', 'repetition_seconds', 'max_attempts'}
-CASE_LIMITS = {'A': (4096, 5120), 'B': (4096, 6144), 'C': (5120, 6144)}
+CASE_LIMITS = {'A': (4096, 5120), 'B': (4096, 6144), 'C': (5120, 6144),
+               'D': (4096, 5120), 'E': (4096, 5120)}
+CASE_CPUS = {'A': 2000, 'B': 2000, 'C': 2000, 'D': 1500, 'E': 1000}
+CASE_FAMILIES = {'memory': ('A', 'B', 'C'), 'cpu': ('A', 'D', 'E'), 'all': tuple(CASE_LIMITS)}
 ANNUAL_FILES = frozenset(('AlignmentStatistics.csv', 'BenefitUnit.csv',
     'DemographicStatistics.csv', 'HealthStatistics.csv', 'Household.csv',
     'LabourStatistics.csv', 'Person.csv', 'WealthIncomeStatistics.csv', 'WellbeingByGender.csv'))
@@ -139,10 +142,12 @@ def validate_completed(evidence):
                 'input_copies_reclaimed', 'reservations_released')) or record.get('browser_errors')):
         raise ArtifactError('Use successful trials with confirmed termination and cleanup')
     settings = record['settings']
-    if type(settings) is not dict or set(settings) != SETTINGS:
+    if type(settings) is not dict or set(settings) not in (SETTINGS, SETTINGS-{'cpu_millis'}):
         raise ArtifactError('Incomplete frozen benchmark settings')
     for key, value in settings.items():integer(value)
+    cpu_millis = settings.get('cpu_millis', 2000)
     if (not 1000 <= settings['population'] <= 100000 or not 2019 <= settings['end_year'] <= 2070
+            or not 1000 <= cpu_millis <= 2000
             or not 1024 <= settings['heap_mib'] <= 7168
             or not 5120 <= settings['memory_mib'] <= 8192
             or not 6144 <= settings['storage_mib'] <= 65536
@@ -156,13 +161,20 @@ def validate_completed(evidence):
     for event in record['resource_events']:
         if (event.get('action')!='waiting' or event.get('attempt')!=1
                 or event.get('kind') not in ('memory','storage')
-                or event.get('allocation')!=dict(cpu_millis=2000,memory_mib=settings['memory_mib'],
+                or event.get('allocation')!=dict(cpu_millis=cpu_millis,memory_mib=settings['memory_mib'],
                                                storage_mib=settings['storage_mib'])):
             raise ArtifactError('Fixed benchmarks cannot include confirmed growth or resource retries')
     attempts = record['attempts']
     if len(attempts) != 1 or attempts[0]['outcome'] != 'success':
         raise ArtifactError('Expected exactly one successful fixed-memory attempt')
     attempt = attempts[0]
+    if 'cpu_millis' in settings and (type(attempt.get('cpu_millis')) is not int
+            or attempt['cpu_millis'] != cpu_millis
+            or type(attempt.get('jvm_active_processor_count')) is not int
+            or attempt['jvm_active_processor_count'] != 2
+            or type(attempt.get('runner_sha256')) is not str
+            or not re.fullmatch('[a-f0-9]{64}', attempt['runner_sha256'])):
+        raise ArtifactError('Observed Docker quota or fixed JVM launch setting differs from the trial')
     if (attempt['heap_mib'] != settings['heap_mib']
             or attempt['observed_container_limits_bytes'] != [settings['memory_mib']*MIB]
             or attempt['peak']['heap_max_bytes'] != settings['heap_mib']*MIB):
@@ -245,6 +257,8 @@ def measurements(record):
     attempt = record['attempts'][0]
     success = [r['ms'] for r in record['status_requests'] if r['status'] == 200]
     return dict(container_seconds=attempt['container_lifetime_seconds'],
+        cpu_millis=record['settings'].get('cpu_millis', 2000),
+        jvm_active_processor_count=attempt.get('jvm_active_processor_count', 2),
         last_sampled_jvm_seconds=attempt['elapsed_ms']/1000, gc_seconds=attempt['gc_ms']/1000,
         gc_fraction_percent=100*attempt['gc_ms']/attempt['elapsed_ms'],
         proof_seconds=record['elapsed_seconds'], peaks=attempt['peak'],
@@ -342,25 +356,34 @@ def load_case(label, path):
         origin = 'historical completion metadata; bulk files not reread'
     record, config, manifest, runs = values
     heap, memory = CASE_LIMITS[label]
-    if (record['settings']['heap_mib'],record['settings']['memory_mib']) != (heap,memory):
-        raise ArtifactError('Case '+label+' does not have its agreed heap/container ceilings')
+    if ((record['settings']['heap_mib'],record['settings']['memory_mib']) != (heap,memory)
+            or record['settings'].get('cpu_millis', 2000) != CASE_CPUS[label]):
+        raise ArtifactError('Case '+label+' does not have its agreed CPU/heap/container ceilings')
     return dict(state='complete',source=str(path), evidence_kind=origin, record=record,
         configuration=config, manifest=manifest, runs=runs, measurements=measurements(record))
 
 
-def comparison(cases):
-    loaded = {label:load_case(label,cases.get(label)) for label in CASE_LIMITS}
+def comparison(cases, *, family=None):
+    if family is None:
+        family = ('cpu' if set(cases) <= set(CASE_FAMILIES['cpu']) else 'all') if set(cases)&{'D','E'} else 'memory'
+    labels = CASE_FAMILIES[family]
+    if set(cases)-set(labels):raise ArtifactError('Cases do not belong to the selected comparison family')
+    loaded = {label:load_case(label,cases.get(label)) for label in labels}
     completed = [label for label,case in loaded.items() if case['state']=='complete']
     comparisons = []
     for left_index,left in enumerate(completed):
         for right in completed[left_index+1:]:
             a,b = loaded[left],loaded[right]
-            unchanged = SETTINGS-{'heap_mib','memory_mib','max_memory_mib'}
+            unchanged = SETTINGS-{'cpu_millis','heap_mib','memory_mib','max_memory_mib'}
             if (a['configuration'] != b['configuration']
                     or any(a['record']['settings'][k] != b['record']['settings'][k] for k in unchanged)
                     or any(a['record'].get(k) != b['record'].get(k) for k in
                         ('image','model','prepared_sha256','source_sha256','probe_classes','sample_interval_ms','enforcement'))):
-                raise ArtifactError('Cases '+left+'/'+right+' differ beyond the intended memory settings')
+                raise ArtifactError('Cases '+left+'/'+right+' differ beyond the intended CPU/memory settings')
+            if (a['record']['attempts'][0].get('runner_sha256') != b['record']['attempts'][0].get('runner_sha256')
+                    or a['record']['attempts'][0].get('jvm_active_processor_count', 2)
+                    != b['record']['attempts'][0].get('jvm_active_processor_count', 2)):
+                raise ArtifactError('Cases must use the same staged runner and JVM processor-count setting')
             files = []
             for seed in a['configuration']['seed_plan']['seeds']:
                 for name in sorted(ANNUAL_FILES):
@@ -380,8 +403,8 @@ def comparison(cases):
     public = {label:{k:v for k,v in case.items() if k not in ('record','manifest','runs')}
               for label,case in loaded.items()}
     return dict(format=REPORT_FORMAT,created_at=instant(),simulations_started=0,microdata_read=False,
-        cases=public,comparisons=comparisons,
-        complete=len(completed)==3,
+        cases=public,comparisons=comparisons,family=family,
+        complete=len(completed)==len(labels),
         notes=['Percentiles use nearest rank and report their sample count.',
                'Last sampled JVM elapsed time is not the complete simulation-phase duration.',
                'Recorded peaks are sampled, except the separately labelled cgroup kernel peak counter.',
@@ -393,11 +416,16 @@ def render(report):
         value=case.get('measurements',{}).get(key)
         return default if value is None else value
     cases=report['cases']
-    lines=['# Fixed-memory research benchmark comparison','',
+    labels = list(cases)
+    headings = [f'{label}: {CASE_CPUS[label]/1000:g} vCPUs / {CASE_LIMITS[label][0]/1024:g} GiB heap / '
+                f'{CASE_LIMITS[label][1]/1024:g} GiB container' for label in labels]
+    lines=['# Fixed-resource research benchmark comparison','',
            'Generated from completed evidence; unfinished cases remain pending.','',
-           '| Measurement | A: 4 GiB heap / 5 GiB container | B: 4 GiB heap / 6 GiB container | C: 5 GiB heap / 6 GiB container |',
-           '| --- | --- | --- | --- |']
+           '| Measurement | '+' | '.join(headings)+' |',
+           '| '+' | '.join(['---']*(len(labels)+1))+' |']
     rows=[('Status',lambda c:c['state']),
+          ('Docker CPU quota (vCPUs)',lambda c:metric(c,'cpu_millis')/1000),
+          ('Java processor-count setting',lambda c:metric(c,'jvm_active_processor_count')),
           ('Container lifetime (seconds)',lambda c:metric(c,'container_seconds')),
           ('Last sampled JVM elapsed (seconds)',lambda c:metric(c,'last_sampled_jvm_seconds')),
           ('GC counters (seconds)',lambda c:metric(c,'gc_seconds')),
@@ -416,7 +444,7 @@ def render(report):
           ('Whole proof (seconds)',lambda c:metric(c,'proof_seconds'))]
     for title,function in rows:
         values=[]
-        for label in CASE_LIMITS:
+        for label in labels:
             case=cases[label]
             v=function(case) if case['state']=='complete' or title=='Status' else 'Pending'
             values.append(f'{v:.3f}' if type(v) is float else str(v))
@@ -564,6 +592,8 @@ def main(argv=None):
     sub=parser.add_subparsers(dest='command',required=True)
     compare=sub.add_parser('compare',help='Read small completed/archived reports only; never remove output')
     compare.add_argument('--case',action='append',default=[],metavar='A=PATH')
+    compare.add_argument('--family',choices=tuple(CASE_FAMILIES),
+                         help='Memory=A/B/C; CPU=A/D/E; default inferred from selected cases')
     compare.add_argument('--output',type=Path,required=True)
     save=sub.add_parser('archive',help='Preserve small evidence from a successful independent storage audit')
     save.add_argument('--completed',type=Path,required=True)
@@ -585,14 +615,14 @@ def main(argv=None):
             for value in args.case:
                 label,separator,path=value.partition('=')
                 if not separator or label not in CASE_LIMITS or label in cases or not path:
-                    raise ArtifactError('Specify each case once as A=PATH, B=PATH or C=PATH')
+                    raise ArtifactError('Specify each case once as LABEL=PATH, with a label A..E')
                 cases[label]=Path(path)
             if not cases:raise ArtifactError('Select at least one case')
             output=ordinary(args.output)
             if output.exists() or ROOT in output.parents:raise ArtifactError('Choose a new report directory outside source trees')
             if any(output==p.absolute() or p.absolute() in output.parents for p in cases.values()):
                 raise ArtifactError('Keep the comparison outside original evidence')
-            result=comparison(cases)
+            result=comparison(cases,family=args.family)
             output.mkdir(mode=0o700,parents=True);write_attribution(output)
             write_json(output/'report.json',result)
             with (output/'comparison.md').open('x') as stream:

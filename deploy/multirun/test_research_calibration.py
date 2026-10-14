@@ -21,6 +21,7 @@ from deploy.multirun.resource_policy import DEFAULT_POLICY
 
 def settings(**changes):
     return trial.checked_settings({**dict(population=100000, end_year=2070, repetitions=1,
+        cpu_millis=2000,
         heap_mib=4096, memory_mib=5120, max_memory_mib=7168, storage_mib=12288,
         setup_seconds=900, repetition_seconds=14400, max_attempts=3), **changes})
 
@@ -56,13 +57,14 @@ class ResearchCalibrationTests(unittest.TestCase):
         self.receipt = dict(identity=identity, sha256=digest(identity), revision='calibration-'+digest(identity))
         (self.prepared/'receipt.json').write_text(json.dumps(self.receipt))
 
-    def adapter_lease(self, variant='baseline'):
-        adapter = trial.ResearchAdapter(self.prepared, self.classes, self.plan, variant)
-        config = trial.configuration(self.receipt, self.plan, variant)
+    def adapter_lease(self, variant='baseline', *, cpu_millis=2000):
+        plan = {**self.plan, 'cpu_millis':cpu_millis}
+        adapter = trial.ResearchAdapter(self.prepared, self.classes, plan, variant)
+        config = trial.configuration(self.receipt, plan, variant)
         args = trial.arguments(config, self.receipt)
         spec = dict(model_digest=self.image, dataset_id=self.receipt['revision'],
             prepared_fingerprint=self.receipt['sha256'], seeds=args['seed_plan'], run_sets=args['run_sets'])
-        resources = dict(cpu_millis=2000, memory_mib=5120, storage_mib=12288)
+        resources = dict(cpu_millis=cpu_millis, memory_mib=5120, storage_mib=12288)
         from jasmine_web.batch.resource_recovery import RecoveryPolicy
         key = config.as_dict()['run_sets'][0]['id']
         spec['resource_recovery'] = RecoveryPolicy(max_memory_mib=7168, max_heap_mib=6144,
@@ -182,6 +184,54 @@ class ResearchCalibrationTests(unittest.TestCase):
         self.assertEqual(policy['simulation']['storage'], dict(setup_mib=12288, per_repetition_mib=0))
         self.assertEqual(DEFAULT_POLICY, before)
         self.assertEqual(DEFAULT_POLICY['simulation']['storage'], dict(setup_mib=4096, per_repetition_mib=256))
+
+    def test_cpu_quota_selects_matching_policy_and_keeps_jvm_and_scientific_settings_fixed(self):
+        before = deepcopy(DEFAULT_POLICY)
+        original = trial.configuration(self.receipt, self.plan).as_dict()
+        for cpu_millis in (1000, 1500, 2000):
+            with self.subTest(cpu_millis=cpu_millis):
+                adapter, lease = self.adapter_lease(cpu_millis=cpu_millis)
+                self.assertEqual(adapter.resource_policy['simulation']['cpu_millis'], cpu_millis)
+                self.assertEqual(adapter._configuration(lease).as_dict(), original)
+                with patch('deploy.multirun.queue_adapter.shutil.disk_usage',
+                           return_value=SimpleNamespace(free=100*trial.GIB)):
+                    request = self.root/str(cpu_millis);request.mkdir()
+                    command = adapter.container_command(lease, request)
+                self.assertEqual(command.argv, ('/bin/sh', '/request/run.sh', '4096m'))
+                self.assertIn('-XX:ActiveProcessorCount=2', (request/'run.sh').read_text())
+                self.assertEqual(DEFAULT_POLICY, before)
+                lease.resources['cpu_millis'] += 1
+                with self.assertRaises(ArtifactError):adapter._configuration(lease)
+
+    def test_legacy_settings_remain_verbatim_and_new_cpu_quotas_are_bounded(self):
+        legacy = {k:v for k,v in self.plan.items() if k != 'cpu_millis'}
+        self.assertEqual(trial.checked_settings(legacy), legacy)
+        self.assertEqual(trial.trial_policy(legacy)['simulation']['cpu_millis'], 2000)
+        for value in (True, 0, 999, 2001, 1.5):
+            with self.subTest(value=value), self.assertRaises(ArtifactError):
+                trial.checked_settings({**self.plan, 'cpu_millis':value})
+
+    def test_docker_arguments_enforce_the_selected_fractional_quota(self):
+        from jasmine_web.batch.docker_executor import DockerExecutor
+        for cpu_millis in (1000, 1500, 2000):
+            adapter, lease = self.adapter_lease(cpu_millis=cpu_millis)
+            lease.attempt_id = '00000000-0000-0000-0000-000000000001'
+            lease.execution_key = 'batch-'+lease.attempt_id
+            executor = DockerExecutor(self.root/'executor', approved_images=[self.image], docker=Mock())
+            policy = dict(resources=lease.resources, deadline=1, pids=512, user='1:1',
+                          mounts=[], image=self.image, argv=[])
+            argv = executor._create_args(lease, policy)
+            self.assertEqual(float(argv[argv.index('--cpus')+1]), cpu_millis/1000)
+
+    def test_observation_rejects_changed_docker_quota_before_collecting_metrics(self):
+        adapter, lease = self.adapter_lease(cpu_millis=1500)
+        executor = Mock();executor.workspace.return_value = self.root
+        executor.docker.inspect.return_value = dict(Id='a'*64, State=dict(Running=False),
+                                                   HostConfig=dict(NanoCpus=2000000000))
+        entry = dict(container_id=None)
+        with self.assertRaisesRegex(ArtifactError, 'Docker CPU quota'):
+            trial.observe(entry, lease, executor, {})
+        executor.docker.call.assert_not_called()
 
     def test_invalid_settings_and_unfinishable_long_retry_plan_are_rejected(self):
         for key, value in (('population', True), ('population', 100001), ('end_year', 2071),

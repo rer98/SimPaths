@@ -238,6 +238,7 @@ def scoped_plan(receipt, sources, *, repetitions, workspace, frontend, python):
     minimum = workspace_required_bytes(receipt['identity'])
     allocation = simulation_storage(policy, repetitions=repetitions, minimum_setup_bytes=minimum)
     settings = checked_settings({**sources[0]['settings'], 'repetitions':repetitions,
+        'cpu_millis':2000,
         'storage_mib':allocation['storage_mib'], 'heap_mib':4096, 'memory_mib':5120,
         'max_memory_mib':7168, 'setup_seconds':900, 'repetition_seconds':14400, 'max_attempts':1})
     prepared = Path(workspace['prepared']).absolute()
@@ -250,6 +251,7 @@ def scoped_plan(receipt, sources, *, repetitions, workspace, frontend, python):
     command = [str(python), str(ROOT/'deploy/multirun/research_calibration.py'),
         '--frontend', str(frontend), '--prepared', str(prepared), '--population', '100000',
         '--end-year', '2070', '--repetitions', str(repetitions), '--storage-mib', str(settings['storage_mib']),
+        '--cpu-millis', str(settings['cpu_millis']),
         '--heap-mib', '4096', '--memory-mib', '5120', '--max-memory-mib', '7168',
         '--setup-seconds', '900', '--repetition-seconds', '14400', '--max-attempts', '1',
         '--output', str(destination)]

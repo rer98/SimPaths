@@ -45,7 +45,7 @@ GIB = 1024**3
 FORMAT = 'simpaths.private-research-calibration.v1'
 SOURCE = 'maintainer-public-training-calibration'
 ENV = 'SIMPATHS_RESEARCH_TRIAL'
-FIELDS = {'population', 'end_year', 'repetitions', 'heap_mib', 'memory_mib',
+FIELDS = {'population', 'end_year', 'repetitions', 'cpu_millis', 'heap_mib', 'memory_mib',
           'max_memory_mib', 'storage_mib', 'setup_seconds', 'repetition_seconds', 'max_attempts'}
 VARIANTS = ('baseline', 'lower-saving-rate')
 BUILD_TIME = re.compile(r'^Time to complete initialisation ([0-9]+(?:\.[0-9]+)?) minutes\.$')
@@ -61,11 +61,14 @@ def json_record(value):
 
 def checked_settings(value):
     bounds = dict(population=(1000, 100000), end_year=(2019, 2070), repetitions=(1, 10),
-        heap_mib=(1024, 7168), memory_mib=(5120, 8192), max_memory_mib=(5120, 8192),
+        cpu_millis=(1000, 2000), heap_mib=(1024, 7168), memory_mib=(5120, 8192), max_memory_mib=(5120, 8192),
         storage_mib=(6144, 65536), setup_seconds=(0, 3600),
         repetition_seconds=(60, 86400), max_attempts=(1, 3))
-    if (type(value) is not dict or set(value) != FIELDS or any(type(value[k]) is not int
-            or not low <= value[k] <= high for k, (low, high) in bounds.items())):
+    # Original completed reports predate selectable CPU quotas. Interpret their
+    # absent CPU field as the original 2000 without rewriting historical evidence.
+    if (type(value) is not dict or set(value) not in (FIELDS, FIELDS-{'cpu_millis'})
+            or any(type(value[k]) is not int or not bounds[k][0] <= value[k] <= bounds[k][1]
+                   for k in value)):
         raise ArtifactError('Select bounded private research calibration settings')
     if value['heap_mib'] + 1024 > value['memory_mib'] or value['memory_mib'] > value['max_memory_mib']:
         raise ArtifactError('Keep at least 1 GiB native headroom and an adequate memory ceiling')
@@ -90,7 +93,8 @@ def sample_millis(settings):
 
 def trial_policy(settings):
     result = deepcopy(DEFAULT_POLICY)
-    result['simulation'].update(memory_mib=settings['memory_mib'], large_memory_mib=settings['memory_mib'])
+    result['simulation'].update(cpu_millis=settings.get('cpu_millis', 2000),
+        memory_mib=settings['memory_mib'], large_memory_mib=settings['memory_mib'])
     result['simulation']['storage'] = dict(setup_mib=settings['storage_mib'], per_repetition_mib=0)
     return check_policy(result)
 
@@ -249,8 +253,8 @@ class ResearchAdapter(ObservedAdapter):
             raise ArtifactError('Queued calibration settings or original seeds changed')
         if getattr(lease, 'heap_mib', None) is None or spec.get('resource_recovery') is None:
             raise ArtifactError('Calibration requires its explicit frozen heap and recovery policy')
-        if any(lease.resources[k] < v for k, v in dict(cpu_millis=2000,
-                memory_mib=self.settings['memory_mib'], storage_mib=self.settings['storage_mib']).items()):
+        if (lease.resources['cpu_millis'] != self.settings.get('cpu_millis', 2000)
+                or any(lease.resources[k] < self.settings[k] for k in ('memory_mib', 'storage_mib'))):
             raise ArtifactError('Calibration allocation is below its recorded trial settings')
         return config
 
@@ -265,6 +269,8 @@ class ResearchAdapter(ObservedAdapter):
         command = super().container_command(lease, request)
         runner = request/'run.sh'
         text = runner.read_text()
+        if text.count('-XX:ActiveProcessorCount=2') != 1:
+            raise ArtifactError('Keep the same two-processor JVM setting across CPU-quota trials')
         token = '-cp /request/probe:/inputs/model.jar SimPathsResourceProbe'
         if text.count(token) != 1:
             raise ArtifactError('Passive calibration runner changed')
@@ -343,6 +349,12 @@ def observe(entry, lease, executor, record):
     if container:
         if entry['container_id'] not in (None, container['Id']):raise AssertionError('Attempt container identity changed')
         entry['container_id'] = container['Id']; entry['container'] = container
+        observed_cpu = container['HostConfig']['NanoCpus']
+        if observed_cpu != lease.resources['cpu_millis']*1000000:
+            raise ArtifactError('Observed Docker CPU quota differs from the frozen allocation')
+        entry['cpu_millis'] = observed_cpu//1000000
+        if 'runner_sha256' not in entry:
+            entry['runner_sha256'] = fingerprint(path/'request/run.sh')['sha256']
         if container['State']['Running']:
             pid = container['State']['Pid']
             if pid not in entry['pids']:entry['pids'].append(pid)
@@ -582,7 +594,8 @@ def execute(output):
         record['probe_classes'] = inventory(classes)
         queue.migrate(); migrated = True
         seconds = attempt_seconds(settings)
-        queue.create_pool(Resources(2000, settings['max_memory_mib'], settings['storage_mib']), policy=Policy(
+        cpu_millis = settings.get('cpu_millis', 2000)
+        queue.create_pool(Resources(cpu_millis, settings['max_memory_mib'], settings['storage_mib']), policy=Policy(
             per_user_active=1, max_attempts=settings['max_attempts'], attempt_seconds=seconds,
             total_seconds=seconds*settings['max_attempts'], retry_delay_seconds=1))
         queue.register_dataset(receipt['revision'], receipt['sha256'])
@@ -594,14 +607,15 @@ def execute(output):
                 max_heap_mib=settings['max_memory_mib']-(settings['memory_mib']-settings['heap_mib']),
                 storage_multiplier=1, check_seconds=5)
             experiment = queue.submit(owner, 'private-research', **args,
-                resources=Resources(2000, settings['memory_mib'], settings['storage_mib']),
+                resources=Resources(cpu_millis, settings['memory_mib'], settings['storage_mib']),
                 runtime_allowance=RuntimeAllowance(settings['setup_seconds'], settings['repetition_seconds'], settings['max_attempts']),
                 resource_recovery=recovery, heap_limits={r['id']:settings['heap_mib'] for r in args['run_sets']})
             write_json(output/'configuration.json', configuration(receipt, settings, variant).as_dict())
             record['recovery_policy'] = asdict(recovery)
             print(f"Measuring {variant}: {settings['population']:,} people, 2019–{settings['end_year']}, "
                 f"{settings['repetitions']} repetition(s); {settings['heap_mib']/1024:g} GiB heap, "
-                f"{settings['memory_mib']/1024:g}–{settings['max_memory_mib']/1024:g} GiB container", flush=True)
+                f"{settings['memory_mib']/1024:g}–{settings['max_memory_mib']/1024:g} GiB container; "
+                f"{cpu_millis/1000:g} vCPU quota, JVM processor count fixed at 2", flush=True)
             stage = 'full-simulation'; started = time.monotonic(); next_sample = started; next_progress = started
             page.get_by_role('button', name='Refresh', exact=True).click()
             while True:
@@ -641,7 +655,9 @@ def execute(output):
                 lease = entry['lease']; directory = output/'attempts'/key
                 measured = summary(entry['rows'], lease.heap_mib)
                 if len(entry['pids']) != 1:raise AssertionError('Original JVM process changed within an attempt')
-                detail = dict(id=key, outcome=entry['outcome'], heap_mib=lease.heap_mib, **measured)
+                detail = dict(id=key, outcome=entry['outcome'], heap_mib=lease.heap_mib,
+                    cpu_millis=entry['cpu_millis'], jvm_active_processor_count=2,
+                    runner_sha256=entry['runner_sha256'], **measured)
                 if entry['outcome'] == 'success':
                     detail.update(measured_times(entry['log'], entry['container'], builds=entry.get('builds')))
                     if len(detail['model_initialisation_seconds']) != settings['repetitions']:
@@ -713,6 +729,8 @@ def main():
     parser.add_argument('--variant', choices=VARIANTS, default='baseline',
         help='Private calibration configuration; lower-saving-rate changes only savingRate to 0.04')
     parser.add_argument('--heap-mib', type=int, default=4096)
+    parser.add_argument('--cpu-millis', type=int, default=2000,
+                        help='Private model CPU quota: 1000=1, 1500=1.5, 2000=2 vCPUs; JVM processor count stays at 2')
     parser.add_argument('--memory-mib', type=int, default=5120)
     parser.add_argument('--max-memory-mib', type=int, default=7168)
     parser.add_argument('--storage-mib', type=int, default=12288)

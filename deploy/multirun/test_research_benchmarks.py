@@ -40,7 +40,8 @@ class BenchmarkTests(unittest.TestCase):
             path=run/'input/options.txt';path.write_text('randomSeedIfFixed: '+seed+'\n')
             manifest[path.relative_to(output).as_posix()]=fingerprint(path)
         heap,memory=bench.CASE_LIMITS[label]
-        settings=dict(population=100000,end_year=2020,repetitions=2,heap_mib=heap,memory_mib=memory,
+        settings=dict(population=100000,end_year=2020,repetitions=2,cpu_millis=bench.CASE_CPUS[label],
+            heap_mib=heap,memory_mib=memory,
             max_memory_mib=memory,storage_mib=12288,setup_seconds=900,repetition_seconds=14400,max_attempts=1)
         config=dict(common=dict(country='UK',population=100000,start_year=2019,end_year=2020),
             seed_plan=dict(seeds=seeds,repetitions=2),model_release='fictional-model',dataset_revision='fictional-inputs',
@@ -49,6 +50,7 @@ class BenchmarkTests(unittest.TestCase):
             working_set_bytes=4*bench.GIB,container_used_bytes=memory*bench.MIB,
             cgroup_peak_bytes=memory*bench.MIB)
         attempt=dict(id='fictional-attempt-'+label,heap_mib=heap,outcome='success',
+            cpu_millis=bench.CASE_CPUS[label],jvm_active_processor_count=2,runner_sha256='0'*64,
             observed_container_limits_bytes=[memory*bench.MIB],peak=peak,
             container_lifetime_seconds=1200-(50 if label=='B' else 0),elapsed_ms=1100000,
             gc_ms=20000,samples=20,model_initialisation_seconds=[100.0,50.0])
@@ -104,6 +106,44 @@ class BenchmarkTests(unittest.TestCase):
         self.assertFalse(report['complete']);self.assertFalse(report['microdata_read'])
         self.assertEqual(report['cases']['A']['measurements']['status']['p95_ms'],200)
         self.assertIn('Single-observation',pair['note'])
+
+    def test_cpu_family_compares_three_quotas_with_matching_heap_inputs_and_jvm_settings(self):
+        paths = {label:self.fixture(label)[0] for label in ('A','D','E')}
+        report = bench.comparison(paths)
+        self.assertEqual(list(report['cases']), ['A','D','E'])
+        self.assertTrue(report['complete'])
+        self.assertEqual(len(report['comparisons']), 3)
+        self.assertFalse(any(p['unexpected_mismatches'] for p in report['comparisons']))
+        self.assertEqual([report['cases'][k]['measurements']['cpu_millis'] for k in paths], [2000,1500,1000])
+        text = bench.render(report)
+        self.assertIn('D: 1.5 vCPUs / 4 GiB heap / 5 GiB container', text)
+        self.assertNotIn('B: ', text)
+
+    def test_cpu_family_retains_pending_cases_and_rejects_wrong_label_or_observed_quota(self):
+        a,_ = self.fixture('A');d,_ = self.fixture('D')
+        report = bench.comparison({'A':a}, family='cpu')
+        self.assertEqual(report['cases']['D']['state'], 'pending')
+        self.assertFalse(report['complete'])
+        with self.assertRaises(ArtifactError):bench.load_case('E', d)
+        path = d/'model-proof/report.json'
+        original = json.loads(path.read_text())
+        for change in (lambda v:v['attempts'][0].update(cpu_millis=2000),
+                       lambda v:v['attempts'][0].update(jvm_active_processor_count=1),
+                       lambda v:v['attempts'][0].update(runner_sha256='1'*64)):
+            self.publish(path, original);self.edit(path, change)
+            with self.assertRaises(ArtifactError):bench.comparison({'A':a,'D':d})
+
+    def test_historical_two_cpu_evidence_without_cpu_fields_remains_readable(self):
+        a,_ = self.fixture('A');b,_ = self.fixture('B')
+        for root in (a,b):
+            def legacy(record):
+                record['settings'].pop('cpu_millis')
+                for key in ('cpu_millis','jvm_active_processor_count','runner_sha256'):
+                    record['attempts'][0].pop(key)
+            self.edit(root/'model-proof/report.json', legacy)
+        report = bench.comparison({'A':a,'B':b})
+        self.assertEqual(report['cases']['A']['measurements']['cpu_millis'], 2000)
+        self.assertEqual(len(report['comparisons']), 1)
 
     def test_benefit_warnings_and_unexpected_person_mismatches_are_not_hidden(self):
         a,_=self.fixture('A');b,_=self.fixture('B',benefit='DIFF',person='different')

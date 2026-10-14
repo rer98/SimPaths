@@ -34,7 +34,9 @@ def check_policy(policy):
     prep, run = policy['preparation'], policy['simulation']
     values = [(prep[k], v) for k, v in LEGACY_POLICY['preparation'].items()]
     large_minimum=max(5120,run['memory_mib']) if type(run['memory_mib']) is int else 5120
-    values += [(run['cpu_millis'], 2000), (run['memory_mib'], 4096),
+    # Operator policies may select tested fractional CPU quotas. Keep the
+    # existing two-CPU defaults and preparation minimum unchanged.
+    values += [(run['cpu_millis'], 1000), (run['memory_mib'], 4096),
                (run['large_memory_mib'], large_minimum),
                (run['storage']['setup_mib'], 4096), (run['storage']['per_repetition_mib'], 0)]
     if any(type(value) is not int or type(low) is not int or not low <= value <= 2**31-1
@@ -61,7 +63,7 @@ def _check_profiles(profiles):
             raise ArtifactError('Invalid or duplicate workload profile')
         seen.add(profile['id'])
         for key,low,high in (('max_population',1,2**31-1),('max_years',1,1000),
-                ('max_repetitions',1,1000),('cpu_millis',2000,2**31-1),('memory_mib',4096,2**31-1),
+                ('max_repetitions',1,1000),('cpu_millis',1000,2**31-1),('memory_mib',4096,2**31-1),
                 ('heap_mib',512,2**31-1),('native_headroom_mib',1024,2**31-1)):
             value=profile[key]
             if type(value) is not int or not low <= value <= high:

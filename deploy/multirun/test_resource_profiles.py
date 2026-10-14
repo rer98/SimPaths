@@ -83,6 +83,21 @@ class ProfilePolicyTests(unittest.TestCase):
         self.assertEqual(simulation_resources(LEGACY_POLICY,population=50000,repetitions=12)['storage_mib'],10240)
         self.assertEqual(DEFAULT_POLICY,before)
 
+    def test_explicit_profiles_accept_fractional_quotas_without_changing_defaults(self):
+        before = deepcopy(DEFAULT_POLICY)
+        for cpu_millis in (1000,1500,2000):
+            changed = deepcopy(self.policy)
+            changed['profiles'][0]['cpu_millis'] = cpu_millis
+            self.assertEqual(simulation_resources(changed, **self.context)['cpu_millis'], cpu_millis)
+            changed['simulation']['cpu_millis'] = cpu_millis
+            self.assertEqual(check_policy(changed)['simulation']['cpu_millis'], cpu_millis)
+        for value in (999,True,1.5):
+            changed = deepcopy(self.policy);changed['profiles'][0]['cpu_millis'] = value
+            with self.assertRaises(ArtifactError):check_policy(changed)
+            changed = deepcopy(DEFAULT_POLICY);changed['simulation']['cpu_millis'] = value
+            with self.assertRaises(ArtifactError):check_policy(changed)
+        self.assertEqual(DEFAULT_POLICY,before)
+
     def test_policy_hash_binds_the_full_envelope_and_inputs_are_not_mutated(self):
         first=starting_allocation(self.policy,**self.context)
         self.policy['profiles'][0]['max_years']=7

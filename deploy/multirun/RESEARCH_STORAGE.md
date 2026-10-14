@@ -513,6 +513,151 @@ The actual B/A driver dry-runs and annual-audit imports pass in the selected
 virtual environment. Verification is recorded in
 [/tmp-codex/research-sequence-checks-20261012](/tmp-codex/research-sequence-checks-20261012).
 
+#### Dependency setup and network access — checked 13 October 2026
+
+The 12 October overnight B/A/C attempt stopped during B's dependency setup,
+before starting PostgreSQL or the model. Ross had disabled external network
+access to keep the laptop quiet. The private
+[dependency log](/tmp-codex/research-quiet-ba-20261012-215632/trials/B/dependencies.log)
+records repeated DNS failures when pip tried to retrieve `psycopg`; its later
+dependency-conflict message does not establish a genuine version conflict.
+The [driver report](/tmp-codex/research-quiet-ba-20261012-215632/trials/B/report.json)
+confirms cleanup, and the
+[sequence report](/tmp-codex/research-quiet-ba-20261012-215632/report.json)
+contains no completed cases. A and C were not started. Keep this failed setup
+evidence and select a new output directory for the repeat.
+
+By default, each case installs its pinned test dependencies into a new isolated
+environment, so external network access must remain available for these setup
+stages. The model and disposable database run locally, and status requests use
+loopback. An idle external connection is compatible with a quiet repeat; avoid
+substantial downloads, updates or other competing work, and keep background
+conditions consistent across cases. Dependency installation occurs before the
+measured model-container lifetime.
+
+Alternatively, download the required wheels once while the network is available:
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths &&
+mkdir -p /tmp-codex/research-python-wheels &&
+TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 ~/simpaths-browser-tests/venv/bin/python -m pip download \
+  --disable-pip-version-check --only-binary=:all: \
+  --dest /tmp-codex/research-python-wheels \
+  -r "$HOME/git/JAS-mine/JAS-mine-web/requirements-batch-web.txt" \
+  -r deploy/multirun/requirements.txt \
+  -r deploy/acceptance/requirements.txt
+```
+
+Wait for this command to succeed before disabling the network. Use the same
+Python version and architecture as the trials. For a sequence using that local
+cache, add `PIP_NO_INDEX=1 PIP_FIND_LINKS=/tmp-codex/research-python-wheels` to the
+environment assignments before `research_sequence.py`. These settings are
+inherited by the fresh dependency installers and prevent package-index access;
+they do not bypass dependency pins or reuse the caller's installed packages.
+Refresh the wheel cache after dependency requirements change. Missing packages
+will stop setup rather than fall back to an online download.
+
+### Quiet CPU-quota comparison — 14 October 2026
+
+The calibration now accepts `--cpu-millis` from 1000 to 2000: 1000 means one
+vCPU, 1500 means 1.5 vCPUs and 2000 means two. The operator-policy validation
+also accepts simulation quotas down to one vCPU; existing simulation defaults,
+preparation defaults and existing frozen releases remain at their recorded
+allocations. This does not register a smaller production starting profile.
+
+The unattended sequence adds two CPU cases alongside the original memory cases:
+
+| Case | Docker CPU quota | Maximum Java heap | Container RAM |
+| --- | --- | --- | --- |
+| A, fresh control | 2 vCPUs | 4 GiB | 5 GiB |
+| D | 1.5 vCPUs | 4 GiB | 5 GiB |
+| E | 1 vCPU | 4 GiB | 5 GiB |
+
+Each case uses the same pinned Java runtime and prepared public-training inputs,
+100,000 initial people, 2019–2070 inclusive, two sequential repetitions with seeds
+606 and 607, 12 GiB working storage, and the same runtime budgets. Growth ceilings
+equal starting allowances and only one attempt is permitted, so live expansion
+and retries cannot change a trial's allocation. Java's
+`-XX:ActiveProcessorCount=2` deliberately stays fixed across all three cases.
+This tests the Docker CPU-time ceiling; it does not simultaneously test changes
+to Java's thread-pool sizing or collector selection.
+
+The adapter checks the exact CPU allocation before staging, Docker applies it,
+and the observer independently checks the container's actual `NanoCpus` value.
+Completion evidence records the observed quota, configured JVM processor count
+and staged runner checksum. CPU-family comparisons require the same runner,
+model/image, inputs, seeds, scientific settings and measurement sources. Original
+reports without a CPU setting remain readable as historical two-CPU evidence;
+their contents are not rewritten. Use a fresh A control for this comparison,
+because the updated calibration-driver hash differs from earlier A/B/C trials.
+
+For a quiet unattended comparison, leave external network access available for
+each case's isolated dependency installation, then run:
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths &&
+TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 ~/simpaths-browser-tests/venv/bin/python deploy/multirun/research_sequence.py \
+  --frontend "$HOME/git/JAS-mine/JAS-mine-web" \
+  --prepared /tmp-codex/research-prepared-100000-20261009-232734/package \
+  --cases A D E \
+  --output "/tmp-codex/research-quiet-cpu-$(date +%Y%m%d-%H%M%S)"
+```
+
+The sequence checks for 15 GiB free disk space and 7 GiB available RAM before
+each case. It audits and archives successful output, compares annual hashes,
+then reclaims that case's bulk files before starting the next. It stops on a
+failure or unexpected annual-output mismatch and preserves the evidence. The
+existing equal-size BenefitUnit reproducibility warnings remain visible.
+Reports, inputs, original hashes and annual file sizes/counts are retained.
+The final comparison is under `comparisons/03-after-E/comparison.md` in the new
+sequence directory. Keep the laptop otherwise idle and avoid changing any of
+the selected sources or prepared files during the sequence.
+
+To run only the two new allowances, select `--cases D E`; their final comparison
+is under `comparisons/02-after-E/comparison.md` and A remains pending. Add
+`--dry-run` to print the exact commands and allocations without starting a model
+or creating a trial directory. The memory-family A/B/C workflow remains available.
+
+A smaller CPU quota can change garbage-collection timing and memory peaks;
+it also slows object allocation, so a greater RAM requirement is not assumed.
+Keep this first round fixed. A separate follow-up can enable bounded container
+growth and cause-specific retries to assess production recovery behaviour.
+Increasing container RAM does not raise the running JVM's `-Xmx` ceiling;
+a larger maximum heap requires a new attempt. Record precautionary threshold
+growth separately from actual resource-limit failures: growth alone does not
+prove the original allowance would have failed. The fixed A/D/E comparator
+deliberately rejects confirmed growth or retries, so adaptive follow-ups need
+their own evidence and must not be mixed into this timing comparison.
+
+#### Potential follow-up: Java processor count at one vCPU
+
+- [ ] After the fixed CPU-quota trials, consider comparing a **one-vCPU Docker
+  allowance** with `-XX:ActiveProcessorCount=2` (the current E setting),
+  `-XX:ActiveProcessorCount=1`, and optionally no override so Java detects its
+  container CPU allowance. This would establish whether different Java thread
+  sizing or collector selection improves the one-vCPU configuration.
+
+Keep the 4 GiB heap, 5 GiB container, model/image, inputs, years and seeds fixed,
+with growth/retries disabled and comparable quiet conditions. Record Java's
+actual reported processor count, selected garbage collector, completion and GC
+times, memory peaks, status latency and annual output hashes. Extend the
+benchmark settings and comparison guards to allow this explicit Java-setting
+change while retaining runner checksums and provenance; the current A/D/E
+comparator deliberately requires `ActiveProcessorCount=2` throughout.
+
+Docker still enforces the one-vCPU limit on all Java threads when Java's count
+is two. At a 1.5-vCPU quota, normal OpenJDK container detection rounds the integer
+processor count up to two, making the current D setting consistent with that
+behaviour. See the [Java option documentation](https://docs.oracle.com/en/java/javase/25/docs/specs/man/java.html#advanced-runtime-options-for-java)
+and [OpenJDK CPU-count calculation](https://github.com/openjdk/jdk25u/blob/master/src/hotspot/os/linux/cgroupSubsystem_linux.cpp#L578).
+
+Preparation checks on 14 October: **134 focused tests pass** across calibration,
+benchmark comparison/disposal, sequence orchestration, resource profiles,
+storage audit, container staging, release verification and research comparison.
+All three real-preparation driver dry-runs pass; no new simulation was launched.
+The saved commands and capacity preflight are under
+[/tmp-codex/research-cpu-checks-20261014](/tmp-codex/research-cpu-checks-20261014).
+
 ### A/B/C comparison record
 
 Use the same release, prepared inputs, collectors, two-CPU allowance, seeds

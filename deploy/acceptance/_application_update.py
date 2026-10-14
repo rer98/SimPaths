@@ -17,10 +17,15 @@ import tarfile
 import tempfile
 
 
-PREVIOUS_FRONTEND = 'e6db2a8f84b80f76f355c9b9ff15d1c69fb1507e'
-PREVIOUS_HOST = 'bc7e7c465'
+HISTORICAL_FRONTEND = 'e6db2a8f84b80f76f355c9b9ff15d1c69fb1507e'
+HISTORICAL_HOST = 'bc7e7c465'
+PREVIOUS_FRONTEND = '82aad9a0c33440aed2f7f7a0c27dcd65bcc64afa'
+PREVIOUS_HOST = '47dc95a9b8788a308ef3514693b8efe0c62c85ee'
 FIXTURES = ('_application_update.py', '_recovery_fixture.py', '_recovery_model.py',
-            '_https_fixture.py', '_supervisor.py', '_postgres_outage.py')
+            '_https_fixture.py', '_supervisor.py', '_postgres_outage.py', '_single_rpc.py', '_update_rpc.py')
+FRONTEND_FIXTURES = ('tests/browser/single_rpc_fixture.py',)
+PUBLIC_ASSETS = ('static/jasmine_main.js', 'jasmine_web/batch/browser_static/index.html',
+                 'jasmine_web/batch/browser_static/batch.css')
 MAX_FILES, MAX_BYTES, MAX_FILE_BYTES = 4000, 32*1024**2, 16*1024**2
 
 
@@ -152,7 +157,16 @@ def bundle(host, frontend, destination, *, host_ref, frontend_ref):
         target.write_bytes(source.read_bytes()); target.chmod(0o600)
         overlays[key] = digest(target.read_bytes())
     value['fixture_overlays'] = overlays
+    overlays = {}
+    for name in FRONTEND_FIXTURES:
+        source = ordinary(frontend)/name
+        target = root/'JAS-mine-web'/name
+        target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        target.write_bytes(source.read_bytes()); target.chmod(0o600)
+        overlays[name] = digest(target.read_bytes())
+    value['frontend_fixture_overlays'] = overlays
     value['host']['files'] = inventory(root/'SimPaths')
+    value['frontend']['files'] = inventory(root/'JAS-mine-web')
     value['migrations'] = migrations(root/'JAS-mine-web')
     return value
 
@@ -169,14 +183,18 @@ def compatible(previous, candidate):
     verify(previous); verify(candidate)
     if previous['migrations'] != candidate['migrations']:
         raise ValueError('Direct rollback requires matching reviewed migration histories')
-    if previous['frontend']['files']['jasmine_web/batch/browser_static/index.html'] == candidate['frontend']['files']['jasmine_web/batch/browser_static/index.html']:
+    if all(previous['frontend']['files'][key] == candidate['frontend']['files'][key] for key in PUBLIC_ASSETS):
         raise ValueError('Select actual different application snapshots for this rehearsal')
     # Matching SQL alone does not certify stored receipts/caches/other APIs.
     # These particular committed snapshots have the same result/cache formats.
     for name in ('jasmine_web/batch/results.py', 'jasmine_web/batch/downloads.py',
-                 'jasmine_web/batch/visualiser.py', 'jasmine_web/vm_recovery.py'):
+                 'jasmine_web/batch/visualiser.py', 'jasmine_web/vm_recovery.py',
+                 'jasmine_web/batch/service_rpc.py','jasmine_web/batch/remote_service.py',
+                 'jasmine_web/single_rpc.py','jasmine_web/single_boundary.py','jasmine_web/single_runtime.py'):
+        if name not in previous['frontend']['files'] or name not in candidate['frontend']['files']:
+            raise ValueError('Review missing result/recovery/RPC formats before selecting another rollback pair')
         if previous['frontend']['files'][name] != candidate['frontend']['files'][name]:
-            raise ValueError('Review changed result/recovery formats before selecting another rollback pair')
+            raise ValueError('Review changed result/recovery/RPC formats before selecting another rollback pair')
 
 
 def future(candidate, destination):
@@ -192,9 +210,11 @@ def future(candidate, destination):
         shutil.copytree(candidate[component]['directory'], target)
         value[component]['directory'] = str(target)
     frontend = root/'JAS-mine-web'
-    for component, filename, classname, method, name in (
-            ('batch', 'jasmine_web/batch/store.py', 'Queue', 'migrations', '021_update_rehearsal.sql'),
-            ('single', 'jasmine_web/vm_state.py', 'PostgresVMState', 'migrate', 'vm_state_003_update_rehearsal.sql')):
+    for component, filename, classname, method in (
+            ('batch', 'jasmine_web/batch/store.py', 'Queue', 'migrations'),
+            ('single', 'jasmine_web/vm_state.py', 'PostgresVMState', 'migrate')):
+        version=len(candidate['migrations'][component])+1
+        name=f'{version:03d}_update_rehearsal.sql' if component=='batch' else f'vm_state_{version:03d}_update_rehearsal.sql'
         path = frontend/filename; source = path.read_text(); tree = ast.parse(source)
         cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == classname)
         fn = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == method)
@@ -210,6 +230,8 @@ def future(candidate, destination):
                '-- @author ross richardson\n'
                'CREATE TABLE update_rehearsal_marker (value text NOT NULL);\n'
                "INSERT INTO update_rehearsal_marker VALUES ('FICTIONAL_UPDATE_SCHEMA');\n")
+        if path.with_name(name).exists():
+            raise ValueError('Synthetic migration would replace an existing file')
         path.with_name(name).write_text(sql)
     value.update(synthetic=True, migrations=migrations(frontend))
     value['frontend']['files'] = inventory(frontend)

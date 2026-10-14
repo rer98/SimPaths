@@ -168,7 +168,7 @@ The older real-model drivers use `status: "passed"` rather than that report form
 | Scheduled live capture, encryption, pinned SFTP, interruption/retry, retrieval and native isolated restore | [Scheduled backup report](/home/rer/simpaths-benchmarks/backup-rehearsal-20261004-183630/report.json) | Real local systemd/OpenSSH/GnuPG; fictional output |
 | Automatic application restart, original-container adoption, retained retry budgets and bounded restart attempts | [Service recovery report](/home/rer/simpaths-benchmarks/service-recovery-20261004-101159/report.json) | Real transient user systemd units and fictional Docker models |
 | Restricted database-role permissions, orderly PostgreSQL stop and crash, safe denials and reconciliation | [Database recovery report](/home/rer/simpaths-benchmarks/postgres-recovery-20261004-213531/report.json) | Real disposable PostgreSQL and fictional models |
-| Compatible application update/rollback, retained ownership/work/results, rejection of newer schemas and verified recovery | [Application update report](/home/rer/simpaths-benchmarks/application-update-20261004-231729/report.json) | Real committed code, native services/restore and fictional models |
+| Compatible application update/rollback, retained ownership/work/results, rejection of newer schemas and verified recovery | [Separated update report](/tmp-codex/application-update-rpc-retry-20261014-230649/report.json) and [verification](/tmp-codex/application-update-rpc-retry-20261014-230649/verification.json) | Four native processes, production Unix RPC and transient user units; fictional models; original containers/cookies/attempts/download hashes preserved; gated isolated schema restore and owner denials; cleanup confirmed; installed identities and pending large ZIP builders remain separate |
 
 ### Real-model calibration observations
 
@@ -228,6 +228,13 @@ The first native proof stopped at a fixture filename conflict before preparation
 or simulation. Its cleanup completed. The fixture now validates and clears the
 malformed population before uploading its valid replacement; 82 focused checks
 pass. The failed `native-proof` reports and the passed retry are both preserved.
+
+The application update rehearsal now selects a compatible separated-service
+rollback pair, verifies all four lifecycle policies, and uses native Unix RPC
+with public-only restarts before full update/rollback. Its 44 update guards and
+seven refreshed native stages pass, with cleanup confirmed in
+`application-update-rpc-retry-20261014-230649`. See the
+[runbook](multirun/VM.md#local-application-update-and-rollback-rehearsal).
 
 [`release_record.py`](release_record.py) collects a private inventory of the four
 source checkouts, the selected JAR and immutable image references, a retained

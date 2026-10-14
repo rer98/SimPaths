@@ -11,6 +11,43 @@ host acceptance. This document describes the model/browser test commands;
 [the VM runbook](../multirun/VM.md) and [backup runbook](../multirun/BACKUP.md)
 describe the transport, mail, recovery, backup and application-update rehearsals.
 
+## Separated application update rehearsal
+
+The update/rollback rehearsal now uses four independently supervised processes:
+the SingleRun and MultiRun public frontends and their private executors. It selects
+a reviewed compatible Git pair and checks public-only restart, full version
+handover, preserved work/permissions/cookies and gated schema recovery. The older
+pair with different migrations remains rejected.
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths &&
+TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 ~/simpaths-browser-tests/venv/bin/python \
+  deploy/acceptance/run_update_rehearsal.py \
+  --frontend "$HOME/git/JAS-mine/JAS-mine-web" \
+  --output "/tmp-codex/application-update-rpc-$(date +%Y%m%d-%H%M%S)"
+```
+
+Run from the ordinary terminal with Docker, user systemd and network access for
+isolated dependencies. The fixture uses tiny fictional models, a disposable
+database and loopback HTTP, and installs no host service or model release. The
+44 update guards and 117 related recovery/backup/SingleRun helper checks pass
+locally. The refreshed native run passed in
+`/tmp-codex/application-update-rpc-retry-20261014-230649`; both reports confirm
+success and cleanup. This same-UID fixture does not prove installed Linux
+account isolation. The [VM runbook](../multirun/VM.md#local-application-update-and-rollback-rehearsal)
+states the exact pair, adaptations and remaining host checks.
+
+The first separated native attempt (`application-update-rpc-20261014-225230`)
+started all four services and passed initial workflow checks, then stopped on a
+missing readiness-helper import in the public restart stage. Both reports confirm
+cleanup, and both private shutdown receipts contain no errors. The restart stage
+now has direct execution tests and the native-only functions have a global-name
+check. The retry passed all seven native stages, including public-only restart,
+update and rollback, completion of the original queued work, and gated schema
+restore with owner/provider denials. Its `verification.json` links the reports,
+loaded-code/PID records and six clean private shutdown receipts by checksum.
+Use a new output directory when rerunning; retain the failed evidence.
+
 ## SingleRun browser acceptance
 
 `run_two_session_acceptance.py` runs the same two-browser Quick Start 20,000

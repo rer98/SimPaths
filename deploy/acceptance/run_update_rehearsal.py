@@ -30,27 +30,19 @@ from deploy.acceptance import _application_update as releases
 
 
 def service_policies(frontend):
-    """Validate the lifecycle policy for SingleRun and the private batch executor."""
+    """Validate all four separated public/private lifecycle policies."""
     from deploy.acceptance._supervisor import native_policy_sources, restart_policy
-    return {role: restart_policy(path.read_text()) for role, path in native_policy_sources(frontend).items()}
+    return {role: restart_policy(path.read_text()) for role, path in native_policy_sources(frontend,separated=True).items()}
 
 
 def serve(settings, role):
     releases.configure(settings['bundle'])
-    from deploy.acceptance import _recovery_fixture as fixture
-    from deploy.multirun import runtime
-    from jasmine_web import vm_state
-    from jasmine_web.batch import browser, store
-    from jasmine_web.batch.local_executor import atomic_json
-    fixture.validate(settings, os.environ['JASMINE_BATCH_TEST_DSN'])
-    atomic_json(Path(settings['state'])/('boot-'+settings['generation']+'-'+role+'.json'),
-        dict(pid=os.getpid(), host_commit=settings['bundle']['host']['commit'],
-             frontend_commit=settings['bundle']['frontend']['commit'], sources=dict(
-                 runtime=releases.loaded_source(runtime, settings['bundle']['host']['directory']),
-                 browser=releases.loaded_source(browser, settings['bundle']['frontend']['directory']),
-                 queue=releases.loaded_source(store, settings['bundle']['frontend']['directory']),
-                 vm=releases.loaded_source(vm_state, settings['bundle']['frontend']['directory']))))
-    {'batch':fixture.serve_batch, 'single':fixture.serve_single}[role](settings, os.environ['JASMINE_BATCH_TEST_DSN'])
+    from deploy.acceptance import _update_rpc as fixture
+    if role.endswith('_web'):
+        fixture.serve_public(settings,role)
+    else:
+        {'batch':fixture.serve_batch_private, 'single':fixture.serve_single_private}[role](
+            settings,os.environ['JASMINE_BATCH_TEST_DSN'])
 
 
 def child(settings, *, restored_http=False, imports_only=False):
@@ -69,7 +61,9 @@ def child(settings, *, restored_http=False, imports_only=False):
                 # Native FileResponse/thread transport is exercised by generation().
                 # This socket-free import check reads the selected style source.
                 css = Path(browser.__file__).with_name('browser_static')/'batch.css'
+                script = Path(settings['bundle']['frontend']['directory'])/'static/jasmine_main.js'
                 return dict(help_experiment='id="help-experiment"' in response.text,css_sha256=releases.digest(css.read_bytes()),
+                    javascript_sha256=releases.digest(script.read_bytes()),
                     sources=dict(runtime=releases.loaded_source(runtime,settings['bundle']['host']['directory']),
                                  browser=releases.loaded_source(browser,settings['bundle']['frontend']['directory'])))
         result = asyncio.run(public_assets())
@@ -153,32 +147,69 @@ def generation(work, output, bundle, settings, environment, policies, *, name, o
     from deploy.multirun.mail_rehearsal import LocalClient
     releases.verify(bundle)
     if previous:
-        for role in ('single', 'batch'):
+        for role in ('single_web','batch_web','single','batch'):
             previous.stop(role)
-        for role in ('single', 'batch'):
+        for role in ('single_web','batch_web','single','batch'):
             value = previous.show(role, allow_missing=True)
             if value and (value['ActiveState'] not in ('inactive', 'failed') or int(value['MainPID'])):
                 raise RuntimeError('The previous application has not stopped; update refused')
+        from deploy.acceptance._single_rpc import completed_private_evidence
+        for path in previous.update_private_evidence.values():
+            completed_private_evidence(path)
     supervisor = Supervisor(uuid4().hex, output/'supervisor.log')
     owned.append(supervisor)  # Keep uncertain/partial startups available to final cleanup.
     selected = dict(settings, bundle=bundle, generation=name)
-    source = work/(name+'-settings.json')
-    source.write_text(json.dumps(selected)); source.chmod(0o600)
+    supervisor.update_private_evidence={role:output/(name+'-'+role+'-rpc.json') for role in ('batch','single')}
     # Startup itself still uses the real application schema checks and mutex.
     # The distinct owned units avoid editing installed services or live checkouts.
-    for role in ('batch', 'single'):
+    from deploy.acceptance._update_rpc import public_settings
+    from deploy.multirun.proxy_rehearsal import until
+    def stamp(role):
+        path=output/('boot-'+name+'-'+role+'.json')
+        if not path.exists():return False
+        value=json.loads(path.read_text())
+        if value['pid']!=int(supervisor.show(role)['MainPID']):return False
+        assert value['role']==role and value['sources']
+        assert value['host_commit']==bundle['host']['commit'] and value['frontend_commit']==bundle['frontend']['commit']
+        for row in value['sources'].values():
+            assert bundle[row['component']]['files'][row['file']]==row['sha256']
+        if role.endswith('_web'):
+            assert not value['private_imports'] and not value['private_environment_fields']
+        return value
+    for role in ('batch','single','batch_web','single_web'):
+        boot=output/('boot-'+name+'-'+role+'.json')
+        value=(public_settings(selected,role,boot=boot) if role.endswith('_web') else
+               dict(selected,role=role,boot=str(boot),rpc_evidence=str(supervisor.update_private_evidence[role])))
+        source=work/(name+'-'+role+'-settings.json')
+        source.write_text(json.dumps(value));source.chmod(0o600)
         supervisor.start(role, policies[role], python=sys.executable, script=Path(__file__).resolve(),
-            settings=source, environment=environment,
-            workdir=bundle['frontend' if role=='single' else 'host']['directory'], log=output/(name+'-'+role+'.log'))
-        client = LocalClient('http://127.0.0.1:'+str(settings[role+'_port']))
-        wait_ready(client, '/' if role=='single' else '/healthz', supervisor=supervisor, role=role)
-        stamp = json.loads((Path(settings['state'])/('boot-'+name+'-'+role+'.json')).read_text())
-        assert stamp['pid'] == int(supervisor.show(role)['MainPID'])
-        assert stamp['host_commit'] == bundle['host']['commit'] and stamp['frontend_commit'] == bundle['frontend']['commit']
-        for key, component in (('runtime','host'), ('browser','frontend'), ('queue','frontend'), ('vm','frontend')):
-            source_row = stamp['sources'][key]
-            assert bundle[component]['files'][source_row['file']] == source_row['sha256']
+            settings=source, environment=environment['public' if role.endswith('_web') else 'private'],
+            workdir=bundle['frontend' if role.startswith('single') else 'host']['directory'], log=output/(name+'-'+role+'.log'))
+        until(lambda: stamp(role),seconds=90)
+        if role.endswith('_web'):
+            component=role.removesuffix('_web')
+            client=LocalClient('http://127.0.0.1:'+str(settings[component+'_port']))
+            wait_ready(client,'/' if component=='single' else '/healthz',supervisor=supervisor,role=role)
+    if len({int(supervisor.show(role)['MainPID']) for role in policies})!=4:
+        raise RuntimeError('The rehearsal requires four distinct service processes')
     return supervisor
+
+
+def restart_public(supervisor, single, batch):
+    """Restart only owned public units and verify that private PIDs stay fixed."""
+    from deploy.acceptance.run_recovery_rehearsal import wait_ready
+    from deploy.multirun.proxy_rehearsal import until
+    private={role:int(supervisor.show(role)['MainPID']) for role in ('single','batch')}
+    public={role:int(supervisor.show(role)['MainPID']) for role in ('single_web','batch_web')}
+    for role,client,path in (('single_web',single,'/'),('batch_web',batch,'/healthz')):
+        supervisor.restart(role)
+        wait_ready(client,path,supervisor=supervisor,role=role)
+        until(lambda: int(supervisor.show(role)['MainPID']) not in (0,public[role]),seconds=30)
+    if {role:int(supervisor.show(role)['MainPID']) for role in private}!=private:
+        raise RuntimeError('A public restart replaced a private executor')
+    return dict(private_pids=private,public_pids_before=public,
+        public_pids_after={role:int(supervisor.show(role)['MainPID']) for role in public},
+        private_pids_unchanged=True)
 
 
 def preserved(clients, settings, queue, store, *, sid, completed_job, archives, cookies, original, active, queued, owners, held, secrets_hashes):
@@ -319,6 +350,7 @@ def rehearsal(args, report):
     work = Path(tempfile.mkdtemp(prefix='simpaths-application-update-')); write_attribution(work)
     report.update(checks=[], phase='snapshot-preflight')
     supervisors = []; database = store = settings = None
+    rpc_directory=None
     def passed(message):
         report['checks'].append(message); print('PASS: '+message, flush=True)
     try:
@@ -330,14 +362,18 @@ def rehearsal(args, report):
         releases.compatible(bundles['previous'], bundles['candidate'])
         report['versions'] = {name:dict(host=bundle['host']['commit'], frontend=bundle['frontend']['commit'],
              migrations=bundle['migrations'], fixture_overlays=bundle['fixture_overlays'],
+             frontend_fixture_overlays=bundle['frontend_fixture_overlays'],
              file_inventory={key:bundle[key]['files'] for key in ('host','frontend')}) for name,bundle in bundles.items()}
         report['adaptations'] = ['same recorded fictional-model adapters overlay each committed hosting tree',
             'loopback HTTP and transient user units; deployed HTTPS/boot hardening have separate acceptance',
-            'combined batch fixture uses executor restart policy; separate frontend/executor processes and peer UIDs require host acceptance',
+            'four independent public/private processes use production Unix RPC framing and private lifecycle under one non-root test UID',
+            'only installed listener/peer setup is adapted; distinct UIDs, filesystem restrictions and boot hardening require installed-host acceptance',
             'same isolated dependency environment; no package/image/repository update or service installation',
             'compatible Git snapshots have unchanged SQL, result/cache/recovery formats; compatibility is not inferred for arbitrary releases',
             'extra checksummed batch/SingleRun migrations exist only in a private synthetic future bundle',
             'schema recovery uses an independent native backup fixture; its empty SingleRun registry needs no model export capture',
+            'restored-owner HTTP checks use the prior code directly through ASGI; they do not certify installed RPC identities',
+            'tiny result downloads do not exercise an in-progress large ZIP builder during shutdown',
             'fictional backup model-image availability is stubbed; real image inventory was tested separately']
         passed('two real Git release bundles have matching schema/result formats; code and fixture overlays are separately verified')
         report['phase'] = 'previous-code-startup'
@@ -357,20 +393,23 @@ def rehearsal(args, report):
             single_port=port(),batch_port=port(),secret=secrets.token_urlsafe(32),admin=secrets.token_urlsafe(32),
             catalogue=str(single_state/'catalogue.json'),archive=str(single_state/'fictional.zip'),
             database_role=database.role,database_port=database.port)
+        rpc_directory=Path(tempfile.mkdtemp(prefix='update-rpc-'));rpc_directory.chmod(0o700)
+        settings['rpc_sockets']={role:str(rpc_directory/(role+'.sock')) for role in ('single','batch')}
         model = deepcopy(MODEL); model['deployment']['image'] = image
         Path(settings['catalogue']).write_text(json.dumps(dict(models=[model]))); create_archive(settings['archive'], 1)
         dataset, owners = bootstrap(settings, dsn)
         queue = Queue(dsn, POOL, schema=settings['batch_schema'])
         store = PostgresVMState(dsn, schema=settings['schema'], shared_pool=dict(pool_id=POOL,schema=settings['batch_schema'])); store.migrate()
-        environment = work/'services.env'
-        environment_file(environment, dict(JASMINE_BATCH_TEST_DSN=dsn,PYTHONDONTWRITEBYTECODE='1'))
+        environment = {'private':work/'private.env','public':work/'public.env'}
+        environment_file(environment['private'],dict(JASMINE_BATCH_TEST_DSN=dsn,PYTHONDONTWRITEBYTECODE='1'))
+        environment_file(environment['public'],dict(PYTHONDONTWRITEBYTECODE='1'))
         policies = service_policies(args.frontend)
         current = generation(work,args.output,bundles['previous'],settings,environment,policies,name='previous',owned=supervisors)
         single_origin, batch_origin = ['http://127.0.0.1:'+str(settings[k+'_port']) for k in ('single','batch')]
         single, other = single_client(single_origin), single_client(single_origin)
         alice, bob, anonymous = [LocalClient(batch_origin) for _ in range(3)]
         sign_in(alice,state,'alice@example.org'); sign_in(bob,state,'bob@example.org')
-        assert b'id="help-experiment"' not in alice.request('/')[2]
+        assert b'id="help-experiment"' in alice.request('/')[2]
         completed = submit(alice,dataset,'Retained result across application versions')
         first = until(lambda: running_attempt(queue,settings,completed,owners['alice@example.org']),seconds=45)
         (first['path']/'work/finish').write_text('finish fictional model\n')
@@ -399,19 +438,27 @@ def rehearsal(args, report):
         snapshot_checks = dict(sid=sid,completed_job=completed_job,archives=archives,cookies=cookies,original=original,
                                active=active,queued=queued,owners=owners,held=held,secrets_hashes=secrets_hashes)
         preserved(clients,settings,queue,store,**snapshot_checks)
-        passed('previous application versions serve owned results while interactive/batch containers run and the second owner queues')
+        passed('previous public/private application versions serve owned results through native RPC while containers run and the second owner queues')
+        report['phase']='public-only-restart'
+        restarted=restart_public(current,single,alice)
+        preserved(clients,settings,queue,store,**snapshot_checks)
+        report['public_restart']=dict(restarted,original_containers=True,
+            original_attempt=True,cookies_preserved=True,reservations_preserved=True)
+        passed('restarting both public frontends preserves private PIDs, cookies, original model containers, frozen work and shared reservations')
         report['transitions'] = []
         for name, selected in (('updated','candidate'), ('rolled-back','previous')):
             report['phase'] = name+'-code-startup'
             started = time.monotonic()
             current = generation(work,args.output,bundles[selected],settings,environment,policies,name=name,owned=supervisors,previous=current)
-            from deploy.multirun.proxy_rehearsal import until
             until(lambda: attempt(queue,active_exp,owners['alice@example.org'])[0]['state']=='active',seconds=45)
             preserved(clients,settings,queue,store,**snapshot_checks)
             page = alice.request('/')[2]
-            assert (b'id="help-experiment"' in page) == (selected == 'candidate')
+            assert b'id="help-experiment"' in page
             response = alice.request('/static/batch.css'); assert response[0] == 200
             assert releases.digest(response[2]) == bundles[selected]['frontend']['files']['jasmine_web/batch/browser_static/batch.css']
+            response=single.request('/static/jasmine_main.js');assert response[0]==200
+            javascript_sha256=releases.digest(response[2])
+            assert javascript_sha256==bundles[selected]['frontend']['files']['static/jasmine_main.js']
             # Start and Pause after each transition confirm the existing controls,
             # not just cached pages/status; the model and secret stay the same.
             assert single.api('/pause/'+sid,{})['status']=='paused'
@@ -419,6 +466,7 @@ def rehearsal(args, report):
             report['transitions'].append(dict(name=name, seconds=round(time.monotonic()-started,3),
                 host=bundles[selected]['host']['commit'],frontend=bundles[selected]['frontend']['commit'],
                 original_attempt=True,original_containers=True,cookies_preserved=True,archives_preserved=True))
+            report['transitions'][-1]['javascript_sha256']=javascript_sha256
             passed(name+': real source/assets change; cookies, controls, result hashes, permissions and the original frozen attempt/reservations survive')
         report['phase'] = 'original-work-completion'
         (active['path']/'work/finish').write_text('finish original model after rollback\n')
@@ -438,6 +486,11 @@ def rehearsal(args, report):
         report['completion'] = dict(attempts_per_configuration=1,seeds=['606','607'],all_capacity_released=True)
         passed('running and queued configurations complete their original seeds once after rollback; Reset/Leave release only settled capacity')
         current.close()
+        from deploy.acceptance._single_rpc import completed_private_evidence
+        for supervisor in supervisors:
+            for path in supervisor.update_private_evidence.values():
+                completed_private_evidence(path)
+        report['private_rpc_shutdown']=dict(closed=True,errors=[])
         report['phase'] = 'incompatible-schema-and-native-restore'
         schema_recovery(work,bundles,report)
         passed('old batch/SingleRun code rejects extra schema versions without changing data; verified native restore remains gated until activation and serves results with the original cookie')
@@ -467,6 +520,7 @@ def rehearsal(args, report):
             except Exception as error: errors.append('evidence:'+type(error).__name__)
         if not errors:
             shutil.rmtree(work)
+            if rpc_directory is not None:shutil.rmtree(rpc_directory)
         report['cleanup'] = not errors
         if errors: report.update(passed=False,cleanup_errors=errors,retained_fixture=str(work))
 
@@ -479,7 +533,7 @@ def main(argv=None):
     parser.add_argument('--previous-host',default=os.environ.get('SIMPATHS_UPDATE_PREVIOUS_HOST',releases.PREVIOUS_HOST))
     parser.add_argument('--execute-proof',action='store_true',help=argparse.SUPPRESS)
     parser.add_argument('--serve-fixture',type=Path,help=argparse.SUPPRESS)
-    parser.add_argument('--role',choices=('single','batch'),help=argparse.SUPPRESS)
+    parser.add_argument('--role',choices=('single','batch','single_web','batch_web'),help=argparse.SUPPRESS)
     parser.add_argument('--probe-fixture',type=Path,help=argparse.SUPPRESS)
     parser.add_argument('--restored-http',type=Path,help=argparse.SUPPRESS)
     parser.add_argument('--import-fixture',type=Path,help=argparse.SUPPRESS)

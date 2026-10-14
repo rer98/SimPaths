@@ -5,14 +5,21 @@ Native database/Docker/systemd checks run separately in run_update_rehearsal.py.
 @author ross richardson
 """
 import ast
+import builtins
 from copy import deepcopy
+import dis
+import importlib
 import io
+import json
 import os
 from pathlib import Path
 import sys
+import subprocess
+import shutil
 import tarfile
 import tempfile
 from types import ModuleType, SimpleNamespace
+import types
 import unittest
 from unittest.mock import Mock, patch
 
@@ -114,17 +121,38 @@ class ReleaseGuards(unittest.TestCase):
         cls.previous = releases.bundle(ROOT,FRONTEND,cls.root/'previous',host_ref=releases.PREVIOUS_HOST,frontend_ref=releases.PREVIOUS_FRONTEND)
         cls.candidate = releases.bundle(ROOT,FRONTEND,cls.root/'candidate',host_ref='HEAD',frontend_ref='HEAD')
         cls.future = releases.future(cls.candidate,cls.root/'future')
+        cls.historical=releases.bundle(ROOT,FRONTEND,cls.root/'historical',
+            host_ref=releases.HISTORICAL_HOST,frontend_ref=releases.HISTORICAL_FRONTEND)
 
-    def test_historical_default_pair_is_rejected_after_new_schema_versions(self):
+    def test_historical_pair_is_rejected_after_new_schema_versions(self):
         # The retained historical rehearsal used 20 batch migrations. Current
         # releases added recovery and operational history; that old pair must
         # fail the direct-rollback gate until an operator reviews a new pair.
-        self.assertNotEqual(self.previous['migrations'], self.candidate['migrations'])
+        self.assertNotEqual(self.historical['migrations'], self.candidate['migrations'])
         with self.assertRaisesRegex(ValueError, 'matching reviewed migration histories'):
-            releases.compatible(self.previous,self.candidate)
+            releases.compatible(self.historical,self.candidate)
         self.assertNotEqual(self.previous['host']['commit'],self.candidate['host']['commit'])
         self.assertNotEqual(self.previous['frontend']['commit'],self.candidate['frontend']['commit'])
-        self.assertEqual({k:len(v) for k,v in self.previous['migrations'].items()},{'single':2,'batch':20})
+        self.assertEqual({k:len(v) for k,v in self.historical['migrations'].items()},{'single':2,'batch':20})
+
+    def test_separated_default_pair_keeps_schema_and_protocol_formats_compatible(self):
+        releases.compatible(self.previous,self.candidate)
+        self.assertEqual({k:len(v) for k,v in self.previous['migrations'].items()},{'single':2,'batch':22})
+        self.assertNotEqual(self.previous['frontend']['files']['static/jasmine_main.js'],
+                            self.candidate['frontend']['files']['static/jasmine_main.js'])
+
+    def test_changed_result_or_rpc_formats_require_a_new_review(self):
+        for name in ('jasmine_web/batch/results.py','jasmine_web/batch/service_rpc.py',
+                     'jasmine_web/single_rpc.py'):
+            with self.subTest(file=name),tempfile.TemporaryDirectory() as directory:
+                changed=deepcopy(self.candidate)
+                root=Path(directory)/'frontend'
+                shutil.copytree(changed['frontend']['directory'],root)
+                changed['frontend']['directory']=str(root)
+                path=root/name;path.write_bytes(path.read_bytes()+b'\n# fictional format change\n')
+                changed['frontend']['files']=releases.inventory(root)
+                with self.assertRaisesRegex(ValueError,'result/recovery/RPC formats'):
+                    releases.compatible(self.previous,changed)
 
     def test_sessions_inputs_and_workbooks_are_absent_from_exported_code(self):
         for value in (self.previous,self.candidate):
@@ -140,6 +168,11 @@ class ReleaseGuards(unittest.TestCase):
             for value in (self.previous,self.candidate):
                 self.assertEqual(value['fixture_overlays'][key],expected)
                 self.assertEqual(value['host']['files'][key],expected)
+        for name in releases.FRONTEND_FIXTURES:
+            expected=releases.digest((FRONTEND/name).read_bytes())
+            for value in (self.previous,self.candidate):
+                self.assertEqual(value['frontend_fixture_overlays'][name],expected)
+                self.assertEqual(value['frontend']['files'][name],expected)
 
     def test_synthetic_migrations_append_without_changing_original_sql(self):
         releases.verify(self.future)
@@ -185,19 +218,58 @@ class ReleaseGuards(unittest.TestCase):
 
     def test_private_future_bundle_does_not_modify_candidate_or_working_checkouts(self):
         releases.verify(self.candidate); releases.verify(self.previous)
-        self.assertFalse((FRONTEND/'jasmine_web/batch/021_update_rehearsal.sql').exists())
-        self.assertFalse((FRONTEND/'jasmine_web/vm_state_003_update_rehearsal.sql').exists())
+        for component,filename in (('batch','jasmine_web/batch/store.py'),('single','jasmine_web/vm_state.py')):
+            name=self.future['migrations'][component][-1]['name']
+            self.assertFalse((FRONTEND/filename).with_name(name).exists())
 
     def test_fresh_processes_import_each_selected_application_serve_its_page_and_read_its_style_source(self):
         with tempfile.TemporaryDirectory() as folder:
             for name,value in (('previous',self.previous),('candidate',self.candidate),('future',self.future)):
                 with self.subTest(name=name):
                     result = proof.run_child(Path(folder),value,{},'',name=name,imports_only=True)
-                    self.assertEqual(result['help_experiment'],name!='previous')
+                    self.assertTrue(result['help_experiment'])
                     self.assertEqual(result['css_sha256'],value['frontend']['files']['jasmine_web/batch/browser_static/batch.css'])
+                    self.assertEqual(result['javascript_sha256'],value['frontend']['files']['static/jasmine_main.js'])
                     for key,component in (('runtime','host'),('browser','frontend')):
                         row = result['sources'][key]
                         self.assertEqual(row['sha256'],value[component]['files'][row['file']])
+
+    def test_public_processes_use_bundled_code_without_private_imports_or_credentials(self):
+        program='''
+import json,os,sys
+from pathlib import Path
+from unittest.mock import patch
+settings=json.load(sys.stdin)
+sys.path.insert(0,settings['bundle']['host']['directory'])
+from deploy.acceptance import _application_update as releases
+releases.configure(settings['bundle'])
+from deploy.acceptance import _update_rpc as fixture
+os.environ.update(JASMINE_BATCH_TEST_DSN='FICTIONAL_PRIVATE_DSN',SMTP_PASSWORD='FICTIONAL_PRIVATE_MAIL')
+class Client:
+    def call(self,operation,**values):
+        assert operation=='metadata'
+        return {'visualiser':False,'monitoring':False}
+with patch.object(fixture,'FixtureBatchClient',return_value=Client()),patch('uvicorn.run') as listener:
+    fixture.serve_public(settings,settings['role'])
+    assert listener.call_count==1
+value=json.loads(Path(settings['boot']).read_text())
+assert value['private_imports']==[] and value['private_environment_fields']==[]
+assert 'JASMINE_BATCH_TEST_DSN' not in os.environ and 'SMTP_PASSWORD' not in os.environ
+print(json.dumps(value))
+'''
+        for value in (self.previous,self.candidate):
+            for role in ('single_web','batch_web'):
+                with self.subTest(commit=value['frontend']['commit'],role=role),tempfile.TemporaryDirectory() as directory:
+                    settings=dict(bundle=value,generation='test',origin='http://127.0.0.1:15001',port=15001,
+                        socket=str(Path(directory)/'control.sock'),boot=str(Path(directory)/'boot.json'),role=role)
+                    result=subprocess.run([sys.executable,'-c',program],input=json.dumps(settings),
+                        env=dict(os.environ,PYTHONDONTWRITEBYTECODE='1'),capture_output=True,text=True,timeout=30)
+                    self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+                    boot=json.loads(result.stdout)
+                    self.assertEqual(boot['frontend_commit'],value['frontend']['commit'])
+                    self.assertEqual(boot['role'],role)
+                    for row in boot['sources'].values():
+                        self.assertEqual(row['sha256'],value[row['component']]['files'][row['file']])
 
     def test_single_run_requests_match_paths_and_methods_in_both_actual_code_snapshots(self):
         from starlette.routing import compile_path
@@ -225,6 +297,9 @@ class ReleaseGuards(unittest.TestCase):
                     methods = next((ast.literal_eval(k.value) for k in decorator.keywords if k.arg=='methods'),[function.name.upper()])
                     registered.append((compile_path(decorator.args[0].value)[0],methods))
             for target,method in requests:
+                if target.startswith('/static/'):
+                    self.assertIn(target.removeprefix('/'),bundle['frontend']['files'])
+                    continue
                 with self.subTest(commit=bundle['frontend']['commit'],target=target,method=method):
                     self.assertTrue(any(regex.fullmatch(target) and method in methods for regex,methods in registered))
 
@@ -237,9 +312,24 @@ class ProbeAndHandoverGuards(unittest.TestCase):
         self.connection = dict(host='127.0.0.1',port='15432',dbname='jasmine_queue_test',user='postgres',password='FICTIONAL')
         self.make_conninfo = make_conninfo
 
+    def test_native_stage_global_names_resolve_before_starting_services(self):
+        missing=[]
+        for name in ('run_update_rehearsal','_application_update','_supervisor','_update_rpc'):
+            module=importlib.import_module('deploy.acceptance.'+name)
+            known=set(vars(module))|set(vars(builtins))
+            def inspect(code):
+                for op in dis.get_instructions(code):
+                    if op.opname=='LOAD_GLOBAL' and op.argval not in known:
+                        missing.append((name,code.co_qualname,op.argval,op.positions.lineno))
+                for value in code.co_consts:
+                    if isinstance(value,types.CodeType):inspect(value)
+            inspect(compile(Path(module.__file__).read_text(),module.__file__,'exec'))
+        self.assertEqual(missing,[],'Unbound globals in native-only rehearsal stages')
+
     def test_startup_reads_both_actual_service_templates_and_validates_their_policies(self):
         from deploy.acceptance._supervisor import EXPECTED
-        self.assertEqual(proof.service_policies(FRONTEND),dict(batch=EXPECTED,single=EXPECTED))
+        self.assertEqual(proof.service_policies(FRONTEND),
+            dict(batch=EXPECTED,single=EXPECTED,batch_web=EXPECTED,single_web=EXPECTED))
 
     def test_batch_recovery_policy_follows_executor_changes_independently_of_public_unit(self):
         original = Path.read_text
@@ -249,11 +339,10 @@ class ProbeAndHandoverGuards(unittest.TestCase):
         with patch.object(Path, 'read_text', changed_executor), self.assertRaises(ValueError):
             proof.service_policies(FRONTEND)
         def changed_public(path, *args, **kwargs):
-            if path.name == 'simpaths-multirun.service':
-                raise AssertionError('Public unit does not own the batch recovery lifecycle')
-            return original(path, *args, **kwargs)
-        with patch.object(Path, 'read_text', changed_public):
-            self.assertEqual(proof.service_policies(FRONTEND)['batch']['RestartSec'], '10')
+            text=original(path,*args,**kwargs)
+            return text.replace('RestartSec=10','RestartSec=11') if path.name=='simpaths-multirun.service' else text
+        with patch.object(Path, 'read_text', changed_public),self.assertRaises(ValueError):
+            proof.service_policies(FRONTEND)
 
     def test_probe_refuses_live_remote_and_non_disposable_databases_before_connections(self):
         import psycopg
@@ -292,7 +381,8 @@ class ProbeAndHandoverGuards(unittest.TestCase):
             old = Mock(); old.show.return_value = dict(ActiveState='active',MainPID='12345')
             with patch.object(releases,'verify'), patch('deploy.acceptance._supervisor.Supervisor') as supervisor, self.assertRaises(RuntimeError):
                 proof.generation(Path(folder),Path(folder),{}, {},None,{},name='updated',owned=[],previous=old)
-            self.assertEqual(old.stop.call_count,2); supervisor.assert_not_called()
+            self.assertEqual([call.args[0] for call in old.stop.call_args_list],
+                ['single_web','batch_web','single','batch']);supervisor.assert_not_called()
 
     def test_a_stop_failure_never_starts_replacement_application_processes(self):
         old = Mock(); old.stop.side_effect = RuntimeError('Fictional uncertain stop')
@@ -300,13 +390,113 @@ class ProbeAndHandoverGuards(unittest.TestCase):
             proof.generation(Path('/tmp'),Path('/tmp'),{}, {},None,{},name='updated',owned=[],previous=old)
         supervisor.assert_not_called()
 
+    def test_missing_private_drain_evidence_prevents_replacement_startup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            old=Mock();old.show.return_value=None
+            old.update_private_evidence={'batch':Path(directory)/'missing.json'}
+            with patch.object(releases,'verify'),patch('deploy.acceptance._supervisor.Supervisor') as supervisor:
+                with self.assertRaises(FileNotFoundError):
+                    proof.generation(Path(directory),Path(directory),{}, {},None,{},
+                        name='updated',owned=[],previous=old)
+            self.assertEqual(old.stop.call_count,4);supervisor.assert_not_called()
+
     def test_partial_candidate_start_is_recorded_for_final_identity_checked_cleanup(self):
         with tempfile.TemporaryDirectory() as folder:
             supervisor = Mock(); supervisor.start.side_effect = RuntimeError('Fictional lost start reply')
             owned = []; bundle = {'host':{'directory':folder},'frontend':{'directory':folder}}
             with patch.object(releases,'verify'), patch('deploy.acceptance._supervisor.Supervisor',return_value=supervisor), self.assertRaises(RuntimeError):
-                proof.generation(Path(folder),Path(folder),bundle, {},None,{'batch':{}},name='updated',owned=owned)
+                proof.generation(Path(folder),Path(folder),bundle, {},{'private':None,'public':None},
+                                 {'batch':{}},name='updated',owned=owned)
             self.assertEqual(owned,[supervisor])
+
+    def test_public_restart_runs_real_readiness_checks_without_restarting_private_units(self):
+        pids={'single':101,'batch':102,'single_web':103,'batch_web':104}
+        supervisor=Mock()
+        supervisor.show.side_effect=lambda role:dict(MainPID=str(pids[role]),ActiveState='active')
+        supervisor.restart.side_effect=lambda role:pids.update({role:pids[role]+100})
+        single,batch=Mock(),Mock()
+        single.request.return_value=batch.request.return_value=(200,{},b'fictional ready')
+        result=proof.restart_public(supervisor,single,batch)
+        self.assertEqual([call.args[0] for call in supervisor.restart.call_args_list],['single_web','batch_web'])
+        single.request.assert_called_once_with('/')
+        batch.request.assert_called_once_with('/healthz')
+        self.assertEqual(result['private_pids'],{'single':101,'batch':102})
+        self.assertEqual(result['public_pids_after'],{'single_web':203,'batch_web':204})
+
+    def test_public_restart_rejects_an_unexpected_private_process_change(self):
+        pids={'single':101,'batch':102,'single_web':103,'batch_web':104}
+        supervisor=Mock()
+        supervisor.show.side_effect=lambda role:dict(MainPID=str(pids[role]),ActiveState='active')
+        def changed(role):pids.update({role:pids[role]+100,'batch':999})
+        supervisor.restart.side_effect=changed
+        single,batch=Mock(),Mock()
+        single.request.return_value=batch.request.return_value=(200,{},b'fictional ready')
+        with self.assertRaisesRegex(RuntimeError,'private executor'):
+            proof.restart_public(supervisor,single,batch)
+
+
+class SeparatedFixtureGuards(unittest.TestCase):
+    def setUp(self):
+        from deploy.acceptance import _update_rpc
+        self.fixture=_update_rpc
+        temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)
+        self.root=Path(temporary.name)
+
+    def test_public_settings_omit_private_state_inputs_keys_and_database(self):
+        settings=dict(bundle={'code':'fictional'},generation='original',single_port=15001,batch_port=15002,
+            rpc_sockets=dict(single=str(self.root/'single.sock'),batch=str(self.root/'batch.sock')),
+            secret='FICTIONAL_PRIVATE_KEY',state='/private/state',database_role='PRIVATE_ROLE')
+        for role in ('single_web','batch_web'):
+            result=self.fixture.public_settings(settings,role,boot=self.root/'boot.json')
+            self.assertEqual(set(result),self.fixture.PUBLIC_FIELDS)
+            self.assertNotIn('FICTIONAL_PRIVATE_KEY',json.dumps(result))
+            self.assertNotIn('/private/state',json.dumps(result))
+            self.assertEqual(result['origin'],f"http://127.0.0.1:{result['port']}")
+        with self.assertRaises(ValueError):self.fixture.public_settings(settings,'single',boot=self.root/'boot.json')
+
+    def test_public_launcher_refuses_extra_fields_before_importing_or_starting(self):
+        settings={key:None for key in self.fixture.PUBLIC_FIELDS}
+        settings.update(role='batch_web',private_key='FICTIONAL_PRIVATE_KEY')
+        with patch('uvicorn.run') as listener,self.assertRaisesRegex(ValueError,'Public settings'):
+            self.fixture.serve_public(settings,'batch_web')
+        listener.assert_not_called()
+
+    def test_socket_directory_must_be_private_owned_and_free_of_links(self):
+        path=self.root/'control.sock'
+        self.fixture.fixture_path(path)
+        self.root.chmod(0o755)
+        with self.assertRaises(ValueError):self.fixture.fixture_path(path)
+        self.root.chmod(0o700)
+        linked=self.root/'linked';linked.symlink_to(self.root,target_is_directory=True)
+        with self.assertRaises(ValueError):self.fixture.fixture_path(linked/'control.sock')
+        path.write_text('ordinary file')
+        with self.assertRaises(ValueError):self.fixture.fixture_path(path,existing=True)
+
+    def test_wrong_native_peer_and_invalid_request_close_without_sending_frames(self):
+        from jasmine_web.batch import service_rpc as rpc
+        client=self.fixture.FixtureBatchClient(self.root/'control.sock')
+        for peer,values,error in ((os.getuid()+1,{},PermissionError),(os.getuid(),{'bad':float('nan')},ValueError),
+                                (os.getuid(),{'large':'x'*rpc.REQUEST_LIMIT},ValueError)):
+            connection=Mock()
+            with self.subTest(peer=peer,kind=error),patch.object(self.fixture,'fixture_path',return_value=client.path), \
+                 patch.object(self.fixture.socket,'socket',return_value=connection), \
+                 patch.object(rpc,'peer_uid',return_value=peer),patch.object(rpc,'_write_frame') as send:
+                with self.assertRaises(error):client._connect('metadata',values)
+                connection.close.assert_called_once();send.assert_not_called()
+
+    def test_supervisor_drains_public_roles_before_private_and_restarts_only_owned_units(self):
+        from deploy.acceptance._supervisor import Supervisor
+        supervisor=Supervisor('a'*32)
+        supervisor.units={supervisor.name(role) for role in ('single','batch','single_web','batch_web')}
+        with patch.object(supervisor,'show',return_value={'ActiveState':'active','MainPID':'12345'}), \
+             patch.object(supervisor,'command') as command:
+            supervisor.close()
+            stopped=[call.args[0][-1] for call in command.call_args_list if call.args[0][2]=='stop']
+            self.assertTrue(all('_web.service' in name for name in stopped[:2]))
+            self.assertTrue(all('_web.service' not in name for name in stopped[2:]))
+            command.reset_mock();supervisor.restart('single_web')
+            command.assert_called_once_with(['systemctl','--user','restart',supervisor.name('single_web')])
+        with self.assertRaises(ValueError):Supervisor('b'*32).restart('single_web')
 
 
 if __name__=='__main__': unittest.main()

@@ -1132,7 +1132,7 @@ termination and an unrestricted graceful-stop period. Effective systemd properti
 are checked rather than simulated by a Python restart loop. Explicitly stopping a
 service does not request another automatic start.
 
-The recovery, PostgreSQL-outage and update/rollback rehearsals retain their combined
+The recovery and PostgreSQL-outage rehearsals retain their combined
 SingleRun HTTP/backend and MultiRun HTTP/worker fixtures. They use the respective
 private executor templates for lifecycle policy and record this adaptation in
 their reports. They do not establish restart behaviour across separate
@@ -1141,13 +1141,15 @@ the installed-host privilege and browser acceptance described in
 [PRIVILEGE_SEPARATION.md](PRIVILEGE_SEPARATION.md) and the companion JAS-mine-web
 SingleRun deployment guide.
 
-The update rehearsal's historical default rollback pair now predates the added
+The update rehearsal's historical rollback pair predates the added
 resource-recovery and operational-history migrations. Its compatibility gate
 correctly refuses that pair against current code. The offline checks verify this
-refusal; they do not establish a working current-code rollback. Before another
-native update rehearsal, select and review a new compatible pair and update the
-fixture's historical page-change expectations. Keep the matching-schema and
-result/recovery-format checks intact.
+refusal. Its 14 October refresh now defaults to a reviewed pair with matching
+migrations and result/recovery/RPC formats, and uses four independent processes
+over native Unix RPC. Public-only restarts preserve the private processes; complete
+update and rollback drain the public processes before their executors. The local
+offline checks and seven native stages passed; installed-host acceptance remains
+separate as described below.
 
 The proof kills only its own frontend main processes and checks automatic restart,
 unchanged ownership cookies/credentials/settings, adoption of the same running
@@ -1439,8 +1441,9 @@ Run from the ordinary laptop terminal after stopping local launchers:
 
 ```bash
 cd ~/git/SimPathsWeb/SimPaths &&
-PIP_DEFAULT_TIMEOUT=60 ~/simpaths-browser-tests/venv/bin/python deploy/acceptance/run_update_rehearsal.py \
-  --frontend "$HOME/git/JAS-mine/JAS-mine-web"
+TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 ~/simpaths-browser-tests/venv/bin/python deploy/acceptance/run_update_rehearsal.py \
+  --frontend "$HOME/git/JAS-mine/JAS-mine-web" \
+  --output "/tmp-codex/application-update-rpc-$(date +%Y%m%d-%H%M%S)"
 ```
 
 The wrapper installs isolated test dependencies and uses disposable PostgreSQL,
@@ -1449,28 +1452,38 @@ service, sends no emails and changes no checkout, Git ref, live database, secret
 or cookie configuration. Two GiB free in temporary storage is sufficient for its
 small fixture; the installed PostgreSQL/Python images are reused. Docker and user
 systemd access require the ordinary terminal. Evidence appears in
-`~/simpaths-benchmarks/application-update-*/report.json` and
+the selected output directory's `report.json` and
 `model-proof/report.json`; both success and cleanup must be true.
 
 The initial comparison uses actual committed application trees:
 
-- Previous JAS-mine-web `e6db2a8f84b80f76f355c9b9ff15d1c69fb1507e` with
-  SimPaths `bc7e7c4651844192649160f2768ab9306862d00e`.
+- Previous JAS-mine-web `82aad9a0c33440aed2f7f7a0c27dcd65bcc64afa` with
+  SimPaths `47dc95a9b8788a308ef3514693b8efe0c62c85ee`.
 - Candidate: each checkout's `HEAD`, resolved once to complete commit identifiers.
 
 Source bundles exclude checkout environment/session-key files and SimPaths model
 inputs. Each committed tree receives the same recorded fictional-model adapters;
 the report identifies those overlays separately. Loaded module hashes, process
-identities, changed page guidance and actual HTTP stylesheet bytes identify the
+identities and actual HTTP JavaScript/stylesheet bytes identify the
 selected version. The rehearsal rejects changed/unlisted code and unsafe archive
 paths, links and excessive files. It refuses a direct rollback pair with different
-migration histories or changed result/cache/recovery code. Matching SQL by itself
+migration histories or changed result/cache/recovery/RPC code. Matching SQL by itself
 does not establish compatibility for arbitrary releases; review API, artifact and
 dependency changes when choosing another pair.
 
 The native stages start the previous applications with retained downloads, active
-SingleRun/batch containers and another owner's queued configuration. Both old
-application processes must stop before the candidate starts. The candidate then
+SingleRun/batch containers and another owner's queued configuration. SingleRun
+and MultiRun each have a public frontend and a private executor. Public settings
+contain code/transport metadata only; their environment files contain no database,
+SMTP or application secrets, and fresh-process guards reject private application
+imports. Production request framing, authentication, admission and streaming run
+over native Unix sockets. Only installed listener/peer setup is adapted to the
+same non-root test UID; installed UID/filesystem isolation remains untested here.
+
+Restarting both public frontends must leave both private PIDs, cookies, original
+containers, attempts and shared reservations unchanged. Full version transitions
+stop both public processes, then both private processes, and require successful
+private drain receipts before a replacement starts. The candidate then
 hands over to the previous version again. The model containers continue running;
 ownership cookies, persisted credential bytes, Build state, Start/Pause controls,
 charts/logs, download hashes and owner denials must survive both transitions.
@@ -1480,7 +1493,9 @@ and Reset/Leave release only settled capacity.
 
 A separate native recovery fixture captures a verified database/filesystem backup,
 including an empty shared SingleRun registry. A private test-only future code
-bundle appends real checksummed migrations: batch 20 → 21 and SingleRun 2 → 3.
+bundle appends real checksummed migrations: batch 22 → 23 and SingleRun 2 → 3
+for the current reviewed pair; future fixture filenames follow the actual next
+version rather than replacing an existing migration file.
 Older startup migration routines must refuse both schemas without changing the
 newer database. Restoration uses a separate empty database and private directory;
 normal application entry remains gated until verified activation. The previous
@@ -1490,8 +1505,24 @@ settings/policy/seeds remain frozen and only one claim is permitted. The newer
 source database is never downgraded or overwritten. Required-image availability is
 stubbed only for this fictional backup fixture, as in the existing restore proof.
 
-All 31 local archive/import/route/handover guards pass, including loading both
-actual service templates as text before validating their restart policies.
+The refreshed local archive/import/route/handover guards pass, including loading
+all four actual service templates and fresh-process public import/credential
+checks against both snapshots. Native acceptance of this refreshed rehearsal
+passed in `application-update-rpc-retry-20261014-230649`. Both reports confirm
+success and cleanup; all six private shutdown receipts have no errors. The
+public-only restarts retained private PIDs. Update and rollback took 4.032 and
+4.225 seconds respectively, preserving original containers, attempts, cookies
+and download hashes. Original queued/running work completed seeds 606/607 once,
+and all capacity was released. The isolated restore returned 200 for the original
+owner and 403 for anonymous, second-owner and provider raw downloads. Synthetic
+newer schemas were refused without modifying them. The accompanying
+`verification.json` links reports, loaded-code/PID evidence and shutdown receipts
+by checksum. These timings describe the small local fixture.
+
+Tiny result downloads do not test a pending large ZIP builder
+during private shutdown; include that case in further lifecycle acceptance.
+
+**Historical combined-process evidence, 4 October 2026:** 31 local guards passed.
 The local import checks serve each selected page directly through ASGI and read
 its stylesheet source; native HTTP file transport is exercised by the supervised
 stages. On 4 October, `application-update-20261004-231729` passed all six native
@@ -1508,15 +1539,17 @@ user work or sent emails, and online capture omits live model output/memory.
 
 For deployment updates, retain the previous tested code, build and dependency
 versions, take a verified recovery point, and review schema and stored-format
-compatibility before the handover. Stop both application controllers, then start
-the selected tested version against the retained state. For an incompatible schema
+compatibility before the handover. Stop the public frontends, drain their private
+executors, then start the selected tested version against the retained state. For an incompatible schema
 rollback, isolate the newer services/models and restore to a separate inactive
 target; verify and activate that target before routing users or dispatching work.
 Do not delete migration records to make older code start.
 
-The successful run updated to JAS-mine-web `5262f02294c2cc6e55a457213f79c9d900dbdc30`
+That historical run updated to JAS-mine-web `5262f02294c2cc6e55a457213f79c9d900dbdc30`
 and SimPaths `032d2b4a9da6b494ca7255cb156e2385cec3ef20`, then returned to the previous
-pair above. The handovers took 2.980 and 3.484 seconds in this small fictional-model
+pair JAS-mine-web `e6db2a8f84b80f76f355c9b9ff15d1c69fb1507e` and SimPaths
+`bc7e7c4651844192649160f2768ab9306862d00e`. The handovers took 2.980 and 3.484
+seconds in this small fictional-model
 fixture. Running and queued configurations each retained one attempt and completed
 seeds 606/607 once; all capacity released after completion and Leave. The separate
 native restore served the original CSV bytes with the original owner cookie and

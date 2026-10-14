@@ -24,10 +24,14 @@ SHOW = ('Id', 'Transient', 'LoadState', 'ActiveState', 'SubState', 'Result', 'Ma
         'ExecMainCode', 'ExecMainStatus')
 
 
-def native_policy_sources(frontend):
-    """Combined fixtures exercise private lifecycle, not public gateways."""
-    return {'single': Path(frontend)/'deploy/simpaths/simpaths-singlerun-executor.service',
+def native_policy_sources(frontend, *, separated=False):
+    """Select private lifecycle policies and optionally both public gateways."""
+    result={'single': Path(frontend)/'deploy/simpaths/simpaths-singlerun-executor.service',
             'batch': Path(__file__).resolve().parents[1]/'multirun/vm/simpaths-executor.service'}
+    if separated:
+        result.update(single_web=Path(frontend)/'deploy/simpaths/simpaths-singlerun.service',
+            batch_web=Path(__file__).resolve().parents[1]/'multirun/vm/simpaths-multirun.service')
+    return result
 
 
 def restart_policy(text):
@@ -85,7 +89,7 @@ class Supervisor:
             raise RuntimeError('A running user systemd manager is required; run from the normal laptop terminal')
 
     def name(self, role):
-        if role not in {'single', 'batch', 'limit'}:
+        if role not in {'single', 'batch', 'limit', 'single_web', 'batch_web'}:
             raise ValueError('Unknown disposable service role')
         return 'simpaths-recovery-'+self.tag+'-'+role+'.service'
 
@@ -151,9 +155,13 @@ class Supervisor:
         self.show(role)
         self.command(['systemctl', '--user', 'stop', self.own(role)])
 
+    def restart(self, role):
+        self.show(role)
+        self.command(['systemctl', '--user', 'restart', self.own(role)])
+
     def close(self):
         errors = []
-        for unit in sorted(self.units):
+        for unit in sorted(self.units,key=lambda name:('_web.service' not in name,name)):
             # Never kill by a caller-supplied PID or operate existing units.
             if unit != self.name(unit.rsplit('-', 1)[-1].removesuffix('.service')):
                 raise ValueError('Invalid owned unit')

@@ -7,6 +7,12 @@ Attribution scope and non-commentable/generated artifacts.
 
 # Attribution
 
+The separated application update fixture `deploy/acceptance/_update_rpc.py` carries
+an inline notice. Generated version inventories, public/private boot records,
+shutdown receipts and update/rollback reports are (C) Copyright 2026, by Ross
+Richardson; @author ross richardson, recorded in the evidence `COPYRIGHT.md`.
+Copied application sources and third-party logs retain their existing notices.
+
 The SingleRun native acceptance additions carry inline notices:
 `deploy/acceptance/_single_rpc.py`,
 `deploy/acceptance/test_single_rpc_rehearsal.py`,

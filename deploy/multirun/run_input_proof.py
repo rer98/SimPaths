@@ -5,6 +5,7 @@ No private data, app session, source workbook edits or image rebuilds are needed
 @author ross richardson
 """
 import argparse
+import io
 import json
 import os
 from pathlib import Path
@@ -16,7 +17,7 @@ from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT))
-from deploy.multirun.artifacts import ArtifactError, write_attribution, write_json
+from deploy.multirun.artifacts import ArtifactError, fingerprint, write_attribution, write_json
 from deploy.multirun.dataset_service import prepare_owned, publish_provider
 from deploy.multirun.import_quickstart import UnconfirmedVerification
 from deploy.multirun.container_adapter import container_submission
@@ -35,6 +36,58 @@ def public_example_inputs():
     return files, request
 
 
+def receive_public_inputs(service,owner,files,*,output,**preparation):
+    """Reject malformed content before replacing its required logical filename."""
+    policies=[]
+    for path in files[1:]:
+        with path.open('rb') as stream:
+            policies.append(service.receive(owner,path.name,stream,expected_bytes=path.stat().st_size))
+    print('Checking rejection of an invalid population upload',flush=True)
+    body=b'invalid\n1\n'
+    invalid=service.receive(owner,files[0].name,io.BytesIO(body),expected_bytes=len(body))
+    try:
+        prepare_owned(service,owner,[invalid,*policies],output=output,**preparation)
+    except ArtifactError as error:
+        log=output/'preparation.log'
+        # A filename conflict, missing source, runtime failure or full disk is
+        # not evidence that the native population validator rejected the CSV.
+        if (str(error)!='Input preparation failed; see preparation.log' or not log.is_file()
+                or 'Preparation failed while validating selected files.' not in log.read_text()):
+            raise
+        if (output/'receipt.json').exists():
+            raise RuntimeError('Failed preparation published a receipt')
+    else:
+        raise RuntimeError('Invalid population was accepted')
+    cleared=service.clear_uploads(owner,[invalid])
+    if cleared!=dict(removed=[invalid],retained=[]):
+        raise RuntimeError('Malformed proof upload was not removed')
+    with files[0].open('rb') as stream:
+        population=service.receive(owner,files[0].name,stream,expected_bytes=files[0].stat().st_size)
+    return [population,*policies]
+
+
+def selected_release(state,release_id,image):
+    """Verify an immutable staged release; never select a new service default."""
+    from deploy.multirun.releases import ReleaseRegistry
+    records=ReleaseRegistry(state).inventory()
+    if release_id not in records:
+        raise ArtifactError('Requested proof release is unavailable')
+    record=records[release_id]
+    if 'runner' not in record or record['image']!=image:
+        raise ArtifactError('Use the frozen release runtime and retained adapters')
+    return record
+
+
+def proof_preflight():
+    """Leave preparation, one short-run workspace and fixture-service headroom."""
+    directory=Path(tempfile.gettempdir())
+    if shutil.disk_usage(directory).free < 6*1024**3:
+        raise ArtifactError('This public-input proof needs at least 6 GiB free in its temporary filesystem')
+    memory=dict(line.split(':',1) for line in Path('/proc/meminfo').read_text().splitlines())
+    if int(memory['MemAvailable'].split()[0])*1024 < 7*1024**3:
+        raise ArtifactError('This proof needs at least 7 GiB available RAM for preparation and test services')
+
+
 def execute(output):
     from jasmine_web.batch.datasets import Datasets
     from jasmine_web.batch.policy import Resources, NotFound
@@ -47,42 +100,42 @@ def execute(output):
     report=dict(passed=False,workspace=str(work),cleanup=False)
     safe=True
     try:
+        release_id=os.environ.get('SIMPATHS_INPUT_RELEASE_ID')
+        release_state=os.environ.get('SIMPATHS_INPUT_RELEASE_STATE')
+        if bool(release_id)!=bool(release_state):
+            raise ArtifactError('Supply both proof release state and ID')
+        retained=selected_release(release_state,release_id,os.environ['SIMPATHS_INPUT_IMAGE']) if release_state else None
+        if retained:
+            report.update(release_id=release_id,model=fingerprint(retained['jar']),
+                          runtime_image_id=retained['image'])
         queue.migrate()
-        queue.create_pool(Resources(2000,5120,12288))
+        queue.create_pool(Resources(**retained['resource_policy']['preparation']) if retained
+                          else Resources(2000,5120,12288))
         queue.approve('owner')
         service=Datasets(queue,work/'uploads')
         files,request=public_example_inputs()
-        ids=[]
-        for path in files:
-            with path.open('rb') as stream:
-                ids.append(service.receive('owner',path.name,stream,expected_bytes=path.stat().st_size))
-        kwargs=dict(defaults=ROOT/'input',request=request,jar=ROOT/'multirun.jar',
+        kwargs=dict(defaults=retained['defaults'] if retained else ROOT/'input',request=request,
+                    jar=retained['jar'] if retained else ROOT/'multirun.jar',
                     image=os.environ['SIMPATHS_INPUT_IMAGE'],frontend=Path(os.environ['SIMPATHS_INPUT_FRONTEND']))
-        print('Checking rejection of an invalid population upload',flush=True)
-        import io
-        invalid=service.receive('owner',files[0].name,io.BytesIO(b'invalid\n1\n'),expected_bytes=10)
-        try:
-            prepare_owned(service,'owner',[invalid,*ids[1:]],output=work/'invalid',**kwargs)
-        except ArtifactError:
-            if (work/'invalid/receipt.json').exists():
-                raise RuntimeError('Failed preparation published a receipt')
-            report['invalid_population_rejected']=True
-        else:
-            raise RuntimeError('Invalid population was accepted')
+        ids=receive_public_inputs(service,'owner',files,output=work/'invalid',**kwargs)
+        report['invalid_population_rejected']=True
         print('Preparing uploaded public examples with the existing validators',flush=True)
         if os.environ.get('SIMPATHS_QUEUED_PREPARATION') == '1':
             from deploy.multirun.queued_preparation_proof import prepare_queued
-            result=prepare_queued(service,'owner',ids,output=work/'prepared',**kwargs)
+            options=dict(retained_release=(release_id,retained)) if retained else {}
+            result=prepare_queued(service,'owner',ids,output=work/'prepared',**kwargs,**options)
             report['preparation_dispatcher_restart']=result['dispatcher_restart']
             report['preparation_temporary_payload_removed']=json.loads(
                 (work/'prepared/preparation-cleanup.json').read_text())['temporary_payload_removed']
         else:
+            if retained:raise ArtifactError('Frozen release proof requires queued preparation')
             result=prepare_owned(service,'owner',ids,output=work/'prepared',**kwargs)
         prepared=result['prepared']
         receipt=result['receipt']
         report['prepared_fingerprint']=receipt['sha256']
         # Exercise the model/platform boundary using the actual prepared receipt.
         config=proof_configuration().editable_configuration()
+        if retained:config['model_release']=release_id
         config['dataset_revision']=result['dataset_id']
         args=container_submission(config,prepared,receipt['identity']['source_image'])
         experiment=queue.submit('owner','owned-example',**args,resources=Resources(2000,4096,10240))
@@ -140,9 +193,12 @@ def execute(output):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--frontend',type=Path)
-    parser.add_argument('--image',default='simpaths-interactive:uk-user-data')
+    parser.add_argument('--image',help='Installed runtime image; defaults to the selected release or legacy user-data tag')
+    parser.add_argument('--release-state',type=Path,help='Private staged release registry to verify, without changing its default')
+    parser.add_argument('--release',help='Content-based retained release ID to validate')
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--queued-preparation',action='store_true',help='Also prove durable preparation and dispatcher replacement')
+    parser.add_argument('--proof-only',action='store_true',help='Skip the separately tested generic queue suite; run the native model proof only')
     parser.add_argument('--execute-proof',action='store_true',help=argparse.SUPPRESS)
     args=parser.parse_args()
     if args.execute_proof:
@@ -150,12 +206,32 @@ def main():
         return 0
     if not args.frontend:
         parser.error('--frontend is required')
-    image=subprocess.check_output(['docker','image','inspect',args.image,'--format','{{.Id}}'],text=True).strip()
-    env=dict(os.environ,SIMPATHS_INPUT_IMAGE=image,SIMPATHS_INPUT_FRONTEND=str(args.frontend.resolve()),
-             SIMPATHS_QUEUED_PREPARATION='1' if args.queued_preparation else '0')
+    if bool(args.release_state)!=bool(args.release):
+        parser.error('--release-state and --release must be supplied together')
+    if args.release_state and not args.queued_preparation:
+        parser.error('Use --queued-preparation to test the retained release adapters')
+    proof_preflight()
+    env=dict(os.environ)
+    for name in ('SIMPATHS_INPUT_RELEASE_STATE','SIMPATHS_INPUT_RELEASE_ID'):
+        env.pop(name,None)
+    if args.release_state:
+        from deploy.multirun.releases import ReleaseRegistry
+        state=args.release_state.expanduser().resolve(strict=True)
+        records=ReleaseRegistry(state).inventory()
+        if args.release not in records:parser.error('Requested staged release is unavailable')
+        selected=records[args.release]['image']
+        image=subprocess.check_output(['docker','image','inspect',args.image or selected,'--format','{{.Id}}'],text=True).strip()
+        selected_release(state,args.release,image)
+        env.update(SIMPATHS_INPUT_RELEASE_STATE=str(state),SIMPATHS_INPUT_RELEASE_ID=args.release)
+    else:
+        image=subprocess.check_output(['docker','image','inspect',args.image or 'simpaths-interactive:uk-user-data',
+                                       '--format','{{.Id}}'],text=True).strip()
+    env.update(SIMPATHS_INPUT_IMAGE=image,SIMPATHS_INPUT_FRONTEND=str(args.frontend.resolve()),
+               SIMPATHS_QUEUED_PREPARATION='1' if args.queued_preparation else '0')
     command=[sys.executable,str(args.frontend.resolve()/'scripts/test_batch_queue.py'),
         '--output',str(args.output.resolve()),'--docker-tests','--proof-script',str(Path(__file__).resolve()),
         '--proof-requirements',str(Path(__file__).with_name('requirements.txt'))]
+    if args.proof_only:command.append('--proof-only')
     return subprocess.call(command,env=env)
 
 

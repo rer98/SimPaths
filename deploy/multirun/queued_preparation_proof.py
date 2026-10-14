@@ -45,16 +45,24 @@ def retire_preparation_attempt(executor, lease, output):
         free_after_bytes=shutil.disk_usage(workspace).free))
 
 
-def prepare_queued(service, owner, upload_ids, *, defaults, request, jar, image, output, frontend):
+def prepare_queued(service, owner, upload_ids, *, defaults, request, jar, image, output, frontend,
+                   retained_release=None):
     from jasmine_web.batch.docker_executor import DockerExecutor
     from jasmine_web.batch.worker import Worker
     from jasmine_web.batch.preparation import Preparations
     output.mkdir(mode=0o700)
     queue = service.queue
-    releases = {'proof-release':dict(defaults=defaults,jar=jar,image=image)}
+    if retained_release is None:
+        release_id='proof-release'
+        releases={release_id:dict(defaults=defaults,jar=jar,image=image)}
+    else:
+        release_id,record=retained_release
+        if record['image']!=image or record['jar']!=jar or record['defaults']!=defaults:
+            raise ArtifactError('Proof preparation must use the selected frozen release')
+        releases={release_id:record}
     model = SubmissionModel(releases)
     selected = service.resolve_uploads(owner,upload_ids)
-    plan = model.preparation('proof-release',selected,request)
+    plan = model.preparation(release_id,selected,request)
     preparations = Preparations(service)
     with queue._transaction() as (c,pool,now):
         experiment = preparations.enqueue(c,pool,now,owner,'queued-preparation-proof',image=plan['image'],
@@ -99,6 +107,12 @@ def prepare_queued(service, owner, upload_ids, *, defaults, request, jar, image,
         from pathlib import Path
         prepared = Path(resolved['location'])
         receipt = read_prepared(prepared)
+        if retained_release is not None:
+            release=receipt['identity'].get('release',{})
+            if (release.get('id')!=release_id or receipt['identity']['model']!=record['identity']['model']
+                    or release.get('runner')!=record['identity']['runner']
+                    or release.get('resource_policy')!=record['resource_policy']):
+                raise ArtifactError('Prepared receipt did not retain the selected release identity and policy')
         shutil.copyfile(prepared/'receipt.json',output/'receipt.json')
         return dict(dataset_id=dataset,prepared=prepared,receipt=receipt,dispatcher_restart=True)
     finally:

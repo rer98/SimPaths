@@ -30,6 +30,21 @@ from deploy.multirun.prepared_dataset import FORMAT, allocation, verify_snapshot
 from deploy.multirun.configuration import normalise
 
 
+def proof_execution(receipt, *, reused=False):
+    """Freeze all three repetitions and the prepared release's resource policy."""
+    from deploy.multirun.resource_policy import workload
+    configuration=proof_configuration().editable_configuration()
+    if reused:
+        configuration['dataset_revision']=receipt['revision']
+        if 'release' in receipt['identity']:
+            configuration['model_release']=receipt['identity']['release']['id']
+        configuration['common']['population']=receipt['identity'].get('population',2000)
+        configuration['common']['start_year']=receipt['identity']['start_year']
+        configuration['common']['end_year']=receipt['identity']['start_year']+1
+    checked=normalise(configuration)
+    return checked.editable_configuration(),allocation(receipt,**workload(checked.as_dict()))
+
+
 def execute_proof(output):
     # Optional platform imports occur only within the explicit queued proof.
     from jasmine_web.batch.local_executor import LocalExecutor
@@ -70,14 +85,8 @@ def execute_proof(output):
             receipt = prepare(ROOT / "input", ROOT / "multirun.jar", work / "prepared")
             prepared = work / "prepared"
         report["prepared_fingerprint"] = receipt["sha256"]
-        configuration = proof_configuration().editable_configuration()
-        if reused:
-            configuration["dataset_revision"] = receipt["revision"]
-            configuration["common"]["population"] = receipt["identity"].get("population", 2000)
-            configuration["common"]["start_year"] = receipt["identity"]["start_year"]
-            configuration["common"]["end_year"] = receipt["identity"]["start_year"] + 1
-        configuration = normalise(configuration).editable_configuration()
-        resources = Resources(**allocation(receipt))
+        configuration,allocation_values=proof_execution(receipt,reused=bool(reused))
+        resources = Resources(**allocation_values)
         queue.migrate()
         # One JVM at a time on the laptop. The model configurations/seed plan
         # remain the same when production admission allows more concurrent jobs.

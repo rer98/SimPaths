@@ -171,6 +171,11 @@ resource-policy records have the same attribution, also recorded in each new
 release bundle's `COPYRIGHT.md`. Copied JARs, workbooks and adapter sources retain
 their existing attribution and licences; metadata attribution does not relicense them.
 
+The native retained-release qualification guards in
+`deploy/multirun/test_release_refresh.py` are attributed in their source header.
+Generated staging provenance and proof reports retain attribution in their
+accompanying `COPYRIGHT.md`; copied model/runtime components retain their licences.
+
 Generated candidate deployment `record.json`, summaries and verification evidence
 are attributed by their accompanying `COPYRIGHT.md`. This covers inventory
 metadata only; recording a checksum or a current source commit does not claim

@@ -106,6 +106,55 @@ adapter change, preserving support for retained jobs, before rollout. Existing
 JAR-version checks still prevent mixing different model JARs within an experiment.
 Training images with different populations may share the same model JAR.
 
+### Qualify a staged release with real public inputs
+
+Use a separate private registry for a candidate, then qualify its retained JAR,
+helper, runner and resource policy through the native upload/preparation/queue
+proof. The runtime can be an already accepted Java image; MultiRun mounts the
+candidate's JAR separately. This command does not select a new default in the
+running service:
+
+```bash
+TMPDIR=/tmp-codex "$SIMPATHS_TEST_ENV/bin/python" -m deploy.multirun.run_input_proof \
+  --frontend "$JASMINE_WEB_REPO" \
+  --release-state /path/to/private/candidate/state \
+  --release RELEASE_ID_FROM_LIST \
+  --queued-preparation --proof-only \
+  --output "/tmp-codex/multirun-release-proof-$(date +%Y%m%d-%H%M%S)"
+```
+
+`--proof-only` skips the separately tested generic queue suite. Omit it when that
+suite also needs checking. Docker and network access for isolated Python
+dependencies are required. The proof prepares the bundled public examples, checks
+invalid-upload rejection and provider raw-download denial, replaces the
+preparation dispatcher without relaunching its attempt, and runs two configurations
+sequentially. Both use seeds 606–608, 2,000 people and 2019–2020. It verifies native
+completion, output metadata and hashes, original inputs, and removal of owned
+temporary payloads/containers. The simulation reservation uses all three seeds
+when the retained policy allocates storage per repetition.
+It checks for at least 6 GiB free temporary storage and 7 GiB available RAM before
+starting its disposable services; these are local proof bounds, not production
+capacity settings.
+
+The malformed population uses the required logical filename. It is uploaded and
+rejected by native content validation before the valid population is uploaded;
+the unused malformed upload is explicitly cleared first. Filename conflicts,
+missing inputs, storage failures and runtime failures do not count as successful
+content-rejection evidence. Use a new output directory for each proof attempt so
+failed reports and cleanup evidence are preserved.
+
+The prepared receipt must retain the candidate release ID, model, runner and
+resource policy. The runtime image must match the registered immutable ID.
+This verifies technical execution and retention; it is not a comparison of
+scientific outputs with an older model or a hosted capacity calibration.
+
+**Local checkpoint, 14 October 2026:** the security candidate in
+`/tmp-codex/multirun-security-release-20261014-212942/state` passed this native
+proof in `native-proof-retry`, including all six simulation runs, preparation
+dispatcher replacement on the original attempt, and cleanup. Its adjacent
+`qualification.json` records the exact release and checksum-linked evidence.
+The existing service default is unchanged; installed-host acceptance remains due.
+
 ## Resource policy interface
 
 ### Tested starting-allocation profiles

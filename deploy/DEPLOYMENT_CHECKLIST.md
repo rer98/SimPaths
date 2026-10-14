@@ -209,6 +209,26 @@ Visualiser. Those permissions must remain distinct during deployment acceptance.
 
 ## Prepare a candidate release record
 
+The 14 October MultiRun security candidate is staged in
+`/tmp-codex/multirun-security-release-20261014-212942/state` with provenance in
+the adjacent `provenance.json`. It uses the accepted user-data Java runtime and
+the rebuilt `multirun.jar`. All 39,443 non-manifest JAR entries match the accepted
+SingleRun JAR byte-for-byte; the different manifest selects the MultiRun entry
+point. Java source/POM hashes match the accepted build snapshot. Native
+retained-release preparation and all six short runs passed in the adjacent
+`native-proof-retry` directory. Both configurations completed seeds 606–608 on
+attempt 1; preparation survived dispatcher replacement on its original attempt.
+The prepared receipt retains the release, model, runtime, runner and resource
+policy. Malformed population rejection, provider raw-download denial and cleanup
+passed. The adjacent `qualification.json` links the reports and retained evidence
+by checksum. This qualifies local technical execution; installed-host security,
+recovery and capacity checks remain pending. The existing research package and
+service default were not replaced.
+The first native proof stopped at a fixture filename conflict before preparation
+or simulation. Its cleanup completed. The fixture now validates and clears the
+malformed population before uploading its valid replacement; 82 focused checks
+pass. The failed `native-proof` reports and the passed retry are both preserved.
+
 [`release_record.py`](release_record.py) collects a private inventory of the four
 source checkouts, the selected JAR and immutable image references, a retained
 release catalogue, prepared receipts, declared database migrations and dependency

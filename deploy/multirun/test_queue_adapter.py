@@ -132,6 +132,21 @@ class QueueAdapterTests(unittest.TestCase):
         with self.assertRaises(ArtifactError):
             self.validate()
 
+    def test_collision_resistant_native_run_names_preserve_seed_and_export_validation(self):
+        self.outputs()
+        for index,seed in enumerate(self.spec['seeds']):
+            identifier=f'20261014120000-{18446744073709551615-index}'
+            directory=self.work/'output'/seed
+            for name in ('Person.csv','BenefitUnit.csv'):
+                path=directory/'csv'/name
+                path.write_text(path.read_text().replace(f'run-{seed}',identifier))
+            directory.rename(directory.with_name(f'{identifier}_{seed}_{index}'))
+        self.assertEqual([item['seed'] for item in self.validate()],self.spec['seeds'])
+        exported=result_catalogue(self.lease,self.work)
+        self.assertEqual([item['seed'] for item in exported],self.spec['seeds'])
+        self.assertTrue(all('20261014120000-' in entry['path']
+            for run in exported for entry in run['files']+run['metadata']))
+
     def test_empty_truncated_missing_year_and_mixed_run_csvs_rejected(self):
         self.outputs()
         path = self.work / "output/606/csv/Person.csv"

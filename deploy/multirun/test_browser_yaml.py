@@ -98,6 +98,19 @@ class BrowserYamlTests(unittest.TestCase):
                        dict(population=20000,start_year=2019,end_year=2027)):
             with self.assertRaises(ValueError):self.model.browser_export_yaml(self.dataset,{**self.form,'common':common})
 
+    def test_nonpositive_maximum_age_cannot_enter_through_browser_or_yaml(self):
+        original=yaml.safe_load(self.model.browser_export_yaml(self.dataset,self.form)['text'])
+        for maximum in (-1,0):
+            form=deepcopy(self.form)
+            form['run_sets'][0]['model_args']['maxAge']=maximum
+            with self.subTest(maximum=maximum):
+                with self.assertRaisesRegex(ValueError,'maxAge: must be a positive integer'):
+                    self.model.browser_configuration(self.dataset,form)
+                document=deepcopy(original)
+                document['configuration']['run_sets'][0]['model_args']['maxAge']=maximum
+                with self.assertRaisesRegex(ValueError,'maxAge: must be a positive integer'):
+                    self.import_text(yaml.safe_dump(document))
+
     def test_native_managed_overrides_and_missing_dataset_are_rejected(self):
         native=normalise(self.model.browser_configuration(self.dataset,self.form)['configuration']).native_configuration('baseline')
         for key,value in [('executeWithGui',True),('workingDirectory','/tmp'),('maxNumberOfRuns',4)]:

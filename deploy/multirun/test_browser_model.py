@@ -18,7 +18,7 @@ from types import SimpleNamespace
 from deploy._workflow import frontend_path
 from deploy.multirun.artifacts import ArtifactError
 from deploy.multirun.browser_model import BrowserModel
-from deploy.multirun.schema import ConfigurationError, MODEL_FIELDS
+from deploy.multirun.schema import ConfigurationError, DeploymentLimitError, MODEL_FIELDS
 from deploy.multirun import test_prepared_dataset as prepared_fixture
 
 
@@ -153,10 +153,13 @@ class BrowserModelTests(unittest.TestCase):
         self.assertNotIn('private-notes.txt',description['inputs']['files'])
 
     def test_unknown_fields_and_unsupported_repetitions_rejected(self):
-        for change in ({'owner':'other'},{'image':'evil'},{'repetitions':4},{'auto_retry':'yes'},
+        for change in ({'owner':'other'},{'image':'evil'},{'auto_retry':'yes'},
                        {'runtime_allowance':{}},{'attempt_seconds':999999},{'total_seconds':999999}):
             with self.assertRaises(ArtifactError):
                 self.model.browser_configuration('dataset',{**self.form,**change})
+        with self.assertRaises(DeploymentLimitError) as rejected:
+            self.model.browser_configuration('dataset',{**self.form,'repetitions':4})
+        self.assertEqual(rejected.exception.supported_limit,'repetitions')
         malicious=deepcopy(self.form)
         malicious['run_sets'][0]['model_args']['class']='java.lang.Runtime'
         with self.assertRaises(ConfigurationError):
@@ -207,8 +210,9 @@ class BrowserModelTests(unittest.TestCase):
                 plan=model.experiment(self.resolved,request)
                 self.assertEqual(plan['seed_plan'],[str(606+i) for i in range(limit)])
                 form['repetitions']=limit+1
-                with self.assertRaises(ArtifactError):
+                with self.assertRaises(DeploymentLimitError) as rejected:
                     model.browser_configuration(self.resolved['dataset_id'],form)
+                self.assertEqual(rejected.exception.supported_limit,'repetitions')
                 # The service also checks its trusted setting when bypassing
                 # the browser-form translator with a configuration document.
                 request['configuration']['seed_plan']['repetitions']=limit+1
@@ -295,7 +299,9 @@ class BrowserModelTests(unittest.TestCase):
         self.assertEqual(len(frozen['run_sets']),100)
         self.assertGreater(len(canonical(frozen).encode()),262144)
         smaller=BrowserModel(self.model.releases,max_configurations=10)
-        with self.assertRaises(ArtifactError):smaller.browser_configuration(self.resolved['dataset_id'],form)
+        with self.assertRaises(DeploymentLimitError) as rejected:
+            smaller.browser_configuration(self.resolved['dataset_id'],form)
+        self.assertEqual(rejected.exception.supported_limit,'configurations')
         with self.assertRaises(ConfigurationError):smaller.experiment(self.resolved,request)
         # New admission settings never change already accepted execution units.
         run,_=smaller.bind_run(self.resolved,plan['run_sets'][-1],plan['seed_plan'])

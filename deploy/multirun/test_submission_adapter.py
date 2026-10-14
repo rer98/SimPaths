@@ -293,6 +293,86 @@ class SubmissionAdapterTests(unittest.TestCase):
         config['model_release']='approved'
         return config
 
+    def review_inputs(self, count=2):
+        self.result()
+        self.adapter.validate(self.lease,self.work)
+        target=self.adapter.artifacts/self.lease.execution_key
+        receipt=read_prepared(target)
+        resolved=dict(dataset_id='pending-owned',location=str(target),model_digest=self.image,
+                      prepared_fingerprint=receipt['sha256'])
+        config=self.pending_config()
+        base=config['run_sets'][0]
+        config['run_sets']=[]
+        for index in range(count):
+            run=dict(deepcopy(base),id=f'run-{index}',name=f'Run {index}')
+            run['model_args']['savingRate']=index/1000
+            config['run_sets'].append(run)
+        return target,resolved,config
+
+    def test_one_review_hashes_each_prepared_snapshot_once_without_cross_review_reuse(self):
+        target,resolved,config=self.review_inputs(100)
+        with patch('deploy.multirun.submission_adapter.verify_snapshot',wraps=verify_snapshot) as checked:
+            first=self.model.experiment(resolved,dict(configuration=config))
+            self.assertEqual(len(first['run_sets']),100)
+            self.assertEqual(checked.call_count,1)
+            second=self.model.experiment(resolved,dict(configuration=config))
+            self.assertEqual(second,first)
+            self.assertEqual(checked.call_count,2)
+        (target/'input/parameters.xlsx').chmod(0o600)
+        (target/'input/parameters.xlsx').write_bytes(b'changed')
+        with self.assertRaises(ArtifactError):
+            self.model.experiment(resolved,dict(configuration=config))
+
+    def test_review_checks_distinct_locations_even_when_their_receipt_hashes_match(self):
+        target,resolved,config=self.review_inputs()
+        other=self.root/'other-prepared'
+        shutil.copytree(target,other)
+        alternative=dict(resolved,dataset_id='other-owned',location=str(other))
+        choices={resolved['dataset_id']:resolved,alternative['dataset_id']:alternative}
+        config['run_sets'][1]['dataset_revision']=alternative['dataset_id']
+        with patch('deploy.multirun.submission_adapter.verify_snapshot',wraps=verify_snapshot) as checked:
+            plan=self.model.experiment(dict(resolved,datasets=choices),dict(configuration=config))
+            self.assertEqual(checked.call_count,2)
+            self.assertEqual([run['execution']['dataset_id'] for run in plan['run_sets']],
+                             [resolved['dataset_id'],alternative['dataset_id']])
+        (other/'input/parameters.xlsx').chmod(0o600)
+        (other/'input/parameters.xlsx').write_bytes(b'changed')
+        with self.assertRaises(ArtifactError):
+            self.model.experiment(dict(resolved,datasets=choices),dict(configuration=config))
+        # A failed review must not leave verification state for the next review.
+        with patch('deploy.multirun.submission_adapter.verify_snapshot',wraps=verify_snapshot) as checked:
+            self.model.experiment(resolved,dict(configuration={**config,'run_sets':config['run_sets'][:1]}))
+            self.assertEqual(checked.call_count,1)
+
+    def test_review_cannot_reuse_verification_for_changed_identity_or_runtime_image(self):
+        target,resolved,config=self.review_inputs()
+        for changes in (dict(prepared_fingerprint='f'*64),dict(model_digest='sha256:'+'b'*64)):
+            alternative=dict(resolved,dataset_id='other-owned',**changes)
+            choices={resolved['dataset_id']:resolved,alternative['dataset_id']:alternative}
+            config['run_sets'][1]['dataset_revision']=alternative['dataset_id']
+            with self.subTest(changes=changes),self.assertRaises(ArtifactError):
+                self.model.experiment(dict(resolved,datasets=choices),dict(configuration=config))
+
+    def test_public_binding_and_execution_recheck_bytes_after_review(self):
+        target,resolved,config=self.review_inputs(1)
+        with patch('deploy.multirun.submission_adapter.verify_snapshot',wraps=verify_snapshot) as checked:
+            plan=self.model.experiment(resolved,dict(configuration=config))
+            self.model.bind_run(resolved,plan['run_sets'][0],plan['seed_plan'])
+            self.assertEqual(checked.call_count,2)
+        run=plan['run_sets'][0]
+        lease=SimpleNamespace(configuration_id=run['id'],resources=run['execution']['resources'],
+            specification=dict(dataset_id=resolved['dataset_id'],model_digest=self.image,
+                prepared_fingerprint=resolved['prepared_fingerprint'],seeds=plan['seed_plan'],run_sets=[run]))
+        executor=SimPathsContainerAdapter(target,self.image)
+        (target/'input/parameters.xlsx').chmod(0o600)
+        (target/'input/parameters.xlsx').write_bytes(b'changed')
+        with self.assertRaises(ArtifactError):
+            self.model.bind_run(resolved,run,plan['seed_plan'])
+        request=self.root/'simulation-request'
+        request.mkdir()
+        with self.assertRaises(ArtifactError):
+            executor.container_command(lease,request)
+
     def test_pending_inputs_allow_configuration_without_opening_a_database(self):
         config=self.pending_config()
         with patch('deploy.multirun.submission_adapter.read_prepared',side_effect=AssertionError('No prepared data yet')):

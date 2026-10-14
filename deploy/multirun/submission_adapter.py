@@ -84,10 +84,23 @@ class SubmissionModel:
         if selected is None or fingerprint(selected['jar'])['sha256'] != self.model_identity(resolved):
             raise ArtifactError('Select inputs prepared for the configuration’s model version')
         runs, budgets, storage = [], [], []
+        # A review may contain many configurations using the same immutable
+        # prepared inputs. Verify their bytes once in this operation, rather
+        # than rereading gigabytes for every configuration. This map is local:
+        # another review, a replacement or execution verifies its own inputs.
+        verified = {}
         for item in config.as_dict()['run_sets']:
             single = config.run_configuration(item['id'])
             chosen = choices[single['dataset_revision']]
-            run,resources = self.bind_run(chosen,dict(id=item['id'],parameters=single),config.as_dict()['seed_plan']['seeds'])
+            receipt = None
+            if chosen.get('state') != 'pending':
+                identity = (str(Path(chosen['location']).absolute()),
+                            chosen['prepared_fingerprint'], chosen['model_digest'])
+                if identity not in verified:
+                    verified[identity] = self._verified_prepared(chosen)
+                receipt = verified[identity]
+            run,resources = self._bind_run(chosen,dict(id=item['id'],parameters=single),
+                                          config.as_dict()['seed_plan']['seeds'],receipt)
             runs.append(dict(run, execution=dict(dataset_id=chosen['dataset_id'],
                 model_digest=chosen['model_digest'], resources=resources.__dict__)))
             budgets.append(resources.__dict__)
@@ -121,6 +134,23 @@ class SubmissionModel:
         return read_prepared(resolved['location'])['identity']['model']['sha256']
 
     def bind_run(self, resolved, run, seeds):
+        """Bind outside a review with fresh verification of every prepared byte."""
+        receipt = None if resolved.get('state') == 'pending' else self._verified_prepared(resolved)
+        return self._bind_run(resolved,run,seeds,receipt)
+
+    def _verified_prepared(self, resolved):
+        receipt=read_prepared(resolved['location'])
+        if receipt['sha256']!=resolved['prepared_fingerprint']:
+            raise ArtifactError('Prepared dataset changed')
+        verify_snapshot(resolved['location'],receipt)
+        return receipt
+
+    def _bind_run(self, resolved, run, seeds, receipt):
+        """Internal binding after operation-local preparation verification.
+
+        Only experiment() shares verified receipts, within its own review. The
+        public bind_run() entry point always obtains a fresh verified receipt.
+        """
         from jasmine_web.batch.policy import Resources
         # Existing jobs retain their frozen repetitions through preparation,
         # replacement, dispatch and recovery even if new-submission limits fall.
@@ -140,10 +170,8 @@ class SubmissionModel:
             resources=simulation_resources(policy,**workload(data))
             result=dict(id=run['id'],parameters=config.editable_configuration())
         else:
-            receipt=read_prepared(resolved['location'])
-            if receipt['sha256']!=resolved['prepared_fingerprint']:
+            if receipt is None or receipt['sha256']!=resolved['prepared_fingerprint']:
                 raise ArtifactError('Prepared dataset changed')
-            verify_snapshot(resolved['location'],receipt)
             args=container_submission(config.editable_configuration(),resolved['location'],resolved['model_digest'])
             result=args['run_sets'][0]
             selected=self.releases.get(data['model_release'],{})

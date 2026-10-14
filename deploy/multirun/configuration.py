@@ -66,6 +66,11 @@ def _fields(values, fields, path):
 def _settings(value, path):
     _mapping(value, path, {"model_args", "collector_args"})
     model = _fields(value.get("model_args", {}), MODEL_FIELDS, path + ".model_args")
+    # The model sums population projections over 0 <= age < maxAge when
+    # calculating its scaling factor. An empty age interval cannot be valid.
+    # Broader scientific parameter ranges need agreement with the model team.
+    if model['maxAge'] <= 0:
+        raise ConfigurationError(path + '.model_args.maxAge', 'must be a positive integer')
     collector = _fields(value.get("collector_args", {}), COLLECTOR_FIELDS, path + ".collector_args")
     for key, expected in REQUIRED_OUTPUT.items():
         if collector[key] != expected:

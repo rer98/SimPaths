@@ -122,6 +122,28 @@ class ConfigurationTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(ConfigurationError):
                 normalise(draft)
 
+    def test_nonpositive_maximum_age_is_rejected_in_forms_and_yaml(self):
+        for maximum in (-1,0):
+            draft=document()
+            draft['run_sets'][0]['model_args']['maxAge']=maximum
+            with self.subTest(maximum=maximum):
+                for decode in (normalise,lambda value:normalise_yaml(yaml.safe_dump(value))):
+                    with self.assertRaisesRegex(ConfigurationError,'maxAge: must be a positive integer'):
+                        decode(draft)
+                native=normalise(document()).native_configuration('baseline')
+                native['model_args']['maxAge']=maximum
+                with self.assertRaisesRegex(ConfigurationError,'maxAge: must be a positive integer'):
+                    import_native_yaml(yaml.safe_dump(native),model_release='test-release',
+                                       dataset_revision='test-dataset',name='Invalid age')
+
+    def test_maximum_age_validation_preserves_descending_sweep_steps(self):
+        draft=document()
+        draft['run_sets']=[]
+        draft['sweep']=dict(id_prefix='age',combination='all',base={},
+            parameters={'model_args.maxAge':dict(start=130,end=120,step=-5)})
+        self.assertEqual([130,125,120],
+            [run['model_args']['maxAge'] for run in normalise(draft).as_dict()['run_sets']])
+
     def test_duplicate_ids_and_effective_settings_rejected(self):
         draft = document()
         draft["run_sets"].append({"id": "copy", "name": "Copy"})

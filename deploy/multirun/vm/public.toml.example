@@ -1,0 +1,13 @@
+# (C) Copyright 2026, by Ross Richardson
+# Public HTTP process settings: no database, SMTP, model images or private paths.
+# @author ross richardson
+[service]
+origin = "https://multirun.example.org"
+port = 5002
+
+[paths]
+frontend = "/opt/simpaths-online/JAS-mine-web"
+
+[rpc]
+socket = "/run/simpaths-executor/control.sock"
+executor_user = "simpaths-online"

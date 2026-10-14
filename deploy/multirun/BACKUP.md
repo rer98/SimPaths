@@ -27,6 +27,13 @@ Independent SingleRun databases are outside this command's scope. Neither mode
 provides an in-memory Java/H2 checkpoint or resumes an interrupted scientific run
 from its last simulated year. Existing offline safety checks remain in place.
 
+Native hosted installations use separate public/executor services; see
+[privilege separation](PRIVILEGE_SEPARATION.md). Backup remains an operation of
+the trusted `simpaths-online` identity. For offline maintenance/restore, stop both
+`simpaths-multirun.service` and `simpaths-executor.service`; stopping the public
+frontend alone does not stop execution or release private state fences. Activation
+precedes restart of the private executor and then the public frontend.
+
 ## What is saved
 
 The backup contains:

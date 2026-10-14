@@ -16,6 +16,7 @@ from .resource_recovery_settings import DEFAULTS as RECOVERY_DEFAULTS, validate 
 
 
 DEFAULTS = {
+    'rpc': {'socket': '/run/simpaths-executor/control.sock', 'frontend_user': 'simpaths-web'},
     'monitoring': {'enabled': False, 'sample_seconds': 15, 'retention_days': 30, 'max_rows': 20000},
     'recovery': RECOVERY_DEFAULTS,
     'service': {'origin': None, 'port': 5002, 'pool_id': 'simpaths-online',
@@ -154,7 +155,12 @@ def load_config(path):
     quota_socket=absolute(sections['workspaces']['quota_socket'],'workspaces.quota_socket')
     if len(os.fsencode(quota_socket))>100:
         raise ValueError('workspaces.quota_socket exceeds the Unix socket path bound')
-    options = SimpleNamespace(**limits, **paths, **service, image=image,
+    rpc_socket=absolute(sections['rpc']['socket'],'rpc.socket')
+    if len(os.fsencode(rpc_socket))>100:
+        raise ValueError('rpc.socket exceeds the Unix socket path bound')
+    if not re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}',sections['rpc']['frontend_user']):
+        raise ValueError('rpc.frontend_user must name a dedicated Linux account')
+    options = SimpleNamespace(rpc_socket=rpc_socket,rpc_frontend_user=sections['rpc']['frontend_user'],**limits, **paths, **service, image=image,
         operational_metrics=monitoring['enabled'],metrics_sample_seconds=monitoring['sample_seconds'],
         metrics_retention_days=monitoring['retention_days'],metrics_max_rows=monitoring['max_rows'],
         **{'recovery_'+key:value for key,value in sections['recovery'].items()},

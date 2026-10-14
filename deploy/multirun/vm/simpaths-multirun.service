@@ -1,29 +1,25 @@
 # (C) Copyright 2026, by Ross Richardson
-# Supervised native application; Docker attempts and PostgreSQL are durable separately.
+# Public HTTP frontend with no Docker, private storage, database or SMTP authority.
 # @author ross richardson
 [Unit]
-Description=SimPaths Online UK MultiRun
-Requires=docker.service jasmine-workspace-quotas.service
-After=network-online.target docker.service jasmine-workspace-quotas.service
-Wants=network-online.target
-RequiresMountsFor=/srv/simpaths-online/private
+Description=SimPaths Online public MultiRun frontend
+After=network-online.target simpaths-executor.service
+Wants=network-online.target simpaths-executor.service
 StartLimitIntervalSec=300
 StartLimitBurst=5
 
 [Service]
 Type=simple
-User=simpaths-online
-Group=simpaths-online
-SupplementaryGroups=docker
+User=simpaths-web
+Group=simpaths-web
+SupplementaryGroups=simpaths-rpc
 WorkingDirectory=/opt/simpaths-online/SimPaths
-EnvironmentFile=/etc/simpaths-online/smtp.env
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStartPre=/opt/simpaths-online/venv/bin/python -m deploy.multirun.vm_web preflight --config /etc/simpaths-online/multirun.toml
-ExecStart=/opt/simpaths-online/venv/bin/python -m deploy.multirun.vm_web serve --config /etc/simpaths-online/multirun.toml
+ExecStartPre=/opt/simpaths-online/venv/bin/python -m deploy.multirun.vm_frontend preflight --config /etc/simpaths-online/public.toml
+ExecStart=/opt/simpaths-online/venv/bin/python -m deploy.multirun.vm_frontend serve --config /etc/simpaths-online/public.toml
 Restart=always
 RestartSec=10
-# Let active downloads finish; model containers have their own persisted deadlines.
 TimeoutStopSec=infinity
 KillSignal=SIGTERM
 KillMode=control-group
@@ -32,15 +28,20 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/srv/simpaths-online/private/multirun
+PrivateDevices=true
+InaccessiblePaths=-/var/run/docker.sock -/run/docker.sock -/run/jasmine-workspace-quotas /srv/simpaths-online/private -/etc/simpaths-online/postgres.dsn -/etc/simpaths-online/smtp.env -/etc/simpaths-online/multirun.toml -/etc/simpaths-online/backup.toml -/srv/simpaths-backups
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
+ProtectProc=invisible
 RestrictSUIDSGID=true
+RestrictNamespaces=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
 LockPersonality=true
-MemoryMax=3G
-TasksMax=512
+MemoryMax=1G
+TasksMax=128
 StandardOutput=journal
 StandardError=journal
 

@@ -13,10 +13,12 @@ runbook supplies the detailed commands and configuration referenced there.
 
 ## What is prepared
 
-`vm_web.py` runs the same queue, worker, downloads and Visualiser workflow as the
-laptop application. It uses an operator-managed persistent PostgreSQL database,
-emailed sign-in codes, a canonical HTTPS origin and one native application process.
-systemd restarts it after failure or reboot. Closing a user's browser has no effect
+`vm_executor.py` owns the queue, worker, downloads and Visualiser workflow, using
+persistent PostgreSQL and emailed sign-in codes. `vm_frontend.py` serves the public
+HTTP interface as a different Linux UID with no Docker, database or private-file
+access. The services communicate through a bounded authenticated Unix RPC API;
+see [privilege separation](PRIVILEGE_SEPARATION.md) for installation and acceptance.
+systemd restarts each service after failure or reboot. Closing a user's browser has no effect
 on execution. The application adopts surviving model attempts after their leases
 expire; it does not create replacement attempts merely because the web process
 restarted. An actual VM reboot interrupts model containers: normal recovery decides
@@ -49,8 +51,9 @@ and test the updated maintained Visualiser release before expanding this scope.
 
 ## 1. Install trusted application files
 
-Use a dedicated native Linux account `simpaths-online` and root-managed, reviewed
-checkouts at:
+Use distinct native Linux accounts `simpaths-online` (trusted executor) and
+`simpaths-web` (public HTTP), following [the account layout](PRIVILEGE_SEPARATION.md).
+Install root-managed, reviewed checkouts and configuration at:
 
 ```text
 /opt/simpaths-online/SimPaths
@@ -58,15 +61,16 @@ checkouts at:
 /opt/simpaths-online/venv
 /opt/simpaths-online/visualiser/<tested-build>
 /etc/simpaths-online/multirun.toml
+/etc/simpaths-online/public.toml
 /etc/simpaths-online/smtp.env
 /etc/simpaths-online/postgres.dsn
 ```
 
-The service account needs access to the local `/var/run/docker.sock`. Docker access
-is a privileged host capability: this account and the installed application code
-are trusted operator components. systemd protections reduce accidental writes;
-they do not turn Docker access into a security sandbox. Never give research users
-host logins, Docker access or write access to these code/configuration directories.
+Only the trusted `simpaths-online` executor account needs `/var/run/docker.sock`.
+The public `simpaths-web` account must not have Docker group membership, quota
+socket access, database/SMTP credentials or private-state permissions. Docker
+access remains a privileged host capability inside the trusted service. Never give
+research users host logins or write access to installed code/configuration.
 
 Install Python 3.12+, Docker Engine/Compose, Node 18+ if using the Visualiser, Nginx,
 certificate tooling and PostgreSQL client tools. Record the actual package/image
@@ -856,7 +860,8 @@ environment; a TOML check does not read the SMTP environment file itself.
 
 ## 5. HTTPS proxy and supervised startup
 
-Install `vm/simpaths-multirun.service`, then replace all domain/certificate values
+Install both `vm/simpaths-executor.service` and `vm/simpaths-multirun.service`,
+with the separate private/public configurations, then replace domain/certificate values
 in `vm/nginx.conf.example`. Obtain the certificate before enabling its HTTPS
 server, verify DNS and test renewal. The ACME directory contains only challenge
 files. Validate `nginx -t` and the actual installed unit with `systemd-analyze verify`.
@@ -878,20 +883,21 @@ and complete its own host-firewall/quota acceptance; this proxy does not cover i
 
 ```bash
 sudo systemctl daemon-reload
+sudo systemctl enable --now simpaths-executor.service
 sudo systemctl enable --now simpaths-multirun.service
-sudo systemctl status simpaths-multirun.service
+sudo systemctl status simpaths-executor.service simpaths-multirun.service
 ```
 
 `/healthz` returns only `{"ready":true}`/`{"ready":false}` and 200/503. Readiness
 requires a working database connection and a successful dispatcher cycle; it does
 not expose credentials or queue entries. Monitor its external URL, systemd status,
 free space on both filesystems, SMTP failures, storage waits and pending cleanup.
-A fatal dispatcher failure terminates the application so systemd can restart it.
+A fatal dispatcher failure terminates the private executor so systemd can restart it.
 Temporary database/dispatch outages retain jobs/reservations and retry recovery.
 Bound journald retention and Docker logs; alert operators rather than pruning data.
 
-The unit caps native Python/Node memory at 3 GiB; model containers have their own
-Docker limits outside that cgroup. Recalibrate that cap if processor memory is changed.
+The executor unit caps native Python/Node memory at 3 GiB and the public unit at
+1 GiB; model containers have their own Docker limits outside those cgroups. Recalibrate that cap if processor memory is changed.
 Graceful stop waits for active downloads, so updates can take time. `KillMode` also
 contains aggregation children. Forced stop/reboot still requires recovery acceptance.
 

@@ -1,6 +1,10 @@
 # (C) Copyright 2026, by Ross Richardson
 # Native VM settings: conservative staging allocation, not a measured VM size.
 # @author ross richardson
+[rpc]
+socket = "/run/simpaths-executor/control.sock"
+frontend_user = "simpaths-web"
+
 [service]
 origin = "https://multirun.example.org"
 port = 5002

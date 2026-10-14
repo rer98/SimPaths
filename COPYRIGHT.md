@@ -127,6 +127,15 @@ Upstream baseline used to identify new files: `b223738b9cdf1d814cc3c6f09b04bc493
 - `src/test/java/simpaths/model/SimPathsProcessedResourcesTest.java`
 - `webserver.properties`
 
+- `deploy/multirun/privilege_config.py`
+- `deploy/multirun/vm_frontend.py`
+- `deploy/multirun/vm_executor.py`
+- `deploy/multirun/privilege_probe.py`
+- `deploy/multirun/test_privilege_separation.py`
+- `deploy/multirun/PRIVILEGE_SEPARATION.md`
+- `deploy/multirun/vm/public.toml.example`
+- `deploy/multirun/vm/simpaths-executor.service`
+
 ## Artifacts attributed here without modifying their contents
 
 The durable MultiRun preparation/submission adapter and proof are attributed in

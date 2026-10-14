@@ -117,6 +117,178 @@ class VMRuntimeTests(unittest.TestCase):
         self.preparations.register_location(key, location=str(location), image=self.image)
         return key
 
+    def test_private_executor_constructs_no_http_application_and_owns_processors(self):
+        import asyncio
+        import threading
+        with patch('jasmine_web.batch.browser.create_app',side_effect=AssertionError('No private HTTP app')):
+            bundle=self.app(private_service=True)
+        self.assertEqual(set(bundle.ready()),{'ready','worker_status'})
+        self.assertFalse(bundle.ready()['ready'])
+        visualiser=SimpleNamespace(stop=threading.Event(),ticks=0,retired=0)
+        def tick():visualiser.ticks+=1
+        def retire():visualiser.retired+=1
+        visualiser.tick=tick
+        visualiser.retire=retire
+        visualiser.close=visualiser.stop.set
+        bundle.service.visualiser=visualiser
+        downloads=bundle.service.results.downloads
+        with patch.object(downloads,'retire',wraps=downloads.retire) as retired, \
+                patch.object(downloads,'close',wraps=downloads.close) as closed:
+            async def exercise():
+                async with bundle.lifespan(None):
+                    for _ in range(300):
+                        if bundle.ready()['ready'] and visualiser.ticks and visualiser.retired:
+                            break
+                        await asyncio.sleep(.05)
+                    self.assertTrue(bundle.ready()['ready'])
+                    self.assertGreater(visualiser.ticks,0)
+                    self.assertGreater(visualiser.retired,0)
+                self.assertTrue(visualiser.stop.is_set())
+            asyncio.run(exercise())
+            self.assertTrue(retired.called)
+            closed.assert_called_once()
+        self.assertFalse(any(t.is_alive() and t.name in ('multirun-private-cache','multirun-private-visualiser')
+                             for t in threading.enumerate()))
+
+    def test_private_executor_health_hides_database_details(self):
+        bundle=self.app(private_service=True)
+        import asyncio
+        async def exercise():
+            async with bundle.lifespan(None):
+                for _ in range(300):
+                    if bundle.ready()['ready']:break
+                    await asyncio.sleep(.05)
+                with patch.object(self.q,'_connection',side_effect=RuntimeError('PRIVATE_DSN_SECRET')):
+                    result=bundle.ready()
+                    self.assertFalse(result['ready'])
+                    self.assertNotIn('PRIVATE_DSN_SECRET',json.dumps(result))
+        asyncio.run(exercise())
+
+    def test_public_http_rpc_pipeline_and_frontend_restart_preserve_active_job(self):
+        """Exercise wire framing and real domain/DB state; native UID checks are separate."""
+        import asyncio
+        import socket
+        import threading
+        from jasmine_web.batch import service_rpc as rpc
+        from jasmine_web.batch.local_executor import Command
+        from jasmine_web.batch.remote_service import RemoteService
+        from .vm_frontend import create_public_application
+
+        class PairClient(rpc.RPCClient):
+            # Only replace connection establishment. Framing, serialization,
+            # upload streaming and the private dispatcher remain production code.
+            # socketpair is same-UID: privilege_probe.py checks the installed UIDs.
+            def __init__(self, server):
+                super().__init__('/unused/socket', os.getuid()+1, timeout=15)
+                self.server, self.workers = server, []
+
+            def _connect(self, operation, values):
+                public, private = socket.socketpair()
+                def handle():
+                    with private:
+                        self.server._handle(private)
+                worker = threading.Thread(target=handle, daemon=True)
+                self.workers.append(worker)
+                worker.start()
+                rpc._write_frame(public, json.dumps(dict(operation=operation, values=values)).encode())
+                return public
+
+            def drain(self):
+                for worker in self.workers:
+                    worker.join(5)
+                    if worker.is_alive():
+                        raise AssertionError('Private RPC operation failed to drain')
+
+        release = self.state/'release-fictional-job'
+        class GatedAdapter(DummyAdapter):
+            def command(self, lease, work):
+                command = super().command(lease, work)
+                script = ('import pathlib,runpy,sys,time\n'
+                          'deadline=time.monotonic()+30\n'
+                          'while not pathlib.Path(sys.argv[1]).exists():\n'
+                          ' if time.monotonic()>deadline: raise SystemExit(1)\n'
+                          ' time.sleep(.02)\n'
+                          'runpy.run_path(sys.argv[2],run_name="__main__")\n')
+                return Command((sys.executable, '-c', script, str(release), command.argv[1]), {})
+        adapter = GatedAdapter(delay=.01)
+        adapter.preparation = SimpleNamespace(retire_failed=lambda *a, **kw: None)
+        with patch.object(runtime, 'DispatchAdapter', return_value=adapter):
+            bundle = self.app(private_service=True)
+        server = rpc.RPCServer(bundle.service, '/unused/socket', web_uid=os.getuid()+1, health=bundle.ready)
+        clients = []
+
+        def public_application():
+            client = PairClient(server)
+            clients.append(client)
+            return create_public_application(RemoteService(client), self.origin)
+
+        def attempt_ids(experiment):
+            with self.q._connection() as connection:
+                return [str(row['id']) for row in connection.execute(
+                    'SELECT id FROM attempts WHERE job_id IN '
+                    '(SELECT id FROM jobs WHERE experiment_id=%s) ORDER BY id', (experiment,)).fetchall()]
+
+        def workflow():
+            with TestClient(public_application(), base_url=self.origin) as public:
+                until(lambda: public.get('/healthz').status_code == 200)
+                self.sign_in(public)
+                self.assertEqual(public.get('/api/dashboard').status_code, 200)
+                upload = public.post('/api/uploads', content=b'abc', headers={
+                    'Content-Type':'application/octet-stream', 'X-Upload-Name':'population.csv'})
+                self.assertEqual(upload.status_code, 201, upload.text)
+                # Trusted preparation fixture supplies the small prepared dataset;
+                # its source upload reached private storage through the HTTP/RPC path.
+                dataset = self.datasets.publish(self.owner, 'b'*64, uploads=[upload.json()['id']])
+                location = self.state/dataset
+                location.mkdir()
+                self.preparations.register_location(dataset, location=str(location), image=self.image)
+                form = dict(name='Private executor RPC proof',
+                    common=dict(population=20, start_year=2019, end_year=2020), repetitions=2,
+                    baseline='first', auto_retry=False,
+                    run_sets=[dict(id='first', name='Baseline example', model_args={})])
+                review = public.post('/api/review-experiment', json=dict(dataset=dataset, form=form))
+                self.assertEqual(review.status_code, 200, review.text)
+                submitted = public.post('/api/submit', json=dict(key='rpc-native-proof', review=review.json()['review']))
+                self.assertEqual(submitted.status_code, 201, submitted.text)
+                experiment = submitted.json()['id']
+                def active():
+                    status = public.get('/api/experiments/'+experiment).json()
+                    return status if status.get('jobs') and status['jobs'][0]['state'] == 'active' else None
+                started = until(active)
+                original_attempts = attempt_ids(experiment)
+                self.assertEqual(len(original_attempts), 1)
+                cookies = dict(public.cookies)
+            self.assertTrue(bundle.ready()['ready'])
+            self.assertFalse(release.exists())
+            with TestClient(public_application(), base_url=self.origin) as restarted:
+                restarted.cookies.update(cookies)
+                restarted.headers['Origin'] = self.origin
+                session = restarted.get('/api/session')
+                self.assertTrue(session.json()['signed_in'], session.text)
+                resumed = restarted.get('/api/experiments/'+experiment)
+                self.assertEqual(resumed.status_code, 200, resumed.text)
+                self.assertEqual(resumed.json()['jobs'][0]['id'], started['jobs'][0]['id'])
+                self.assertEqual(resumed.json()['jobs'][0]['state'], 'active')
+                self.assertEqual(attempt_ids(experiment), original_attempts)
+                release.touch()
+                def completed():
+                    status = restarted.get('/api/experiments/'+experiment).json()
+                    return status if status.get('jobs') and all(j['state']=='succeeded' for j in status['jobs']) else None
+                completed_status = until(completed)
+                self.assertEqual(completed_status['jobs'][0]['attempts'], 1)
+                self.assertEqual(attempt_ids(experiment), original_attempts)
+                self.assertEqual(restarted.get('/api/dashboard').status_code, 200)
+
+        async def exercise():
+            async with bundle.lifespan(None):
+                try:
+                    await asyncio.to_thread(workflow)
+                finally:
+                    release.touch()
+                    for client in clients:
+                        client.drain()
+        asyncio.run(exercise())
+
     def test_https_sign_in_secure_cookies_origin_host_and_revocation(self):
         app = self.app()
         self.assertFalse(app.state.submissions.allow_deadline_credit)

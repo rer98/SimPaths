@@ -377,6 +377,12 @@ not install services, choose providers or change security settings.
 
 ### Database security and supervised services
 
+- [ ] Install the [separate public/executor identities](multirun/PRIVILEGE_SEPARATION.md)
+  and both systemd units. Prove the public UID cannot access Docker, quotas, private
+  state or database/SMTP credentials. Run the configured-host `privilege_probe.py`,
+  then verify browser workflows and both independent restart paths. Keep SingleRun
+  outside this acceptance claim until its own privilege design is reviewed.
+
 - [ ] Verify private PostgreSQL connectivity and the restricted application role's
   actual grants. Migrate the MultiRun pool before joining SingleRun to the same
   database/pool with its separate registry schema, or partition budgets explicitly.

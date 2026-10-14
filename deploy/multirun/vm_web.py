@@ -97,10 +97,32 @@ def workspace_quotas(options):
     return WorkspaceQuotas(execution,options.workspace_quota_socket,options.workspace_guard)
 
 
+def preflight(options,q):
+    check_smtp(os.environ)
+    quotas=workspace_quotas(options)
+    if quotas is not None:
+        quotas.guard(); quotas.preflight()
+    from jasmine_web.batch.docker_executor import DockerCLI
+    import json
+    from .releases import ReleaseRegistry
+    registry=ReleaseRegistry(options.state)
+    images={options.image}
+    if registry.catalogue.exists() or (options.state/'release'/'release.json').exists():
+        images.update(r['image'] for r in registry.load(expected_image=options.image).values())
+    for identity in images:
+        image = json.loads(DockerCLI().call('image', 'inspect', identity))[0]
+        if image['Id'] != identity or image['Config'].get('Volumes'):
+            raise ValueError('Install all retained pinned model images without implicit volumes')
+    with q._connection() as connection:
+        connection.execute('SELECT 1')
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=('check', 'preflight', 'serve', 'approve', 'revoke', 'status'))
     parser.add_argument('--config', type=Path, required=True)
+    parser.add_argument('--private-combined',action='store_true',
+        help='Explicit private diagnostic only; hosted deployments use vm_frontend and vm_executor')
     parser.add_argument('--email')
     parser.add_argument('--json',action='store_true',help='JSON output for status')
     parser.add_argument('--limit',type=int,default=20,help='Maximum job details for status')
@@ -113,6 +135,8 @@ def main(argv=None):
         if args.command == 'check':
             print('VM configuration is valid. No resources were contacted or changed.')
             return 0
+        if args.command=='serve' and (not args.private_combined or options.dedicated_storage):
+            raise ValueError('Hosted service requires vm_frontend plus vm_executor; combined diagnostics require --private-combined and dedicated_storage=false')
         sys.path.insert(0, str(options.frontend.resolve(strict=True)))
         os.umask(0o077)
         from jasmine_web.batch.store import Queue
@@ -120,23 +144,7 @@ def main(argv=None):
         check_storage(options)
         q = Queue(database_dsn(options), options.pool_id)
         if args.command == 'preflight':
-            check_smtp(os.environ)
-            quotas=workspace_quotas(options)
-            if quotas is not None:
-                quotas.guard(); quotas.preflight()
-            from jasmine_web.batch.docker_executor import DockerCLI
-            import json
-            from .releases import ReleaseRegistry
-            registry=ReleaseRegistry(options.state)
-            images={options.image}
-            if registry.catalogue.exists() or (options.state/'release'/'release.json').exists():
-                images.update(r['image'] for r in registry.load(expected_image=options.image).values())
-            for identity in images:
-                image = json.loads(DockerCLI().call('image', 'inspect', identity))[0]
-                if image['Id'] != identity or image['Config'].get('Volumes'):
-                    raise ValueError('Install all retained pinned model images without implicit volumes')
-            with q._connection() as connection:
-                connection.execute('SELECT 1')
+            preflight(options,q)
             print('Storage, workspace enforcement, SMTP settings, pinned image and PostgreSQL connection checked. No mail was sent or jobs created.')
             return 0
         options.command, options.email = args.command, args.email

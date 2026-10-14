@@ -55,9 +55,10 @@ Projects are never reused and finished limits are never lifted.
 
 ## Privilege and process boundary
 
-The web service remains unprivileged with `NoNewPrivileges=true`. A separate,
+The public web UID has no access to this broker. The trusted private executor
+uses `NoNewPrivileges=true`; see [privilege separation](PRIVILEGE_SEPARATION.md). A separate,
 administrator-owned quota broker accepts a bounded protocol over a private Unix
-socket, authenticating the service account's Linux UID. Clients supply an opaque
+socket, authenticating the `simpaths-online` executor's Linux UID. Clients supply an opaque
 attempt name, byte limit and one supported operation. A growth request additionally
 supplies the exact previous limit; it cannot shrink a quota or change inode limits.
 The service admits each increase against the shared pool and frozen recovery

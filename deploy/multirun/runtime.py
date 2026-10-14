@@ -97,7 +97,7 @@ def create_registry(args,q,state,send_mail,*,capacity=Resources(2000,5120,12288)
 
 @maintenance_guard
 def create_application(args,q,state,access,datasets,preparations,keys,image,origin,*,
-                       local_codes=False,terminate_on_dispatch_failure=False):
+                       local_codes=False,terminate_on_dispatch_failure=False,private_service=False):
     q.backup_state=state
     releases=frozen_release(state,image)
     default=next(iter(releases))
@@ -170,7 +170,46 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
         # Covers hosts embedding this application as well as native launchers.
         with service_state(state), database_guard(q):
             async with running(app):
-                yield
+                if private_service:
+                    async with private_processors():
+                        yield
+                else:
+                    yield
+    @asynccontextmanager
+    async def private_processors():
+        # These jobs formerly belonged to the browser lifespan. Their files,
+        # database and subprocesses remain wholly inside the trusted service.
+        def maintain():
+            while not stop.is_set():
+                try:
+                    service.results.downloads.retire()
+                    if hasattr(service,'visualiser'):
+                        service.visualiser.retire()
+                except Exception as error:
+                    print('Private cache cleanup waiting: '+type(error).__name__,flush=True)
+                stop.wait(30)
+        def process():
+            while not service.visualiser.stop.is_set():
+                try:
+                    service.visualiser.tick()
+                except Exception as error:
+                    print('Private Visualiser processor waiting: '+type(error).__name__,flush=True)
+                service.visualiser.stop.wait(1)
+        maintenance=threading.Thread(target=maintain,name='multirun-private-cache',daemon=True)
+        processor=(threading.Thread(target=process,name='multirun-private-visualiser',daemon=True)
+                   if hasattr(service,'visualiser') else None)
+        maintenance.start()
+        if processor is not None:
+            processor.start()
+        try:
+            yield
+        finally:
+            stop.set()
+            if processor is not None:
+                service.visualiser.close()
+                await asyncio.to_thread(processor.join)
+            service.results.downloads.close()
+            await asyncio.to_thread(maintenance.join)
     @asynccontextmanager
     async def running(app):
         if hasattr(service,'monitor'):
@@ -196,17 +235,17 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                 stop.wait(5)
         notifications=threading.Thread(target=notify,name='multirun-notifications',daemon=True)
         notifications.start()
-        yield
-        stop.set()
-        # Containers have independent deadlines; do not kill model work when
-        # stopping the frontend. The next start adopts surviving attempts.
-        await asyncio.to_thread(thread.join,30)
-        await asyncio.to_thread(notifications.join,30)
-        if hasattr(service,'monitor'):
-            await asyncio.to_thread(service.monitor.close)
-        print('Frontend stopped. Submitted jobs remain recorded; restart the service to resume dispatch.',flush=True)
-    from jasmine_web.batch.browser import create_app
-    import uvicorn
+        try:
+            yield
+        finally:
+            stop.set()
+            # Keep lifecycle fences until in-flight publication/cleanup finishes.
+            # Containers retain independent deadlines and survive this process.
+            await asyncio.to_thread(thread.join)
+            await asyncio.to_thread(notifications.join)
+            if hasattr(service,'monitor'):
+                await asyncio.to_thread(service.monitor.close)
+            print(('Executor' if private_service else 'Frontend')+' stopped. Submitted jobs remain recorded; restart the service to resume dispatch.',flush=True)
     # Explicit, reviewed local recovery from laptop suspension/reconciliation
     # delay. Hosted services keep this disabled unless their operator opts in.
     from .resource_recovery_settings import policy as recovery_policy
@@ -255,6 +294,28 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
     service.completions.reconcile()
     print('Automatic expiry deletion: '+('enabled' if args.retention_cleanup else 'disabled; dates and notices recorded locally'),flush=True)
     print('Completion, problem and expiry email delivery: '+('enabled' if args.notification_emails else 'disabled; notices recorded locally'),flush=True)
+    from datetime import datetime, timezone
+    atomic_json(state/'operator-settings.json',dict(format='simpaths.operator.settings.v1',
+        pool_id=q.pool_id,schema=q.schema,recorded_at=datetime.now(timezone.utc).isoformat(),
+        model_release=default,notification_delivery=args.notification_emails,
+        retention_cleanup=args.retention_cleanup,visualiser_enabled=args.visualiser_preview))
+    def ready():
+        result={'ready':False,'worker_status':health['message']}
+        if health['message'] or fatal.is_set():
+            return result
+        try:
+            with q._connection() as connection:
+                connection.execute('SELECT 1')
+        except Exception:
+            result['worker_status']='The service is recovering. Your submitted jobs remain recorded.'
+            return result
+        result['ready']=True
+        return result
+    if private_service:
+        from types import SimpleNamespace
+        return SimpleNamespace(service=service,lifespan=lifespan,ready=ready,
+                               worker_status=lambda:health['message'])
+    from jasmine_web.batch.browser import create_app
     app=create_app(service,origin=origin,local_codes=local_codes,
                    lifespan=lifespan,worker_status=lambda:health['message'],
                    site=dict(name='SimPaths Online',subtitle='UK MultiRun',logo='/static/simpaths-logo.svg',
@@ -278,9 +339,4 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
         return JSONResponse({'ready':ready},status_code=200 if ready else 503)
     app.router.routes.append(Route('/healthz',healthz,methods=['GET']))
     app.state.submissions=service
-    from datetime import datetime, timezone
-    atomic_json(state/'operator-settings.json',dict(format='simpaths.operator.settings.v1',
-        pool_id=q.pool_id,schema=q.schema,recorded_at=datetime.now(timezone.utc).isoformat(),
-        model_release=default,notification_delivery=args.notification_emails,
-        retention_cleanup=args.retention_cleanup,visualiser_enabled=args.visualiser_preview))
     return app

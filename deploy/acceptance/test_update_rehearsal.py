@@ -115,8 +115,13 @@ class ReleaseGuards(unittest.TestCase):
         cls.candidate = releases.bundle(ROOT,FRONTEND,cls.root/'candidate',host_ref='HEAD',frontend_ref='HEAD')
         cls.future = releases.future(cls.candidate,cls.root/'future')
 
-    def test_real_previous_and_current_git_snapshots_have_reviewed_matching_formats(self):
-        releases.compatible(self.previous,self.candidate)
+    def test_historical_default_pair_is_rejected_after_new_schema_versions(self):
+        # The retained historical rehearsal used 20 batch migrations. Current
+        # releases added recovery and operational history; that old pair must
+        # fail the direct-rollback gate until an operator reviews a new pair.
+        self.assertNotEqual(self.previous['migrations'], self.candidate['migrations'])
+        with self.assertRaisesRegex(ValueError, 'matching reviewed migration histories'):
+            releases.compatible(self.previous,self.candidate)
         self.assertNotEqual(self.previous['host']['commit'],self.candidate['host']['commit'])
         self.assertNotEqual(self.previous['frontend']['commit'],self.candidate['frontend']['commit'])
         self.assertEqual({k:len(v) for k,v in self.previous['migrations'].items()},{'single':2,'batch':20})
@@ -141,7 +146,8 @@ class ReleaseGuards(unittest.TestCase):
         for key, values in self.candidate['migrations'].items():
             self.assertEqual(self.future['migrations'][key][:-1],values)
             self.assertEqual(self.future['migrations'][key][-1]['version'],len(values)+1)
-        self.assertEqual({k:len(v) for k,v in self.future['migrations'].items()},{'single':3,'batch':21})
+        self.assertEqual({k:len(v) for k,v in self.future['migrations'].items()},
+                         {k:len(v)+1 for k,v in self.candidate['migrations'].items()})
 
     def test_synthetic_code_cannot_pass_the_direct_rollback_gate(self):
         with self.assertRaisesRegex(ValueError,'migration histories'):
@@ -234,6 +240,20 @@ class ProbeAndHandoverGuards(unittest.TestCase):
     def test_startup_reads_both_actual_service_templates_and_validates_their_policies(self):
         from deploy.acceptance._supervisor import EXPECTED
         self.assertEqual(proof.service_policies(FRONTEND),dict(batch=EXPECTED,single=EXPECTED))
+
+    def test_batch_recovery_policy_follows_executor_changes_independently_of_public_unit(self):
+        original = Path.read_text
+        def changed_executor(path, *args, **kwargs):
+            text = original(path, *args, **kwargs)
+            return text.replace('RestartSec=10', 'RestartSec=11') if path.name == 'simpaths-executor.service' else text
+        with patch.object(Path, 'read_text', changed_executor), self.assertRaises(ValueError):
+            proof.service_policies(FRONTEND)
+        def changed_public(path, *args, **kwargs):
+            if path.name == 'simpaths-multirun.service':
+                raise AssertionError('Public unit does not own the batch recovery lifecycle')
+            return original(path, *args, **kwargs)
+        with patch.object(Path, 'read_text', changed_public):
+            self.assertEqual(proof.service_policies(FRONTEND)['batch']['RestartSec'], '10')
 
     def test_probe_refuses_live_remote_and_non_disposable_databases_before_connections(self):
         import psycopg

@@ -30,11 +30,9 @@ from deploy.acceptance import _application_update as releases
 
 
 def service_policies(frontend):
-    """Read both real service templates before validating their restart policies."""
-    from deploy.acceptance._supervisor import restart_policy
-    return dict(
-        batch=restart_policy((ROOT/'deploy/multirun/vm/simpaths-multirun.service').read_text()),
-        single=restart_policy((Path(frontend)/'deploy/simpaths/simpaths-singlerun.service').read_text()))
+    """Validate the lifecycle policy for SingleRun and the private batch executor."""
+    from deploy.acceptance._supervisor import native_policy_sources, restart_policy
+    return {role: restart_policy(path.read_text()) for role, path in native_policy_sources(frontend).items()}
 
 
 def serve(settings, role):
@@ -335,6 +333,7 @@ def rehearsal(args, report):
              file_inventory={key:bundle[key]['files'] for key in ('host','frontend')}) for name,bundle in bundles.items()}
         report['adaptations'] = ['same recorded fictional-model adapters overlay each committed hosting tree',
             'loopback HTTP and transient user units; deployed HTTPS/boot hardening have separate acceptance',
+            'combined batch fixture uses executor restart policy; separate frontend/executor processes and peer UIDs require host acceptance',
             'same isolated dependency environment; no package/image/repository update or service installation',
             'compatible Git snapshots have unchanged SQL, result/cache/recovery formats; compatibility is not inferred for arbitrary releases',
             'extra checksummed batch/SingleRun migrations exist only in a private synthetic future bundle',

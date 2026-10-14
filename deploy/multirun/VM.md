@@ -942,8 +942,14 @@ run the recorder as the trusted service account with the returned experiment ID:
 
 It reads only selected experiment metadata and the corresponding Docker stats and
 workspace sizes, plus host memory/load and free space on the private and Docker
-filesystems. Where available it records the native application's systemd cgroup
-memory, including Node processing. It never submits, cancels, migrates or deletes anything. Ctrl+C
+filesystems. It records the public frontend and private executor systemd cgroup
+memory separately, including Node processing within the executor. The application
+total is their sum only when both readings are available; a missing or unreadable
+service is reported as unknown, with an unavailable-sample count in the summary.
+Component peaks are also retained, but the peak total comes from complete samples
+rather than adding peaks taken at different times. Model containers, PostgreSQL
+and backup services remain separate from this application total.
+It never submits, cancels, migrates or deletes anything. Ctrl+C
 saves collected evidence without stopping jobs. Raw microdata are not copied;
 settings/IDs and measurements are private operational evidence. Samples can miss
 brief peaks; unknown linked/missing measurements must not be treated as confirmed
@@ -1119,12 +1125,29 @@ This direct-HTTP rehearsal checks application/worker recovery. SingleRun's
 proxy-added cache headers, TLS and Secure cookies are tested by the separate
 HTTPS rehearsal; MultiRun's application-level no-store assertion remains enabled.
 
-Restart/termination settings are read from the MultiRun service template and the
-optional JAS-mine-web `deploy/simpaths/simpaths-singlerun.service` template:
+Restart/termination settings are read from the private MultiRun executor template and the
+optional JAS-mine-web `deploy/simpaths/simpaths-singlerun-executor.service` template:
 `Restart=always`, ten-second delay, five starts within 300 seconds, process-group
 termination and an unrestricted graceful-stop period. Effective systemd properties
 are checked rather than simulated by a Python restart loop. Explicitly stopping a
 service does not request another automatic start.
+
+The recovery, PostgreSQL-outage and update/rollback rehearsals retain their combined
+SingleRun HTTP/backend and MultiRun HTTP/worker fixtures. They use the respective
+private executor templates for lifecycle policy and record this adaptation in
+their reports. They do not establish restart behaviour across separate
+public/private processes or Linux UID isolation. Complete those checks through
+the installed-host privilege and browser acceptance described in
+[PRIVILEGE_SEPARATION.md](PRIVILEGE_SEPARATION.md) and the companion JAS-mine-web
+SingleRun deployment guide.
+
+The update rehearsal's historical default rollback pair now predates the added
+resource-recovery and operational-history migrations. Its compatibility gate
+correctly refuses that pair against current code. The offline checks verify this
+refusal; they do not establish a working current-code rollback. Before another
+native update rehearsal, select and review a new compatible pair and update the
+fixture's historical page-change expectations. Keep the matching-schema and
+result/recovery-format checks intact.
 
 The proof kills only its own frontend main processes and checks automatic restart,
 unchanged ownership cookies/credentials/settings, adoption of the same running

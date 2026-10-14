@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from deploy._workflow import frontend_path
 from deploy.multirun.proxy_rehearsal import free_port, require_test_database, until
-from deploy.acceptance._supervisor import Supervisor, environment_file, restart_policy
+from deploy.acceptance._supervisor import Supervisor, environment_file, native_policy_sources, restart_policy
 
 
 def single_client(origin):
@@ -235,12 +235,12 @@ def rehearsal(args, report):
             single_port=free_port(), batch_port=free_port(), secret=secrets.token_urlsafe(32),
             admin=secrets.token_urlsafe(32), catalogue=str(single_state/'catalogue.json'), archive=str(single_state/'fictional.zip'))
         while settings['single_port'] == settings['batch_port']: settings['batch_port'] = free_port()
-        policy_sources = {'single':args.frontend/'deploy/simpaths/simpaths-singlerun.service',
-                          'batch':ROOT/'deploy/multirun/vm/simpaths-multirun.service'}
+        policy_sources = native_policy_sources(args.frontend)
         policies = {role:restart_policy(path.read_text()) for role, path in policy_sources.items()}
         report['supervisor_templates'] = {role:dict(sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
             restart_policy=policies[role]) for role, path in policy_sources.items()}
         report['adaptations'] = ['transient user units and loopback ports; no installed/root service or host hardening proof',
+            'combined batch fixture uses executor restart policy; separate frontend/executor processes and peer UIDs require host acceptance',
             'fictional model/Java replies; real Docker containers and PostgreSQL; five-second queue leases and one-second backoff',
             'local HTTP cookies for fixture transport; deployed HTTPS/cookie policy is unchanged']
         model = deepcopy(MODEL); model['deployment']['image'] = image

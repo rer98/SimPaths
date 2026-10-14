@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT))
 from deploy._workflow import frontend_path
 from deploy.acceptance._postgres_outage import Database
-from deploy.acceptance._supervisor import Supervisor,environment_file,restart_policy
+from deploy.acceptance._supervisor import Supervisor,environment_file,native_policy_sources,restart_policy
 from deploy.acceptance.run_recovery_rehearsal import (allocations,attempt,running_attempt,remove_containers,
     single_client,sign_in,start_frontends,submit,wait_ready)
 from deploy.multirun.proxy_rehearsal import free_port,require_test_database,until
@@ -127,15 +127,16 @@ def rehearsal(args,report):
         'deploy/acceptance/_postgres_outage.py','deploy/acceptance/run_postgres_rehearsal.py',
         'deploy/acceptance/test_postgres_rehearsal.py','deploy/acceptance/_recovery_fixture.py',
         'deploy/acceptance/_recovery_model.py','deploy/acceptance/_supervisor.py',
-        'deploy/multirun/runtime.py','deploy/multirun/vm/simpaths-multirun.service')}
+        'deploy/multirun/runtime.py','deploy/multirun/vm/simpaths-executor.service')}
     sources.update({'JAS-mine-web/'+name:args.frontend/name for name in (
         'app.py','session_manager.py','jasmine_web/vm_state.py','jasmine_web/vm_resources.py',
         'jasmine_web/batch/worker.py','jasmine_web/batch/store.py','jasmine_web/batch/browser.py',
-        'deploy/simpaths/simpaths-singlerun.service')})
+        'deploy/simpaths/simpaths-singlerun-executor.service')})
     report['adaptations'] = ['fictional Java HTTP responses and tiny real Docker model processes',
         'loopback HTTP; HTTPS and production cookie flags have separate rehearsals',
         'five-second queue leases and one-second retry delay; frozen runtime and attempt limits retained',
         'transient user units; installed-host hardening and boot behaviour are separate acceptance',
+        'combined batch fixture uses executor restart policy; separate frontend/executor processes and peer UIDs require host acceptance',
         'a second disposable PostgreSQL with a private persistent volume; enclosing runner supplies isolated dependencies']
     def passed(text):
         report['checks'].append(text); print('PASS: '+text,flush=True)
@@ -168,9 +169,7 @@ def rehearsal(args,report):
         environment = work/'private.env'
         environment_file(environment,dict(JASMINE_BATCH_TEST_DSN=dsn,JASMINE_WEB_REPO=str(args.frontend),
             PYTHONPATH=str(ROOT),PYTHONUNBUFFERED='1',PYTHONDONTWRITEBYTECODE='1'))
-        policies = {role:restart_policy(path.read_text()) for role,path in dict(
-            single=args.frontend/'deploy/simpaths/simpaths-singlerun.service',
-            batch=ROOT/'deploy/multirun/vm/simpaths-multirun.service').items()}
+        policies = {role:restart_policy(path.read_text()) for role,path in native_policy_sources(args.frontend).items()}
         report['phase'] = 'real-frontend-startup'
         start_frontends(supervisor,policies,dict(python=sys.executable,script=Path(__file__).resolve(),
             settings=settings_file,environment=environment,workdir=ROOT),args.frontend,args.output)

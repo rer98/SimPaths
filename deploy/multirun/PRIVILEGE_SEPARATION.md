@@ -30,10 +30,13 @@ The trusted service still includes model adapters, workbook handling, results,
 aggregation and queue policy. It remains security-sensitive and needs reviewed
 code and dependencies. This split limits a compromise of the public HTTP process;
 it does not claim that a vulnerability in trusted backend code is harmless.
-SingleRun is a separate application: this MultiRun split does not grant its
-frontend permission to use the private RPC service or automatically remove its
-own Docker authority. Run SingleRun only after its separate privilege design and
-host acceptance are reviewed.
+SingleRun has its own public gateway and private executor, implemented in
+JAS-mine-web. Its public account `simpaths-singlerun-web` uses a separate socket
+and cannot invoke this MultiRun RPC service. The SingleRun private application
+retains its existing session authentication, PostgreSQL and Docker authority.
+Follow the companion `docs/vm-deployment.md` installation instructions and verify
+its separate UID/socket, browser and restart checks on the installed host; the
+MultiRun acceptance results do not establish SingleRun host isolation.
 
 ## Accounts, code and configuration
 
@@ -130,11 +133,14 @@ configuration. There is no new persistent public state to restore.
 
 An inactive restore must not start either hosted unit before activation succeeds.
 Restore/activation still verifies files, database, images and destination quota
-bindings. Stop both units for offline restore or release maintenance; stopping only
-the public frontend leaves the private service actively using the state. Source
-isolation must include its executor and model containers. After activation, start
-the executor first, then the frontend, and verify existing owner sessions and
-original attempts.
+bindings. Stop both MultiRun units for offline restore or release maintenance.
+When SingleRun shares the affected database/state, also stop its public
+`simpaths-singlerun.service` and private `simpaths-singlerun-executor.service`.
+Stopping only a public frontend leaves its private service actively using the
+state. Source isolation must include every affected executor and model container.
+After activation, start the MultiRun executor first, then a SingleRun executor
+joining that pool, and finally the public frontends. Verify existing owner
+sessions and original attempts; see [backup and restore](BACKUP.md).
 
 ## Native acceptance
 
@@ -166,12 +172,36 @@ unrelated UID, verifies denial of private files/Docker/quota access, authenticat
 the real private service and rejects a generic Docker operation. The unrelated
 disposable child receives the socket group temporarily to prove the server rejects
 its UID even when filesystem permissions permit connection; no host group
-membership is changed. It starts no
-simulation, changes no account/group and sends no email. Its evidence includes
+membership is changed. The probe requires a successful connection, verifies the
+executor's kernel UID and accepts only closure without any RPC response as peer
+rejection. Filesystem denial, timeouts, and ordinary RPC error responses are
+inconclusive and fail the proof. Authorised health controls run before and after
+that check. It starts no simulation, changes no account/group and sends no email. Its evidence includes
 only boolean outcomes. It is a selected-host check and has not been completed by
 sandbox-only tests.
 
-Then exercise the actual compiled browser workflow over the public service:
+The existing fictional-data browser proof can also exercise the public facade and
+private RPC framing, including selected chart sections, cache reauthorisation,
+permissions, sign-out, downloads and privately owned aggregation. From JAS-mine-web:
+
+```bash
+TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 ~/simpaths-browser-tests/venv/bin/python \
+  tests/browser/batch_visualiser.py --browser-only --private-rpc \
+  --build /tmp-codex/visualiser-build-20261011-cache-b \
+  --output "$HOME/simpaths-benchmarks/vm-visualiser-rpc-$(date +%Y%m%d-%H%M%S)"
+```
+
+Use the intended pinned build. This is a same-UID socketpair fixture with a
+disposable database and tiny synthetic CSVs. Its report identifies the mode and
+records which operations crossed the protocol. It does not exercise the installed
+socket listener or prove Linux account isolation. The RPC mode passed natively on
+14 October 2026 in `~/simpaths-benchmarks/vm-visualiser-rpc-20261014-155923/`.
+Both reports confirm cleanup; the browser and private processors reported no
+errors, and all private processor and RPC handler threads stopped. The deliberate
+aggregation failure tests retry handling. Broken-pipe log messages record client
+connections closed before response delivery finished.
+
+Then exercise the actual compiled browser workflow over the installed public service:
 verified sign-in, upload/review/submit, completed results, permitted downloads,
 restricted-data denials, Visualiser sections/cache and logout. Test a public
 frontend restart while a fictional model runs, then an executor restart, confirming

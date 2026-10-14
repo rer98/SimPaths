@@ -131,6 +131,8 @@ Upstream baseline used to identify new files: `b223738b9cdf1d814cc3c6f09b04bc493
 - `deploy/multirun/vm_frontend.py`
 - `deploy/multirun/vm_executor.py`
 - `deploy/multirun/privilege_probe.py`
+- `deploy/multirun/test_privilege_probe.py`
+- `deploy/multirun/test_vm_capacity.py`
 - `deploy/multirun/test_privilege_separation.py`
 - `deploy/multirun/PRIVILEGE_SEPARATION.md`
 - `deploy/multirun/vm/public.toml.example`

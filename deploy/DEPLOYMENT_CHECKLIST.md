@@ -380,8 +380,12 @@ not install services, choose providers or change security settings.
 - [ ] Install the [separate public/executor identities](multirun/PRIVILEGE_SEPARATION.md)
   and both systemd units. Prove the public UID cannot access Docker, quotas, private
   state or database/SMTP credentials. Run the configured-host `privilege_probe.py`,
-  then verify browser workflows and both independent restart paths. Keep SingleRun
-  outside this acceptance claim until its own privilege design is reviewed.
+  then verify browser workflows and both independent restart paths. When hosting
+  SingleRun, also install its separate `simpaths-singlerun-web` account,
+  `simpaths-singlerun.service` public gateway and
+  `simpaths-singlerun-executor.service` private application. Check SingleRun's
+  socket/UID boundary and independent restart paths separately using the companion
+  JAS-mine-web deployment guide; the MultiRun probe does not establish these.
 
 - [ ] Verify private PostgreSQL connectivity and the restricted application role's
   actual grants. Migrate the MultiRun pool before joining SingleRun to the same
@@ -428,6 +432,11 @@ not install services, choose providers or change security settings.
   required images and signing/configuration artifacts. Verify original ownership,
   files, seeds, budgets and provider denials; isolate the source before activation.
   Test capture responsiveness under representative load before enabling the timer.
+- [ ] Verify offline maintenance, restore and release-update procedures stop both
+  public frontends and their private executors. A SingleRun public-gateway restart
+  leaves its private application and Docker sessions running. After activation,
+  start the MultiRun private pool before a SingleRun executor that shares it, then
+  start the public frontends. Confirm model-container state separately.
 
 ## Installation and validation order
 

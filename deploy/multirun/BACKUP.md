@@ -29,10 +29,15 @@ from its last simulated year. Existing offline safety checks remain in place.
 
 Native hosted installations use separate public/executor services; see
 [privilege separation](PRIVILEGE_SEPARATION.md). Backup remains an operation of
-the trusted `simpaths-online` identity. For offline maintenance/restore, stop both
-`simpaths-multirun.service` and `simpaths-executor.service`; stopping the public
-frontend alone does not stop execution or release private state fences. Activation
-precedes restart of the private executor and then the public frontend.
+the trusted `simpaths-online` identity. For offline maintenance/restore, stop
+`simpaths-multirun.service` and `simpaths-executor.service`. If SingleRun shares
+the database or private state, also stop `simpaths-singlerun.service` and
+`simpaths-singlerun-executor.service`. Stopping either public frontend alone leaves
+its private service and state access running. Drain active work and confirm model
+containers have settled before maintenance; stopping the services does not stop
+an already launched model container. After activation, start the MultiRun private
+executor, then any SingleRun private executor joining its pool, and finally the
+public frontends.
 
 ## What is saved
 
@@ -73,11 +78,12 @@ Exceeding a bound or running out of space fails without publishing a backup.
    and deletion/recovery work. Do not cancel users' jobs just to make a backup.
 2. Use [operator status](OPERATOR.md) to inspect reservations and unfinished work.
    Queued jobs and jobs awaiting review may remain recorded.
-3. Stop the MultiRun launcher/service gracefully. **Stopping the web process does
-   not stop an already launched model container.** If one is still running or its
+3. Stop the public frontends and their private executors gracefully, as listed
+   above. **Stopping a service does not stop an already launched model container.**
+   If one is still running or its
    reservation is unreleased, allow normal service recovery to settle it before
    stopping again. A shared SingleRun session must use Leave and release its
-   allocation; closing its page or launcher is insufficient.
+   allocation; closing its page or stopping either SingleRun service is insufficient.
 4. Inspect the service's labelled containers and confirm no source writer remains.
    Keep the PostgreSQL server running: the command takes a logical dump, not a
    copy of live PostgreSQL data files.

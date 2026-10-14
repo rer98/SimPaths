@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import pwd
 import socket
+import struct
 import subprocess
 import sys
 
@@ -35,16 +36,40 @@ def denied_socket(path):
         return False
 
 
+def rejected_peer(path, executor_uid):
+    """Prove a connected, identified executor closes before any RPC reply.
+
+    Access-denied filesystem permissions, timeouts and ordinary error replies
+    are inconclusive: none proves that the executor rejected the caller UID.
+    """
+    with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as connection:
+        connection.settimeout(5)
+        connection.connect(str(path))
+        actual=struct.unpack('3i',connection.getsockopt(socket.SOL_SOCKET,socket.SO_PEERCRED,12))[1]
+        if actual!=executor_uid:
+            raise ValueError('Probe reached a different executor identity')
+        request=json.dumps(dict(operation='health',values={})).encode()
+        try:
+            connection.sendall(struct.pack('!I',len(request))+request)
+        except (BrokenPipeError,ConnectionResetError):
+            # A peer can close as soon as accept() identifies the caller.
+            # Still inspect for buffered reply bytes before accepting rejection.
+            pass
+        try:
+            reply=connection.recv(1)
+        except ConnectionResetError:
+            reply=b''
+        if reply:
+            raise ValueError('Unrelated Linux account received a private RPC response')
+    return True
+
+
 def child(settings):
     sys.path.insert(0,settings['frontend'])
     from jasmine_web.batch.service_rpc import RPCClient, RPCRemoteError
     client=RPCClient(Path(settings['socket']),settings['executor_uid'],timeout=10)
     if settings['role']=='unrelated':
-        try:
-            client.call('health')
-        except (OSError,EOFError,RuntimeError,ValueError,RPCRemoteError):
-            return {'unrelated_peer_rejected':True}
-        raise AssertionError('Unrelated Linux account reached the private service')
+        return {'unrelated_peer_rejected':rejected_peer(settings['socket'],settings['executor_uid'])}
     checks={name:denied_read(path) for name,path in settings['private_files'].items()}
     checks.update({name:denied_socket(path) for name,path in settings['privileged_sockets'].items()})
     checks['installed_code_not_writable']=not os.access(settings['frontend'],os.W_OK) and not os.access(str(ROOT),os.W_OK)
@@ -127,6 +152,10 @@ def main(argv=None):
                   privileged_sockets={k:str(v) for k,v in sockets.items()})
     web_checks=run_as(web,{**settings,'role':'web'})
     unrelated_checks=run_as(unrelated,{**settings,'role':'unrelated'})
+    # Surround the rejection check with a live authorised control. A service
+    # which died during the test cannot produce a passing acceptance report.
+    run_as(web,{**settings,'role':'web'})
+    web_checks['authorised_controls_before_and_after_rejection']=True
     args.output.mkdir(mode=0o700,parents=False,exist_ok=False)
     report=dict(passed=True,checks={**web_checks,**unrelated_checks},
                 scope='Configured-host UID, filesystem and RPC boundary; no model or database mutations')

@@ -30,7 +30,7 @@ class RecoveryTests(unittest.TestCase):
         self.inputs = self.root/'inputs'; self.inputs.mkdir()
         self.tag = 'a'*32
         self.supervisor = supervision.Supervisor(self.tag)
-        self.source = (Path(__file__).resolve().parents[1]/'multirun/vm/simpaths-multirun.service').read_text()
+        self.source = (Path(__file__).resolve().parents[1]/'multirun/vm/simpaths-executor.service').read_text()
         self.settings = dict(tag=self.tag, state=str(self.root), single_state=str(self.single), inputs=str(self.inputs),
             schema='test_recovery_'+'b'*32, batch_schema='test_recovery_'+'c'*32,
             image='sha256:'+'d'*64, single_port=15001, batch_port=15002)
@@ -47,11 +47,21 @@ class RecoveryTests(unittest.TestCase):
 
     def test_both_native_templates_use_the_asserted_restart_policy(self):
         self.assertEqual(supervision.restart_policy(self.source), supervision.EXPECTED)
-        single = (frontend_path()/'deploy/simpaths/simpaths-singlerun.service').read_text()
+        single = (frontend_path()/'deploy/simpaths/simpaths-singlerun-executor.service').read_text()
         self.assertEqual(supervision.restart_policy(single), supervision.EXPECTED)
         self.assertIn('ProtectHome=true', single)
         self.assertIn('EnvironmentFile=/etc/simpaths-online/singlerun.env', single)
         self.assertNotIn('SESSION_SECRET=', single)
+
+    def test_lifecycle_sources_are_private_executors_not_public_frontends(self):
+        sources = supervision.native_policy_sources(frontend_path())
+        self.assertEqual(sources['batch'].name, 'simpaths-executor.service')
+        self.assertEqual(sources['single'], frontend_path()/'deploy/simpaths/simpaths-singlerun-executor.service')
+        self.assertIn('jasmine_web.single_runtime executor serve', sources['single'].read_text())
+        self.assertIn('deploy.multirun.vm_executor serve', sources['batch'].read_text())
+        self.assertIs(proof.native_policy_sources, supervision.native_policy_sources)
+        from deploy.acceptance import run_postgres_rehearsal
+        self.assertIs(run_postgres_rehearsal.native_policy_sources, supervision.native_policy_sources)
 
     def test_changed_delay_burst_window_group_or_mode_requires_explicit_update(self):
         for field, value in dict(Restart='on-failure', RestartSec='1', StartLimitBurst='6',

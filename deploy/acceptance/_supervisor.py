@@ -24,6 +24,12 @@ SHOW = ('Id', 'Transient', 'LoadState', 'ActiveState', 'SubState', 'Result', 'Ma
         'ExecMainCode', 'ExecMainStatus')
 
 
+def native_policy_sources(frontend):
+    """Combined fixtures exercise private lifecycle, not public gateways."""
+    return {'single': Path(frontend)/'deploy/simpaths/simpaths-singlerun-executor.service',
+            'batch': Path(__file__).resolve().parents[1]/'multirun/vm/simpaths-executor.service'}
+
+
 def restart_policy(text):
     parser = configparser.ConfigParser(strict=False, interpolation=None)
     parser.optionxform = str

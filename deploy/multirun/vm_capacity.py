@@ -19,6 +19,24 @@ from .vm_config import load_config
 from .vm_web import database_dsn
 
 
+APPLICATION_UNITS = ('simpaths-multirun.service', 'simpaths-executor.service')
+
+
+def application_memory(cgroup_root=Path('/sys/fs/cgroup/system.slice')):
+    """Measure both native services; a partial reading is not a complete total."""
+    components = {}
+    for unit in APPLICATION_UNITS:
+        try:
+            value = int((cgroup_root/unit/'memory.current').read_text())
+            if value < 0:
+                raise ValueError('Invalid cgroup memory reading')
+        except (OSError, ValueError):
+            value = None
+        components[unit] = value
+    total = sum(components.values()) if all(value is not None for value in components.values()) else None
+    return components, total
+
+
 def selected_snapshot(queue, experiments):
     with queue._connection() as c:
         c.execute('SET TRANSACTION READ ONLY')
@@ -72,11 +90,7 @@ def sample(queue, options, experiments, docker):
             key, value = line.split(':', 1)
             if key in ('MemTotal', 'MemAvailable'):
                 memory[key] = int(value.split()[0])*1024
-    cgroup = Path('/sys/fs/cgroup/system.slice/simpaths-multirun.service/memory.current')
-    try:
-        app_memory = int(cgroup.read_text())
-    except OSError:
-        app_memory = None
+    app_components, app_memory = application_memory()
     return dict(at=datetime.now(timezone.utc).isoformat(),
         jobs=[dict(id=str(j['id']), experiment=str(j['experiment_id']), state=j['state'])
               for j in {str(j['id']): j for j in jobs}.values()],
@@ -85,6 +99,7 @@ def sample(queue, options, experiments, docker):
         docker_storage=dict(total_bytes=docker_disk.total, free_bytes=docker_disk.free) if docker_disk else None,
         host=dict(cpu_count=os.cpu_count(), load_average=list(os.getloadavg()), memory_bytes=memory),
         application_memory_bytes=app_memory,
+        application_service_memory_bytes=app_components,
         inputs=[dict(id=d['dataset_id'], bytes=measured_bytes(d['location'])) for d in datasets],
         # Cache and processor totals are service-wide; measure on an otherwise idle VM.
         download_cache_bytes=measured_bytes(options.state/'execution'/'download-cache'),
@@ -94,12 +109,17 @@ def sample(queue, options, experiments, docker):
 
 def summary(samples):
     attempts, caches = {}, {'download': [], 'visualiser': [], 'application': []}
-    count, unavailable, minimum = 0, 0, None
+    service_peaks = {unit: None for unit in APPLICATION_UNITS}
+    count, unavailable, minimum, application_unavailable = 0, 0, None, 0
     for item in samples:
         count += 1
         unavailable += item['docker_stats_unavailable']
         free = item['private_storage']['free_bytes']
         minimum = min(minimum, free) if minimum is not None else free
+        application_unavailable += item.get('application_memory_bytes') is None
+        for unit, value in item.get('application_service_memory_bytes', {}).items():
+            if unit in service_peaks and value is not None:
+                service_peaks[unit] = max(service_peaks[unit] or 0, value)
         for key, field in (('download', 'download_cache_bytes'), ('visualiser', 'visualiser_cache_bytes'),
                            ('application', 'application_memory_bytes')):
             value = item.get(field)
@@ -115,6 +135,8 @@ def summary(samples):
         maximum_download_cache_bytes=max(caches['download'], default=None),
         maximum_visualiser_cache_bytes=max(caches['visualiser'], default=None),
         maximum_application_memory_bytes=max(caches['application'], default=None),
+        maximum_application_service_memory_bytes=service_peaks,
+        unavailable_application_memory_samples=application_unavailable,
         unavailable_docker_samples=unavailable)
 
 
@@ -158,6 +180,9 @@ def main(argv=None):
         experiments=[dict(id=str(row['id']), specification=row['specification'], policy=row['policy']) for row in rows],
         limitations=['Observed Docker usage and sampled filesystem sizes are not hard quotas.',
                      'Sampling can miss brief resource peaks.',
+                     'Application memory includes the public frontend and private executor cgroups; '
+                     'the total is unknown when either reading is unavailable. It excludes separately '
+                     'managed model containers, PostgreSQL and backup services.',
                      'Cache/processor/free-space totals include other service activity.',
                      'Attempt elapsed time includes model setup and output validation, not queue waiting.',
                      'No claims about scientific equivalence or VM capacity are made by this recorder.'])

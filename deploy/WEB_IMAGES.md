@@ -85,6 +85,19 @@ container memory and two CPUs. User-data sessions have a 3 GiB simulation heap,
 with a 3 GiB heap and a one-hour timeout. Size the production host for overlapping
 work and validate the chosen allocations for the supported workloads.
 
+The preparation worker exits successfully before Build becomes available. Its
+process memory is then reusable, while the application JVM remains alive. The
+current 8 GiB user-data reservation is a conservative allowance for the two
+processes during preparation; it is not a measured minimum. Changing the worker
+heap does not enlarge the application heap or reduce the scheduler reservation.
+
+For local calibration, `SIMPATHS_PREPARATION_HEAP_MIB` is an operator-only image
+environment setting. It defaults to 3072 MiB and accepts whole numbers from 512
+through 4096; it is not supplied by a browser request. The isolated procedure in
+[the maintainer guide](MAINTAINER_GUIDE.md#local-user-data-memory-trials) compares
+3072 and 4096 with a 4096 MiB application heap and 5120 MiB container. Deployment
+catalogue defaults remain unchanged until representative testing supports a change.
+
 User-data startup enforces upload and preparation-work budgets and reports
 confirmed disk-full/quota errors. Its free-space checks are admission checks,
 not a guarantee that arbitrary data can be processed within the available space.

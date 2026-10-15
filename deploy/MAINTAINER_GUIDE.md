@@ -344,3 +344,88 @@ the legacy source-build transfer route for prepared Quick Start images.
 
 These are fixture/mock tests, not real Docker builds or simulation acceptance.
 Generic image-tool tests live in JAS-mine-web's `tests/test_deployment_*.py`.
+
+## Local user-data memory trials
+
+The user-data preparation worker exits before Build. The application JVM stays
+alive, so preparation must fit the worker plus that waiting application inside
+one container. The existing 8 GiB catalogue allowance is unchanged. This local
+comparison tests two operator settings, without promoting either:
+
+| Setting | First case | Second case |
+|---|---:|---:|
+| Preparation maximum Java heap | 3 GiB | 4 GiB |
+| Application/model maximum Java heap | 4 GiB | 4 GiB |
+| Container memory / admission reservation | 5 GiB | 5 GiB |
+| Docker CPU allowance | 2 | 2 |
+| Container swap | Disabled | Disabled |
+
+Each case uploads the public examples, prepares twice before the first Build,
+then runs 50,000 people from 2019 through 2026 with seed 606, resets, rebuilds and
+runs through 2026 again. It verifies the preparation worker's actual heap command
+and exit before Build, all eight annual summary rows, permissions and cleanup.
+The second preparation tests a surviving application and warmed caches; compare
+the same numbered pass between cases. Stage timings and sampled combined RAM
+are retained. Garbage-collection counters are not measured by this procedure.
+
+Keep the laptop otherwise idle and connected to power. Enable networking for
+the image build; the simulation cases use local inputs and make no AI-provider
+calls. Docker, Chromium and `postgres:17-alpine` must already be available. Allow
+at least 8 GiB free on the root and evidence filesystems **after** the image build;
+the runner checks again before each case. It takes the existing research sequence
+lock in the output parent directory to exclude overlapping benchmark work there.
+
+After Java changes, build the core into the isolated Maven cache and package the
+model. The cache must contain current dependencies; omit `-o` if it needs refilling:
+
+```bash
+cd ~/git/SimPathsWeb/JAS-mine-core &&
+mvn -o -Dmaven.repo.local=/tmp-codex/java-security-rebuild-20261014/maven-repository \
+  -Djava.awt.headless=true -DskipTests install &&
+cd ../SimPaths &&
+TMPDIR=/tmp-codex mvn -o \
+  -Dmaven.repo.local=/tmp-codex/java-security-rebuild-20261014/maven-repository \
+  -Djava.awt.headless=true \
+  -Dtest=SimPathsPreparationHeapTest,SimPathsUserDataStartupTest,SimPathsPreparationStorageTest package
+```
+
+Build one user-data candidate under a separate tag. This includes current package
+security floors but does not replace or requalify any deployed image:
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths &&
+TMPDIR=/tmp-codex ~/simpaths-browser-tests/venv/bin/python deploy/build_local_images.py \
+  --frontend "$HOME/git/JAS-mine/JAS-mine-web" \
+  --profile user-data \
+  --work-root /tmp-codex/user-data-memory-image-contexts \
+  --docker-storage-path / \
+  --tag-suffix memory-20261015
+```
+
+Then run both cases without further intervention:
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths &&
+TMPDIR=/tmp-codex ~/simpaths-browser-tests/venv/bin/python \
+  deploy/acceptance/run_user_data_memory_trials.py \
+  --frontend "$HOME/git/JAS-mine/JAS-mine-web" \
+  --image simpaths-interactive:uk-user-data-memory-20261015 \
+  --output "/tmp-codex/user-data-memory-$(date +%Y%m%d-%H%M%S)"
+```
+
+The runner verifies the packaged JAR against the local rebuilt JAR and creates
+two tiny image variants differing only in `SIMPATHS_PREPARATION_HEAP_MIB`. Both use
+the same immutable base image. Bundled workbook versions are identified by that
+image; local upload files and test/service sources have separate recorded hashes.
+Do not edit those sources or rebuild the JAR while the comparison runs. Reversing
+the order is supported with `--preparation-heap-mib 4096 3072` in a new output
+directory; one completed pass in each order would help separate cache/order effects.
+
+`comparison.md` summarises preparation times and whole-session RAM peaks.
+`report.json` links each case's private logs, effective settings and annual output
+checks. Microdata remains inside each disposable session and is removed during
+cleanup; small annual summaries and their hashes remain. Sampling gaps, changed
+limits, unexpected workers/restarts, failed preparation and unconfirmed cleanup
+fail the trial. A successful trial is workload-specific evidence, not proof that
+every uploaded dataset or simulation horizon fits 5 GiB. Representative research
+inputs and hosted concurrency still require validation before changing defaults.

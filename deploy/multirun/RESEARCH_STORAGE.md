@@ -629,6 +629,60 @@ prove the original allowance would have failed. The fixed A/D/E comparator
 deliberately rejects confirmed growth or retries, so adaptive follow-ups need
 their own evidence and must not be mixed into this timing comparison.
 
+#### Completed quiet D/E trials — 15 October 2026
+
+The unattended `--cases D E` sequence passed both runs, audits, compact archives
+and verified bulk disposals. Each case completed both original seed repetitions
+through all 52 annual years, in one attempt at a fixed 4 GiB maximum Java heap
+and 5 GiB container allowance. No memory growth or retry occurred.
+
+Evidence:
+[/tmp-codex/research-quiet-de-20261015-014608/report.json](/tmp-codex/research-quiet-de-20261015-014608/report.json)
+and the
+[D/E comparison](/tmp-codex/research-quiet-de-20261015-014608/comparisons/02-after-E/comparison.md).
+
+| Measurement | Historical quiet A, 14 October | D | E |
+| --- | --- | --- | --- |
+| Docker CPU quota | 2 vCPUs | 1.5 vCPUs | 1 vCPU |
+| Container lifetime, both repetitions | 2 h 58 min 06 s | 3 h 36 min 36 s | 4 h 35 min 41 s |
+| Observed duration relative to historical A | Reference | +21.6% | +54.8% |
+| Sampled working RAM | 4.160 GiB | 4.016 GiB | 4.404 GiB |
+| GC counter / last sampled JVM elapsed | 2.90% | 2.66% | 2.55% |
+| Memory-pressure notices, allocation unchanged | 0 | 0 | 1 |
+| Successful status requests / unexpected responses | 1,041 / 0 | 1,243 / 0 | 1,618 / 0 |
+| Successful status-request p95 | 76.7 ms | 69.5 ms | 62.3 ms |
+
+These are container lifetimes, including model initialisation, rather than whole
+proof durations. E took 27.3% longer than D. Both retained approximately
+6.93 GiB of output and peaked at approximately 9.303 GiB of working storage.
+The single E memory event was a `waiting` notice at the frozen allowance; it
+does not establish that expansion was necessary. Sampled working memory excludes
+inactive file cache; total cgroup memory reached the 5 GiB ceiling in both cases.
+
+The historical A reference is
+[/tmp-codex/research-quiet-bac-20261014-001235/archives/A](/tmp-codex/research-quiet-bac-20261014-001235/archives/A).
+Review confirmed the same exact image, model JAR, prepared input fingerprint,
+normalised scientific configuration, seeds, Java measurement-probe classes and
+sampling interval across A/D/E. The launcher and staging implementation are
+unchanged. The calibration driver was extended to select and verify CPU quotas
+and record their provenance; its checksum differs from historical A, which also
+lacks a recorded runner checksum. Therefore A is a separately reviewed historical
+reference, not a fresh control accepted by the strict automated comparator. The
+original reports and comparison guards were not changed.
+
+For each A/D, A/E and D/E pair, 16 of the 18 annual CSV files had equal recorded
+hashes and sizes. The remaining two are `BenefitUnit.csv`, one per seed: their
+sizes agree but hashes differ, retaining the existing unresolved reproducibility
+warnings. There were no other annual-output mismatches. This does not establish
+scientific equivalence of the BenefitUnit contents; investigation remains to do.
+
+Both lower CPU quotas completed this workload without a larger container. They
+offer candidates for hosted concurrency testing, at the cost of longer individual
+completion times. These single-configuration trials do not establish throughput,
+website latency or a safe active-configuration count under concurrent hosted
+load. Keep production defaults unchanged until that comparison is measured;
+the Java processor-count follow-up below also remains to do.
+
 #### Potential follow-up: Java processor count at one vCPU
 
 - [ ] After the fixed CPU-quota trials, consider comparing a **one-vCPU Docker
@@ -784,6 +838,17 @@ The first real disposal has now removed B's 25 verified bulk files; its compact
 archive, unchanged original completion records and disposal journal are linked
 above. C's passing native reports, independent audit and compact archive are now
 linked above. Its bulk output is still retained; archival does not delete it.
+
+## Automatic Visualiser preparation and aggregation resource tests
+
+The [Visualiser preparation decision record](VISUALISER_PREPARATION.md) documents
+the agreed automatic per-configuration preparation, reusable private summaries,
+selected-baseline comparisons, active-user priority and bounded worker policy.
+These are proposed changes, not existing production behaviour. It also records
+the local and VPS test matrix for 2/3/4 GiB worker budgets and one/two workers,
+including the required 100,000-person, 52-year, ten-seed comparison workload and
+the limitations of repeated-file capacity fixtures. The current provisional
+3 GiB reservation is not a measured optimum for that workload.
 
 ## Remaining host checks
 

@@ -7,6 +7,11 @@ Attribution scope and non-commentable/generated artifacts.
 
 # Attribution
 
+Local user-data memory trial scripts, tests and inline Java changes carry their
+own notices. Generated trial Dockerfiles, timing records and numeric memory
+evidence are attributed in the trial directory's `COPYRIGHT.md`; public model
+inputs and third-party software retain their existing notices and licences.
+
 The separated application update fixture `deploy/acceptance/_update_rpc.py` carries
 an inline notice. Generated version inventories, public/private boot records,
 shutdown receipts and update/rollback reports are (C) Copyright 2026, by Ross
@@ -209,3 +214,12 @@ attributed in their headers. Generated cache-test evidence carries the notice
 in its accompanying `COPYRIGHT.md`; no attribution is inserted into JSON rows.
 Upstream Visualiser calculations and dependencies retain their existing notices
 and licences.
+
+The Visualiser capacity harness, fixture builder, worker, replay script, tests,
+Dockerfile and preparation design record carry attribution in their headers.
+Generated fixture manifests, runtime snapshots, capacity reports, samples and
+checksum/comparison receipts are (C) Copyright 2026, by Ross Richardson;
+@author ross richardson. Their evidence directories also contain `COPYRIGHT.md`.
+Copied scientific summaries, pinned calculations and runtime components retain
+their existing attribution and licences. Synthetic seed labels used for capacity
+testing do not create new scientific repetitions or change source ownership.

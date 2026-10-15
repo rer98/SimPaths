@@ -18,6 +18,16 @@ import simpaths.model.taxes.database.TaxDonorDataParser;
 
 public final class SimPathsUserDataPreparation {
     private SimPathsUserDataPreparation() {}
+    /** Operator-only worker heap; never populated from an uploaded file or web request. */
+    static String preparationHeapOption(String configured) {
+        if (configured == null) return "-Xmx3072m";
+        if (!configured.matches("[1-9][0-9]{2,3}"))
+            throw new IllegalArgumentException("SIMPATHS_PREPARATION_HEAP_MIB must be an integer from 512 to 4096");
+        int heapMiB = Integer.parseInt(configured);
+        if (heapMiB < 512 || heapMiB > 4096)
+            throw new IllegalArgumentException("SIMPATHS_PREPARATION_HEAP_MIB must be an integer from 512 to 4096");
+        return "-Xmx" + heapMiB + "m";
+    }
     static void run(Path input, Path workspace, Map<String,Path> sources, List<List<String>> schedule,
             int year, Consumer<String> progress) throws Exception {
         try { runAttempt(input, workspace, sources, schedule, year, progress); }
@@ -25,6 +35,7 @@ public final class SimPathsUserDataPreparation {
     }
     private static void runAttempt(Path input, Path workspace, Map<String,Path> sources, List<List<String>> schedule,
             int year, Consumer<String> progress) throws Exception {
+        String heapOption = preparationHeapOption(System.getenv("SIMPATHS_PREPARATION_HEAP_MIB"));
         Files.createDirectories(workspace);
         long sourceBytes = 0;
         for (var file : sources.values()) sourceBytes += Files.size(file);
@@ -50,7 +61,7 @@ public final class SimPathsUserDataPreparation {
             Files.createDirectories(attempt.resolve("tmp"));
             progress.accept("Starting isolated input preparation; the current input database is unchanged.");
             var worker = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java").toString(),
-                    "-Xmx3g", "-XX:+ExitOnOutOfMemoryError", "-Djava.awt.headless=true", "-Djava.io.tmpdir="+attempt.resolve("tmp"), "-cp", cp,
+                    heapOption, "-XX:+ExitOnOutOfMemoryError", "-Djava.awt.headless=true", "-Djava.io.tmpdir="+attempt.resolve("tmp"), "-cp", cp,
                     SimPathsUserDataPreparation.class.getName(), Integer.toString(year))
                     .directory(attempt.toFile()).redirectErrorStream(true);
             worker.environment().clear();

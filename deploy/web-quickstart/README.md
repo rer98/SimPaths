@@ -106,7 +106,7 @@ your results and launch a fresh session.
 
 SimPaths is developed by **CeMPA (Centre for Microsimulation and Policy Analysis)**
 and collaborators, using the **JAS-mine** simulation framework. The JAS-mine web
-interface and these web configurations were developed by **Ross Richardson**.
+interface and these web configurations were developed by Ross Richardson.
 SimPaths is distributed under the **EUPL-1.2** licence; upstream developer and
 third-party notices remain applicable.
 

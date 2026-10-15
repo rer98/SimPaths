@@ -18,7 +18,7 @@ spec.loader.exec_module(module)
 
 class PackagingTests(unittest.TestCase):
     def test_only_supplied_training_sources_and_workbooks_are_copied(self):
-        with tempfile.TemporaryDirectory(dir='/tmp/codex-rer') as directory:
+        with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             repo = root / 'repo'
             fixtures = ['input/InitialPopulations/training/population_initial_UK_2019.csv',

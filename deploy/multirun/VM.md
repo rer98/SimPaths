@@ -72,15 +72,24 @@ socket access, database/SMTP credentials or private-state permissions. Docker
 access remains a privileged host capability inside the trusted service. Never give
 research users host logins or write access to installed code/configuration.
 
-Install Python 3.12+, Docker Engine/Compose, Node 18+ if using the Visualiser, Nginx,
+Install Python 3.12+, Docker Engine/Compose, a supported Node 22 release matching
+the tested Visualiser toolchain if using the Visualiser, Nginx,
 certificate tooling and PostgreSQL client tools. Record the actual package/image
 versions in deployment evidence. In a fresh virtual environment install:
 
 ```bash
+/opt/simpaths-online/venv/bin/python -m pip install --upgrade pip==26.2
 /opt/simpaths-online/venv/bin/python -m pip install \
   -r /opt/simpaths-online/JAS-mine-web/requirements-batch-web.txt \
   -r /opt/simpaths-online/SimPaths/deploy/multirun/requirements.txt
 ```
+
+The installer pin matches the reviewed frontend Dockerfile. Record the resolved
+packages from the installed environment and scan them before public launch;
+the shared constraints include optional deployment profiles and are not an
+installed-package receipt. The 15 October dependency audit identifies an
+OAuthLib update and image-package fixes still requiring qualification; a passed
+functional model proof alone does not approve dependencies for deployment.
 
 Use a reviewed MultiRun JAR and parameter workbooks in the SimPaths checkout,
 matching the tested model build. Install the already tested user-input execution

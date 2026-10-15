@@ -8,6 +8,7 @@ import hashlib
 import copy
 import os
 from pathlib import Path
+import signal
 import subprocess
 import tempfile
 from types import SimpleNamespace
@@ -155,7 +156,7 @@ class InteractiveAcceptanceCleanup(unittest.TestCase):
             def spawn(command,**settings):
                 spawned.append(settings)
                 return processes[len(spawned)-1]
-            def browser(command,**settings):
+            def browser(command,log):
                 destination=Path(command[command.index('--output')+1])
                 destination.mkdir();(destination/'report.json').write_text('{"status":"passed"}')
                 if not missing_receipt:
@@ -166,7 +167,7 @@ class InteractiveAcceptanceCleanup(unittest.TestCase):
                  patch.object(interactive,'copy_frontend',side_effect=copy), \
                  patch.object(interactive.tempfile,'mkdtemp',return_value=str(rpc)), \
                  patch.object(interactive.subprocess,'Popen',side_effect=spawn), \
-                 patch.object(interactive.subprocess,'run',side_effect=browser):
+                 patch.object(interactive,'run_browser_stage',side_effect=browser):
                 code=interactive.main(['--frontend',str(frontend),'--training-image','candidate-training',
                                       '--user-data-image','candidate-user-data','--output',str(output),
                                       '--profile',profile])
@@ -191,6 +192,60 @@ class InteractiveAcceptanceCleanup(unittest.TestCase):
 
     def test_user_data_retry_keeps_private_cleanup_checks_without_repeating_training(self):
         self.run_fixture(False,profile='user-data')
+
+
+class InteractiveBrowserOwnership(unittest.TestCase):
+    def test_success_waits_for_driver_and_nonzero_exit_is_never_accepted(self):
+        command=['python','owned-browser.py']
+        for code in (0,1):
+            with self.subTest(code=code):
+                process=Mock(pid=1234)
+                process.wait.return_value=code
+                log=Mock()
+                with patch.object(interactive.subprocess,'Popen',return_value=process) as spawn:
+                    if code:
+                        with self.assertRaises(subprocess.CalledProcessError) as error:
+                            interactive.run_browser_stage(command,log)
+                        self.assertEqual(error.exception.returncode,1)
+                    else:
+                        interactive.run_browser_stage(command,log)
+                spawn.assert_called_once_with(command,stdout=log,stderr=subprocess.STDOUT,
+                                              start_new_session=True)
+                process.wait.assert_called_once_with(timeout=12*60*60)
+                process.send_signal.assert_not_called()
+
+    def test_interrupt_waits_for_browser_cleanup_before_returning_to_service_owner(self):
+        process=Mock(pid=1234,poll=Mock(return_value=None))
+        process.wait.side_effect=[KeyboardInterrupt(),0]
+        with patch.object(interactive.subprocess,'Popen',return_value=process), \
+             patch.object(interactive.os,'killpg') as kill:
+            with self.assertRaises(KeyboardInterrupt):
+                interactive.run_browser_stage(['browser'],Mock())
+        process.send_signal.assert_called_once_with(signal.SIGINT)
+        self.assertEqual([call.kwargs['timeout'] for call in process.wait.call_args_list],
+                         [12*60*60,150])
+        kill.assert_not_called()
+
+    def test_timeout_and_failed_graceful_cleanup_kill_only_owned_browser_group_and_reap(self):
+        process=Mock(pid=1234,poll=Mock(return_value=None))
+        process.wait.side_effect=[subprocess.TimeoutExpired('browser',12*60*60),
+                                  subprocess.TimeoutExpired('browser',150),-signal.SIGKILL]
+        with patch.object(interactive.subprocess,'Popen',return_value=process), \
+             patch.object(interactive.os,'killpg') as kill:
+            with self.assertRaisesRegex(RuntimeError,'graceful cleanup'):
+                interactive.run_browser_stage(['browser'],Mock())
+        process.send_signal.assert_called_once_with(signal.SIGINT)
+        kill.assert_called_once_with(1234,signal.SIGKILL)
+        self.assertEqual([call.kwargs['timeout'] for call in process.wait.call_args_list],
+                         [12*60*60,150,10])
+
+    def test_expired_trial_cannot_pass_even_if_interrupt_cleanup_succeeds(self):
+        process=Mock(pid=1234,poll=Mock(return_value=None))
+        process.wait.side_effect=[subprocess.TimeoutExpired('browser',12*60*60),0]
+        with patch.object(interactive.subprocess,'Popen',return_value=process):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                interactive.run_browser_stage(['browser'],Mock())
+        process.send_signal.assert_called_once_with(signal.SIGINT)
 
 
 class RetainedQuickStartEvidence(unittest.TestCase):

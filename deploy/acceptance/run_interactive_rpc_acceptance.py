@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import secrets
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -24,15 +25,48 @@ from deploy.acceptance._single_rpc import copy_frontend,public_environment,drain
 from deploy.acceptance.run_browser_acceptance import free_port,remove_test_networks
 
 
+def run_browser_stage(command, log):
+    """Reap the owned browser driver before its private services are stopped."""
+    process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT,
+                               start_new_session=True)
+    try:
+        code = process.wait(timeout=12*60*60)
+    except BaseException:
+        if process.poll() is None:
+            try:
+                # The driver needs its still-running services to leave the session.
+                process.send_signal(signal.SIGINT)
+                process.wait(timeout=150)
+            except BaseException as error:
+                # Chromium/Playwright descendants share this newly owned group.
+                # Never kill the wrapper's group, which also holds its services.
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait(timeout=10)
+                raise RuntimeError('Browser driver could not finish graceful cleanup') from error
+        raise
+    if code:
+        raise subprocess.CalledProcessError(code, command)
+
+
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--frontend',type=Path,default=frontend_path())
-    parser.add_argument('--training-image',required=True)
+    parser.add_argument('--training-image')
     parser.add_argument('--user-data-image',required=True)
     parser.add_argument('--profile',choices=('both','user-data'),default='both',
                         help='Run all browser workflows, or only user-data against a previously tested training image')
+    parser.add_argument('--memory-trial',action='store_true',
+                        help='Isolated user-data trial: 4 GiB application heap, 5 GiB container, full runs and memory samples')
+    parser.add_argument('--preparation-heap-mib',type=int,choices=(3072,4096))
     parser.add_argument('--output',type=Path,required=True)
     args=parser.parse_args(argv)
+    if args.profile=='both' and not args.training_image:
+        parser.error('--training-image is required for --profile both')
+    if args.memory_trial != (args.preparation_heap_mib is not None) or (args.memory_trial and args.profile!='user-data'):
+        parser.error('Memory trials require --profile user-data and --preparation-heap-mib')
     import docker,httpx
     from deploy.acceptance.postgres_fixture import start_postgres
     os.umask(0o077)
@@ -46,12 +80,16 @@ def main(argv=None):
     chosen=[]
     for original,identifier,image in zip(('simpaths-uk-training','simpaths-uk-user-data'),ids,
                                         (args.training_image,args.user_data_image)):
+        if original=='simpaths-uk-training' and args.profile=='user-data':continue
         item=next(value.copy() for value in models if value['id']==original)
         item['id']=identifier
         item['deployment']={**item['deployment'],'image':client.images.get(image).id}
+        if args.memory_trial:
+            item['deployment'].update(java_heap_gib=4,memory='5Gi',cpu=2)
         chosen.append(item)
     report=dict(passed=False,cleanup=False,started=datetime.now(timezone.utc).isoformat(),
                 same_uid_fixture=True,host_privilege_isolation_tested=False,profile=args.profile,checks=[],
+                memory_trial=args.memory_trial,preparation_heap_mib=args.preparation_heap_mib,
                 images={item['id']:item['deployment']['image'] for item in chosen})
     database=public=private=None
     logs=[]
@@ -93,13 +131,15 @@ def main(argv=None):
         stages=[('training-'+mode,'run_training_browser_acceptance.py',['--prepare',mode])
                 for mode in ('none','population','tax','both')]
         if args.profile=='user-data':stages=[]
-        stages.append(('user-data','run_user_data_browser_acceptance.py',[]))
+        trial_options=(['--memory-trial','--trial-model-id',ids[1],
+                        '--preparation-heap-mib',str(args.preparation_heap_mib)] if args.memory_trial else [])
+        stages.append(('user-data','run_user_data_browser_acceptance.py',trial_options))
         for name,script,options in stages:
             print('Running '+name+' through the private boundary',flush=True)
             out=args.output/name
             with (args.output/(name+'.log')).open('w') as log:
-                subprocess.run([sys.executable,str(ROOT/'deploy/acceptance'/script),'--url',base,
-                    '--output',str(out),*options],stdout=log,stderr=subprocess.STDOUT,check=True)
+                run_browser_stage([sys.executable,str(ROOT/'deploy/acceptance'/script),'--url',base,
+                    '--output',str(out),*options],log)
             evidence=json.loads((out/'report.json').read_text())
             if evidence['status']!='passed' or evidence.get('cleanup_error'):
                 raise RuntimeError(name+' did not confirm passing browser checks and cleanup')

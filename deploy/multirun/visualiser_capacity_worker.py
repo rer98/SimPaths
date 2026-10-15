@@ -146,12 +146,13 @@ def counters(path):
     return result
 
 
-def require_limits(memory_mib,root=CGROUP):
+def require_limits(memory_mib,root=CGROUP,*,cpu_millis=1000):
     if memory_mib not in (2048,3072,4096):raise ValueError('Unsupported memory case')
+    if cpu_millis not in (1000,2000):raise ValueError('Unsupported CPU case')
     memory=(root/'memory.max').read_text().strip();swap=(root/'memory.swap.max').read_text().strip()
     cpu=(root/'cpu.max').read_text().split()
-    if memory!=str(memory_mib*MIB) or swap!='0' or len(cpu)!=2 or not all(c.isdigit() for c in cpu) or int(cpu[0])!=int(cpu[1]) or int(cpu[1])<1:
-        raise ValueError('Require exact cgroup v2 memory limit, no swap and one vCPU')
+    if memory!=str(memory_mib*MIB) or swap!='0' or len(cpu)!=2 or not all(c.isdigit() for c in cpu) or int(cpu[0])*1000!=int(cpu[1])*cpu_millis or int(cpu[1])<1:
+        raise ValueError('Require exact cgroup v2 memory/CPU limits and no swap')
     return dict(memory_max_bytes=int(memory),memory_swap_max_bytes=0,cpu_max=[int(c) for c in cpu])
 
 
@@ -193,7 +194,8 @@ class Sampler:
     def capture(self):
         value=snapshot(self.root)
         with self.lock:
-            value.update(stage=self.stage,elapsed_seconds=round(time.monotonic()-self.started,4))
+            value.update(stage=self.stage,elapsed_seconds=round(time.monotonic()-self.started,4),
+                         wall_time_ns=time.time_ns())
             self.samples+=1
             if self.samples>200000:raise ValueError('Sample budget exhausted')
             peaks=self.peaks.setdefault(self.stage,dict(memory_current_bytes=0,working_bytes=0))
@@ -382,12 +384,15 @@ def execute(args):
     (args.output/'COPYRIGHT.md').write_text('<!-- (C) Copyright 2026, by Ross Richardson\n'
         'Generated private Visualiser capacity measurements and checksums.\n@author ross richardson\n-->\n')
     record=dict(format='simpaths.visualiser.capacity-worker.v1',passed=False,cleanup=False,stages={},
-        model_executions=False,http_permission_test=False,memory_mib=args.memory_mib)
+        model_executions=False,http_permission_test=False,memory_mib=args.memory_mib,
+        started_wall_time_ns=time.time_ns(),cpu_millis=getattr(args,'cpu_millis',1000))
     write_json(args.output/'report.json',record)
     sampler=None;started=time.monotonic()
     try:
-        record['limits']=require_limits(args.memory_mib)
+        record['limits']=require_limits(args.memory_mib,cpu_millis=getattr(args,'cpu_millis',1000))
         sampler=Sampler(args.output/'samples.jsonl').start();before=snapshot()
+        record['initial_metrics']=before
+        verification_started=time.monotonic()
         manifest,built=load_fixture(args.fixture,args.build,args.raw_root)
         manifest_receipt=receipt(args.fixture,'manifest.json',MIB);build_receipt=receipt(args.build,'build.json',MIB)
         record.update(mode=manifest['mode'],fixture_manifest=manifest_receipt,build_manifest=build_receipt,
@@ -398,12 +403,23 @@ def execute(args):
                 for key in (('summary',) if manifest['mode']=='summary-replay' else ('person','benefit'))),
             limitations=([NOTICE,'Raw-file parsing and independent-seed variation are not measured.'] if manifest['mode']=='summary-replay' else
                 ['Local capacity evidence does not establish VPS concurrency or HTTP permission behaviour.']))
-        run_pipeline(args,manifest,built,work,sampler,record)
+        record['verification_before_seconds']=time.monotonic()-verification_started
+        if getattr(args,'layout','monolithic')=='bounded-pairs':
+            if __package__:
+                from . import visualiser_capacity_bounded as bounded
+            else:
+                import visualiser_capacity_bounded as bounded
+            bounded.run_tasks(args,manifest,built,work,sampler,record,sys.modules[__name__])
+        else:
+            run_pipeline(args,manifest,built,work,sampler,record)
         sampler.stage='verification'
+        verification_started=time.monotonic()
         final_manifest,final_build=load_fixture(args.fixture,args.build,args.raw_root)
         if (final_manifest!=manifest or final_build!=built or receipt(args.fixture,'manifest.json',MIB)!=manifest_receipt
                 or receipt(args.build,'build.json',MIB)!=build_receipt):raise ValueError('Inputs changed during trial')
-        require_limits(args.memory_mib);after=sampler.stop();sampler=None
+        record['verification_after_seconds']=time.monotonic()-verification_started
+        record['source_verification_passes']=2*len(args.tasks) if getattr(args,'layout','monolithic')=='bounded-pairs' else 2
+        require_limits(args.memory_mib,cpu_millis=getattr(args,'cpu_millis',1000));after=sampler.stop();sampler=None
         record['metrics']=dict(before=before,after=after)
         if any(after['memory_events'][key]>before['memory_events'][key] for key in ('oom','oom_kill')):
             raise ValueError('Cgroup exhausted memory during trial')
@@ -418,9 +434,14 @@ def execute(args):
         try:shutil.rmtree(work);record['cleanup']=True
         except BaseException as error:record.update(passed=False,cleanup_error=type(error).__name__)
         record['elapsed_seconds']=round(time.monotonic()-started,4)
+        record['finished_wall_time_ns']=time.time_ns()
         write_json(args.output/'report.json',record)
     if not record['passed'] or not record['cleanup']:raise RuntimeError('Capacity trial incomplete')
-    stable={key:record[key] for key in ('mode','fixture_manifest','build_manifest','publication','index','catalogue','view','validation')}
+    if getattr(args,'layout','monolithic')=='bounded-pairs':
+        stable=dict(mode=record['mode'],fixture_manifest=record['fixture_manifest'],
+            build_manifest=record['build_manifest'],tasks=[t['result_identity'] for t in record['tasks']])
+    else:
+        stable={key:record[key] for key in ('mode','fixture_manifest','build_manifest','publication','index','catalogue','view','validation')}
     write_json(args.output/'receipt.json',stable)
     print('PASSED: '+str(args.output/'report.json'),flush=True)
 
@@ -430,7 +451,15 @@ def main(argv=None):
     for name in ('fixture','build','frontend','output'):parser.add_argument('--'+name,type=Path,required=True)
     parser.add_argument('--raw-root',type=Path,default=Path('/raw'))
     parser.add_argument('--memory-mib',type=int,choices=(2048,3072,4096),required=True)
+    parser.add_argument('--cpu-millis',type=int,choices=(1000,2000),default=1000)
+    parser.add_argument('--layout',choices=('monolithic','bounded-pairs'),default='monolithic')
+    parser.add_argument('--tasks',type=int,nargs='+',default=[0])
+    parser.add_argument('--cache',type=Path,default=Path('/cache'))
+    parser.add_argument('--view-reads',type=int,choices=range(1,21),default=5)
     args=parser.parse_args(argv)
+    if (not 1<=len(args.tasks)<=8 or len(set(args.tasks))!=len(args.tasks)
+            or any(not 0<=n<8 for n in args.tasks)):
+        parser.error('Use one to eight distinct task IDs in 0..7')
     for name in ('fixture','build','frontend'):setattr(args,name,getattr(args,name).resolve(strict=True))
     args.output=args.output.absolute();args.raw_root=args.raw_root.absolute()
     def interrupted(_signum,_frame):raise KeyboardInterrupt()

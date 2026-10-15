@@ -6,7 +6,7 @@ Agreed automatic Visualiser preparation design and resource-validation plan.
 
 # Automatic Visualiser preparation and resource tests
 
-**Decision record: 15 October 2026. Opt-in implementation and targeted native correctness checks complete; capacity and installed-host acceptance pending.**
+**Decision record: 15 October 2026. Opt-in implementation; verification evidence and outstanding capacity/host acceptance are recorded below.**
 
 The agreed scheduling and reuse behaviour is implemented behind explicit operator
 settings. Existing deployments retain their fixed allocations and on-demand
@@ -16,9 +16,10 @@ verification from the outstanding resource measurements and host acceptance.
 ## Current behaviour and evidence
 
 - Results-page **Prepare Visualiser** requests still work. With automatic mode,
-  the private dispatcher discovers verified successful configurations at bounded
-  60-second intervals, prepares standalone results, and queues each ready
-  selected-baseline/alternative pair without waiting for the whole experiment.
+  the private dispatcher consumes durable completion events before admitting
+  replacement simulations. It queues standalone results and each ready selected
+  baseline/alternative pair without waiting for the whole experiment or the next
+  periodic scan. The bounded 60-second scan remains a recovery mechanism.
 - Preparation processes configurations and repetitions sequentially. Heavy
   calculations principally run in a single JavaScript thread. Increasing a
   worker's CPU allowance alone does not establish proportional acceleration.
@@ -51,9 +52,10 @@ aggregation timing.
 
 1. After **one configuration completes all its repetitions**, verify successful
    completion, output identity and availability, then queue its reusable
-   per-seed summaries and standalone chart aggregates. Do not wait for the
-   whole experiment to finish. Eligibility for processing is not a promise of
-   immediate capacity.
+   per-seed summaries and standalone chart aggregates before the next model
+   admission decision. The completion transaction records a durable job-change
+   event; delivery does not wait for the periodic scan. Eligibility for processing
+   is not a promise of immediate worker capacity.
 2. If the experiment has a selected baseline, prepare its comparison with
    **every alternative** as soon as both configurations' summaries are ready.
    An alternative that finishes first can prepare its summaries immediately;
@@ -63,6 +65,28 @@ aggregation timing.
 4. Do not calculate alternative-versus-alternative comparisons speculatively.
    Once a baseline is selected, all its alternatives should be available
    together in the Visualiser as their preparation completes.
+
+### Completion delivery and recovery
+
+Migration `025_visualiser_completion.sql` adds an independent Visualiser version
+receipt to the existing transactional completion events. The dispatcher drains
+bounded batches of changed experiments before model admission, queues permitted
+ready configurations/pairs idempotently, then acknowledges the observed version.
+If the baseline finishes last, all its already completed alternatives are included.
+No aggregation calculations run on the dispatcher thread.
+
+A crash after enqueueing but before acknowledgement safely replays the same keys.
+Newer job changes cannot be acknowledged using an older snapshot. Pending event
+batches postpone model admission until caught up; surviving simulation leases
+continue to receive heartbeats. Owner/source permissions and cache allowances
+still apply. Denied or unavailable outputs do not gain background authority.
+Email-notification receipts and delivery remain independent.
+
+The periodic scan separately recovers older completions, expired cache entries
+and work skipped while sources or cache capacity were unavailable. Its interval
+is distinct from the 60-second scheduling preference: neither interval limits
+the execution time of a running aggregation worker. The optional second worker
+and emergency-memory loan option retain their existing disabled defaults.
 
 Keep sufficient per-seed data for the existing matching-seed differences and
 uncertainty calculations. Overall averages alone are insufficient. Preserve the
@@ -140,6 +164,37 @@ work, rather than a 3 GiB JavaScript heap with unbudgeted overhead. Account for
 the long-lived private service separately and ensure its enclosing service limit
 does not inadvertently kill an otherwise correctly limited child.
 
+### Conditional option: revocable loans from model-growth headroom
+
+**To do; not implemented or enabled.** Reconsider lending unused emergency
+model-growth memory to the optional second aggregation worker only if the planned
+quiet laptop one/two-worker trials demonstrate a worthwhile improvement in time
+to ready charts or preparation throughput. Confirm the benefit under mixed load
+on the VPS, including disk contention, website responsiveness and discarded work.
+Both the second worker and this separate loan option must remain disabled by
+default; demonstrating a concurrency benefit alone does not establish safe recall.
+
+If the measurements justify implementation:
+
+- Lend only to disposable secondary preparation. Keep the primary worker,
+  SingleRun and essential services protected. The current secondary worker needs
+  3 GiB: a 2 GiB loan still needs 1 GiB of ordinary spare capacity, unless tests
+  independently establish that a 2 GiB worker is sufficient.
+- Recall before an expansion becomes urgent, using an earlier threshold and a
+  faster monitoring path while a loan exists. Investigate retaining an unloaned
+  safety margin. The current 85% working-memory trigger and ten-second check
+  interval do not establish that recall would finish before a container OOM.
+- Give recall priority over ordinary preparation/model admission, including the
+  60-second preference window. Cancel the secondary worker, verify whole-group
+  termination and available memory, then transfer the reservation and confirm
+  the simulation's Docker limit increase. Never refund an uncertain allocation.
+- Requeue interrupted preparation, preserve completed verified per-seed summaries,
+  and prevent repeated borrowing/cancellation while growth demand persists.
+- Measure pressure detection, cancellation, memory release and confirmed Docker
+  expansion separately and end to end. Test rapid growth, simultaneous requests,
+  heavy disk activity, cleanup failure and service restart. Approve thresholds
+  and recall deadlines from measured memory-growth rates and remaining headroom.
+
 ### Temporary simulation CPU boosts
 
 The agreed candidate policy gives each large configuration a tested **1-vCPU
@@ -170,9 +225,8 @@ checks permit it. If demand falls, remaining simulations may receive up to
 2 vCPUs each. Withdraw boosts when necessary to admit new work or useful
 aggregation, without lowering any running simulation below its tested minimum.
 
-This requires new durable CPU-allocation revisions and Docker reconciliation;
-the current executor expects the original CPU limit and only implements live
-memory/storage recovery. Reserve capacity before increasing a quota, and verify
+The implementation records durable CPU-allocation revisions and reconciles
+Docker limits. Reserve capacity before increasing a quota, and verify
 quota reductions before releasing capacity for another consumer. Preserve
 reservations when the outcome is uncertain, reconcile after restart, and test
 lost replies, failed updates and completion/cancellation races. These changes
@@ -197,9 +251,12 @@ combination work. Streaming raw files does not make memory demand constant.
 | Test | What it establishes |
 | --- | --- |
 | One worker at fixed 1 vCPU, with separate 2, 3 and 4 GiB whole-group limits | Completion, memory headroom and whether additional memory reduces elapsed time |
+| One versus two vCPUs per worker, at the same memory and workload | Whether borrowed CPU shortens a single preparation; compare with adding a worker at the same total CPU allowance |
 | Ten-seed baseline and alternative | The intended repetition count and matched-seed calculation workload |
 | Multiple alternatives sharing one baseline | Reuse, aggregate growth and unchanged comparison calculations |
-| One versus two independently limited workers | Useful concurrency versus disk or memory contention |
+| The same two comparisons processed serially by one worker or concurrently by two workers | Equal-work throughput, queue-to-ready time and disk/memory contention |
+| Empty versus retained bounded private summary cache, using fresh workers | Summarisation avoided, cache hits/misses/eviction and unchanged published results |
+| Separate opt-in cancellation after completed summaries, followed by a cached retry | Whole-container stop/removal latency, cleanup and reusable checkpoints; not a proof of safe model-memory recall |
 | Preparation and chart requests while simulations run | Resource isolation and service responsiveness under mixed demand |
 | Continuous automatic preparation from several owners, with queued simulations | Deduplication, owner fairness and eventual progress for lower-priority work |
 | Source removal, version changes, restart and access revocation | Private cache invalidation and safe recovery |
@@ -251,6 +308,9 @@ or hosted concurrency from the existing single-seed comparison proof.
 - [x] Prepare the bounded local resource harness, fixture verification and
   guard tests. See commands below. Full-size resource trials have not run.
 - [ ] Run the local resource trials and record the measured allocation decision.
+- [ ] Conditional follow-up: evaluate revocable loans from unused model-growth
+  headroom to a disposable second aggregation worker, subject to the performance
+  and recall-safety gates above. Keep disabled until both are demonstrated.
 - [ ] Measure the full workload with genuine matching seeds, including several
   alternatives; explicitly separate any local capacity-fixture evidence.
 - [x] Implement automatic completion-triggered configuration preparation.
@@ -260,7 +320,8 @@ or hosted concurrency from the existing single-seed comparison proof.
 - [x] Implement bounded priority for active-user and automatic preparation before
   new simulations, protected aggregation capacity and borrowing for a second
   worker; align reservations with enforced limits and provide bounded model
-  admission opportunities when resources fit. Native enforcement remains to test.
+  admission opportunities when resources fit. Targeted native enforcement checks
+  passed; hosted mixed-load acceptance remains outstanding.
 - [x] Implement fair, revocable 1-to-2-vCPU simulation boosts, durable allocation
   reconciliation and suitable minimum-CPU runtime budgets.
 - [ ] Measure dynamic transitions and mixed hosted load separately from the
@@ -272,32 +333,70 @@ or hosted concurrency from the existing single-seed comparison proof.
 ## Prepared laptop harness — 15 October 2026
 
 `visualiser_capacity.py` runs disposable, labelled Docker workers. Each worker
-has **one enforced vCPU**, a fixed whole-cgroup memory limit, no swap, no network,
-a read-only root and read-only source mounts. Only its own evidence directory is
-writable. No simulations, database, emails or production service are launched.
+has **one or two enforced vCPUs**, a fixed whole-cgroup memory limit, no swap,
+no network, a read-only root and read-only source mounts. Only its own evidence
+directory and the case's private bounded summary cache are writable. No
+simulations, database, emails or production service are launched.
 Code is snapshotted before execution; the image ID, code/data hashes and Python,
 Node and kernel versions are recorded. Containers are removed after each case.
 Bulk intermediates are reclaimed after success or failure; small reports and
 samples remain. No Docker-wide cleanup or image pruning is performed.
 
-The initial matrix is 3, 2 and 4 GiB per worker, each with one and two workers.
-Two workers execute **two independent complete comparisons**; this measures
-concurrent preparation throughput, not parallel seed processing within one
-comparison. The current production scheduler still has only one worker. Node's
+Use the new **`compare`** command for the current design. The original `run`
+command is retained for historical reproduction: it processes one whole
+comparison per worker through the older combined publication. It gives two
+workers twice as much work and does not exercise private summary reuse.
+
+The updated matrix is 3, 2 and 4 GiB per worker, one/two vCPUs per worker, and
+one/two workers. Every batch performs **the same two complete comparisons**:
+one worker handles them sequentially; two workers handle one each. A comparison
+contains a baseline and two alternatives. Each pair stays inside the unchanged
+publication budget; only catalogues and selected sections are composed.
+Both schedules perform the same two complete source-verification passes per
+comparison, including cache hits, rather than giving serial processing fewer
+raw-file hash reads.
+This measures concurrent preparation throughput, not parallel seed processing
+within one comparison. The example production configuration still enables only
+one worker. Node's
 old-generation heap limit is total memory minus 1 GiB, and the Python helper's
 address-space limit is total memory minus 256 MiB. Both run inside the fixed
 total cgroup cap. These exact settings are recorded, rather than confusing a
 heap limit with total memory.
 
-Stages separately record replay/raw parsing, combination, validation, publication,
-indexing, catalogue and a representative selected-chart read. Samples include
+Each resource case first starts with an empty application summary cache, then
+repeats with its retained cache and fresh worker processes. The same production
+`SummaryCache` enforces a **shared 2 GiB / 256-entry** budget across concurrent
+workers. Task identities remain distinct so two simultaneous experiments do not
+accidentally reuse each other's work. Repeated phases of the same task can reuse
+their own verified summaries. Cache hits, misses, computed/restored bytes, lock
+waits and retained sizes are recorded; a warm phase can still miss after eviction.
+The original summaries are stored once; synthetic alternatives do not add
+independent policy evidence.
+The harness batches an experiment's summaries before building its pairs. It
+uses the production cache/calculation/publication helpers, but does not reproduce
+the dispatcher's exact standalone/pair job sequence or all of its extra cache
+copies and source checks. Hosted service acceptance must measure that job mix.
+
+Stages separately record summary replay/raw parsing or restore, combination,
+validation, publication, indexing, catalogue and repeated selected-chart reads.
+Reports include each pair's ready time, full-comparison ready time, task waiting
+time, initial/final verification time and local chart-helper read durations
+(including their small sample count). Waiting time runs from batch submission
+to the start of that task's calculations, including initial verification where
+applicable. JSON reports also give throughput per reserved CPU-hour/GiB-hour
+and minimum sampled host available memory/free disk. Samples include
 charged/working memory, cgroup peak, OOM events, CPU use/throttling, block I/O and
 pressure. The controller and its descendants are measured together. The full
 HTTP/private-service stack and browser are not running; these chart-helper
-timings do **not** establish website latency. Total case throughput includes
-container startup, source verification and scratch cleanup; use stage timings
-to distinguish those costs. Successful cases must have identical publication,
-index, catalogue and view hashes. Failed memory cases retain evidence and the
+timings do **not** establish website latency. Batch throughput includes container
+startup, source verification and successful workers' scratch cleanup; host
+container removal and interrupted-work cleanup are recorded separately. Reports
+distinguish sampled simultaneous memory from the sum of individual kernel peaks.
+Matched tables compare one/two workers at the same per-worker CPU and, separately,
+one 2-vCPU worker versus two 1-vCPU workers. The latter holds total CPU constant
+but doubles the RAM reservation. Evaluate that trade-off before choosing a
+throughput policy. Successful runs of each task must have identical publication,
+index, catalogue and view hashes across resources/cache states. Failed memory cases retain evidence and the
 remaining cases continue; unconfirmed container removal stops the sequence.
 
 ### Available fixture and scope
@@ -316,8 +415,31 @@ It contains two decoded summary files totalling about 61.3 MiB, stored once, and
 references them with ten synthetic labels. It uses
 `/tmp-codex/visualiser-build-20261010-selective-e`, whose calculation and runner
 hashes match the source evidence. Later Visualiser builds are not interchangeable
-with this provenance; regenerate summaries from raw data to test another
-calculation version.
+with this provenance. A changed scientific calculation requires new summaries
+from raw data. `rebind-replay` explicitly permits a new bundle/runner only when
+the original and new build have identical `parseCore.js`, `useAggregatedData.js`
+and `csvParse.js` hashes, calculation dependencies and toolchain versions. It
+verifies all build/source files and writes a new fixture recording both build
+receipts and the original provenance. It never edits the old fixture or build.
+
+Prepared updated fixture:
+`/tmp-codex/visualiser-capacity-fixture-20261015-bounded-pairs/manifest.json`,
+using `/tmp-codex/visualiser-build-20261015-preparation-a`. It adds a second
+synthetic alternative without copying another source summary. All three
+scientific source hashes, dependencies and toolchain versions match the original.
+
+To recreate that updated fixture in a **new** directory:
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths &&
+TMPDIR=/tmp-codex ~/simpaths-browser-tests/venv/bin/python \
+  deploy/multirun/visualiser_capacity.py rebind-replay \
+  --fixture /tmp-codex/visualiser-capacity-fixture-20261015 \
+  --source-build /tmp-codex/visualiser-build-20261010-selective-e \
+  --build /tmp-codex/visualiser-build-20261015-preparation-a \
+  --alternatives 2 \
+  --output /tmp-codex/visualiser-capacity-fixture-bounded-NEW
+```
 
 To recreate the fixture in a **new** directory if necessary:
 
@@ -353,28 +475,54 @@ summary trials does not.
 ```bash
 cd ~/git/SimPathsWeb/SimPaths &&
 TMPDIR=/tmp-codex ~/simpaths-browser-tests/venv/bin/python \
-  deploy/multirun/visualiser_capacity.py run \
+  deploy/multirun/visualiser_capacity.py compare \
   --frontend "$HOME/git/JAS-mine/JAS-mine-web" \
-  --build /tmp-codex/visualiser-build-20261010-selective-e \
-  --fixture /tmp-codex/visualiser-capacity-fixture-20261015 \
-  --memory-mib 3072 2048 4096 --workers 1 2 \
-  --output "/tmp-codex/visualiser-capacity-$(date +%Y%m%d-%H%M%S)"
+  --build /tmp-codex/visualiser-build-20261015-preparation-a \
+  --fixture /tmp-codex/visualiser-capacity-fixture-20261015-bounded-pairs \
+  --memory-mib 3072 2048 4096 --workers 1 2 --cpu-millis 1000 2000 \
+  --tasks-per-case 2 --cache-modes cold warm --rounds 2 \
+  --output "/tmp-codex/visualiser-capacity-bounded-$(date +%Y%m%d-%H%M%S)"
 ```
 
 The two-worker cases require at least **8 GiB free disk** and available RAM equal
 to the workers' combined caps plus **2 GiB host headroom**; the 4 GiB/two-worker
 case therefore requires 10 GiB available RAM. These checks run before each case.
 They are test admission margins, not calibrated production reservations. At
-preparation time the laptop had about 17 GiB free disk. The sequence uses the
+preparation time the laptop had about 16 GiB free disk. The sequence uses the
 same exclusive lock as the research/SingleRun benchmarks when their output
 parent is `/tmp-codex`; do not run other heavy work alongside it.
 
 Default case timeout is three hours; `--timeout-seconds` can set 60–43,200 seconds.
-Use `--memory-mib 3072 --workers 1` for a first isolated case. `--rounds 2` repeats
-the matrix; a second sequence can specify `--memory-mib 4096 2048 3072` to change
-order. File caches are not cleared. Checksumming and previous cases warm caches,
+Use `--memory-mib 3072 --workers 1 --cpu-millis 1000 --rounds 1` for a first
+isolated cold/warm pair. The full command has **48 batches**, each completing
+two comparisons. Its duration has not been measured: it can exceed one night.
+`--rounds 1` runs 24 batches for an initial survey; use the second round before
+drawing conclusions from small timing differences. Alternate rounds reverse
+memory, CPU and worker ordering. File caches are not cleared. Checksumming and previous cases warm caches,
 so interpret logical bytes and measured physical block I/O separately. Two
 workers share the same fixture inputs, which can favour cached reads.
+Cold/warm labels refer only to the private summary cache. In fresh containers,
+filesystem-cache pages can remain charged to an ancestor after earlier workers
+exit; charged/working memory and host admission margins should be read together.
+
+### Optional cancellation and cached-retry measurement
+
+Add `--cancellation-check` to `compare` to run a **separate check after all timing
+batches**. It uses a new cache and one 3 GiB/1-vCPU worker, waits until its completed
+summaries reach pair combination, forcibly stops the container, confirms exit
+and removal, cleans scratch, then retries the same task using retained summaries.
+The retry's publication/index/catalogue/view receipts must match an uninterrupted
+task from the timing matrix and must demonstrate summary-cache hits.
+`--cancellation-memory-mib 2048` or `4096` selects another measured worker limit.
+
+The separate report records kill-and-wait time, time through confirmed removal
+and scratch cleanup, last checkpoint resource counters, and host available RAM
+before/after. An OOM, missed cancellation stage or uncertain removal cannot pass.
+This intentionally exercises abrupt cancellation after verified checkpoints; it
+does not measure every parsing stage or graceful production cancellation.
+It **does not** test memory-pressure detection, live model growth, reservation
+transfer, a Docker memory increase, or recall under mixed disk pressure. Those
+remain acceptance requirements for the disabled emergency-memory loan option.
 
 ### Genuine raw-output measurements, when outputs are available
 
@@ -394,16 +542,19 @@ TMPDIR=/tmp-codex ~/simpaths-browser-tests/venv/bin/python \
   --baseline /path/to/completed-baseline-trial \
   --alternative /path/to/completed-lower-saving-rate-trial \
   --repetitions 10 \
-  --build /tmp-codex/visualiser-build-20261010-selective-e \
+  --build /tmp-codex/visualiser-build-20261015-preparation-a \
   --output /tmp-codex/visualiser-native-fixture-NEW
 ```
 
 Those two trial paths are placeholders, not currently available data. The
 sources must contain verified 100,000-person outputs through 2070 with the
-requested actual repetition count. Then use the normal `run` command with this
+requested actual repetition count. Then use `compare` with this
 new fixture. A one-seed native pair is also supported with `--repetitions 1` but
 does not certify the ten-seed workload. Full genuine ten-seed native acceptance
 remains to do, preferably where sufficient retained-output storage is available.
+Fresh raw-mode workers rehash all sources before and after processing, including
+in warm-summary phases. This deliberately conservative verification differs from
+the long-lived production source-hash cache; its timings are recorded separately.
 
 ### Known multi-alternative publication bound
 
@@ -411,9 +562,10 @@ The retained baseline has 135,095 summary cells and the alternative 135,017.
 A replay with two alternatives therefore produces approximately **405,129**
 aggregate rows, exceeding the existing **400,000-row** combined-publication cap.
 `--alternatives 2` or `3` can create stress fixtures. The original capacity
-harness still exercises a monolithic publication and can hit this bound; it
-does not silently raise production limits. The new service composition builds
-separate bounded pairs and merges only catalogues/selected chart sections.
+harness's historical `run` command exercises a monolithic publication and can
+hit this bound; it does not silently raise production limits. The `compare`
+command now exercises the new service composition: separate bounded pairs and
+merged catalogues/selected chart sections.
 
 - [x] Replace the requirement for one ever-larger combined publication with
   bounded per-configuration/per-pair results and selected-chart delivery as part
@@ -426,10 +578,13 @@ separate bounded pairs and merges only catalogues/selected chart sections.
 ```bash
 cd ~/git/SimPathsWeb/SimPaths &&
 TMPDIR=/tmp-codex PYTHONPATH="$HOME/git/JAS-mine/JAS-mine-web" \
+SIMPATHS_VISUALISER_TEST_BUILD=/tmp-codex/visualiser-build-20261015-preparation-a \
 ~/simpaths-browser-tests/venv/bin/python -m unittest \
   deploy.multirun.test_visualiser_capacity_fixture \
   deploy.multirun.test_visualiser_capacity \
-  deploy.multirun.test_visualiser_capacity_worker -v
+  deploy.multirun.test_visualiser_capacity_worker \
+  deploy.multirun.test_visualiser_capacity_comparison \
+  deploy.multirun.test_visualiser_summary_cache.SummaryCacheTests -v
 ```
 
 Guard tests use tiny fixtures and mock Docker/cgroup state. A tiny 52-year
@@ -438,9 +593,22 @@ index, catalogue and view helpers. Neither check is whole-cgroup capacity
 evidence. Native Docker resource trials require the user's terminal because
 the development sandbox cannot access the Docker daemon.
 
-Preparation checks on 15 October: **36 harness tests passed**, the retained
-fixture's full source/build hashes matched, and the Docker SDK accepted the
-constructed fixed-limit/isolation settings without contacting the daemon.
+Updated checks on 15 October: **70 tests passed**: the original 36 harness
+checks, 28 new comparison/integration checks and six private-summary-cache
+guards. Tiny real helpers exercised cold/warm checksum parity, two bounded pairs
+and their composite views, verified raw parsing for a single pair, interrupted
+combination with checkpoint reuse, and the full worker's receipt/cleanup path
+with fictional cgroup files. Docker failures, OOMs, missed/uncertain cancellation,
+partial starts, exact task counts and cache-state/order comparisons have guards.
+The cache's public-permission fixture now sets its intended permissions explicitly
+so a private caller umask cannot accidentally turn it into a private directory.
+
+Evidence: `/tmp-codex/visualiser-capacity-checks-20261015-bounded/report.json` and
+its copied test log. The updated fixture's complete source hashes and both
+scientific-build source inventories match. These checks do not start Docker or
+establish native memory limits, cancellation latency or a safe growth deadline.
+The earlier Docker SDK option-construction check also passed without contacting
+the daemon.
 
 ## Opt-in runtime assembly
 
@@ -575,6 +743,7 @@ TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 ~/simpaths-browser-tests/venv/bin/pytho
 | Adaptive CPU, protected capacity, queue/recovery and existing Visualiser database checks | 92 checks passed; `/tmp-codex/adaptive-preparation-postgres-20261015-153609/report.json`. |
 | Additional CPU, growth and shared SingleRun admission checks | 35 checks passed (11 CPU, eight processing, 16 shared-pool). The enclosing run stopped later on a test-fixture SQL lookup error in one automatic-preparation case; `/tmp-codex/preparation-runtime-native-20261015-160040/report.json` preserves that original failure. The corrected case passed in the focused rerun below. |
 | Automatic preparation, live Docker CPU changes and service shutdown | All 25 checks passed: three automatic-preparation, two Docker CPU and 20 runtime/shutdown checks; `/tmp-codex/preparation-runtime-native-retry-20261015-162152/report.json` and its `model-proof/report.json`. Verified same-container CPU changes, conservative recovery after a lost update reply, automatic standalone/baseline preparation, permission invalidation and joining both private worker slots. Disposable resources were cleaned up. |
+| Immediate completion delivery follow-up | 25 local checks passed (seven scheduler, 18 preparation), including completion-before-admission ordering, late baseline completion, bounded event draining, restart replay and stale-version rejection. Native migration, automatic-preparation, notification and retry suites passed with cleanup confirmed; `/tmp-codex/visualiser-immediate-completion-20261015-175056/report.json`. |
 | Whole-helper kernel limits | Passed fractional CPU/RAM limits, zero swap, group OOM containment and cleanup of descendants that closed inherited descriptors; `/tmp-codex/processing-scope-proof-20261015-160143/report.json`. |
 | Concurrent preparation, immutable selections and bounded pair composition | 14 functional checks passed; `/tmp-codex/preparation-functional-tests-20261015.log`. |
 | New calculation build, summary reuse, mutation rejection and configuration | 35 checks passed with one historical-runner-only case skipped; `/tmp-codex/preparation-config-backend-tests-20261015-final.log`. New build: `/tmp-codex/visualiser-build-20261015-preparation-a`. |

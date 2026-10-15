@@ -339,6 +339,11 @@ not install services, choose providers or change security settings.
   for those populations, representative horizons and collector settings against
   the 4 GiB + 256 MiB-per-repetition standard before opening the service. The current
   twelve-run evidence covers 50,000 people and 2019–2026.
+- [ ] Run the [population/year profiles](multirun/POPULATION_RESOURCES.md): fresh
+  20,000/50,000/100,000-person populations through 2070, sampled annual resources,
+  decade summaries and audited population counts. Then explicitly validate
+  proposed smaller allocations and shorter stopping horizons on laptop and VM;
+  observed demand alone does not certify minimum safe limits.
 - [ ] Calibrate Matteo's updated target: 100,000 people, 2019–2070, provisionally
   ten seed repetitions per configuration and up to four concurrent users. The
   [private one-repetition trial](multirun/VM.md#research-workload-calibration) and

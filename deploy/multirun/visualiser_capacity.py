@@ -144,6 +144,8 @@ def prepare_raw(args):
 def snapshot_tools(frontend, build, output, fixture):
     """Only reviewed source and build files enter containers; never repository secrets."""
     wanted = {'visualiser_capacity_worker.py': ROOT/'deploy/multirun/visualiser_capacity_worker.py',
+              'visualiser_capacity_bounded.py': ROOT/'deploy/multirun/visualiser_capacity_bounded.py',
+              'visualiser_summary_cache.py': ROOT/'deploy/multirun/visualiser_summary_cache.py',
               'visualiser/capacity_replay.cjs': ROOT/'deploy/multirun/visualiser/capacity_replay.cjs'}
     tools = snapshot_files(wanted, output/'tools')
     package = frontend/'jasmine_web'
@@ -380,6 +382,24 @@ def main(argv=None):
     raw.add_argument('--repetitions', type=int, choices=range(1, 11), default=10)
     raw.add_argument('--build', type=Path, required=True)
     raw.add_argument('--output', type=Path, required=True)
+    rebound = commands.add_parser('rebind-replay', help='New fixture using an updated bundle of identical scientific sources')
+    for name in ('fixture','source-build','build','output'):
+        rebound.add_argument('--'+name, type=Path, required=True)
+    rebound.add_argument('--alternatives', type=int, choices=(1,2,3), default=2)
+    compare = commands.add_parser('compare', help='Equal work, bounded pairs, cold/warm summaries and CPU sensitivity')
+    for name in ('frontend','fixture','build','output'):
+        compare.add_argument('--'+name, type=Path, required=True)
+    compare.add_argument('--image', default='simpaths-visualiser-capacity:20261015')
+    compare.add_argument('--memory-mib', type=int, nargs='+', choices=(2048,3072,4096), default=[3072,2048,4096])
+    compare.add_argument('--workers', type=int, nargs='+', choices=(1,2), default=[1,2])
+    compare.add_argument('--cpu-millis', type=int, nargs='+', choices=(1000,2000), default=[1000,2000])
+    compare.add_argument('--cache-modes', nargs='+', choices=('cold','warm'), default=['cold','warm'])
+    compare.add_argument('--tasks-per-case', type=int, choices=range(2,9), default=2)
+    compare.add_argument('--view-reads', type=int, choices=range(1,21), default=5)
+    compare.add_argument('--rounds', type=int, choices=(1,2,3), default=1)
+    compare.add_argument('--timeout-seconds', type=int, default=10800)
+    compare.add_argument('--cancellation-check', action='store_true', help='Separate forced-stop/cached-retry check after timing trials')
+    compare.add_argument('--cancellation-memory-mib', type=int, choices=(2048,3072,4096), default=3072)
     trial = commands.add_parser('run', help='Run bounded independent Docker workers; networking disabled')
     for name in ('frontend', 'fixture', 'build', 'output'):
         trial.add_argument('--'+name, type=Path, required=True)
@@ -393,11 +413,22 @@ def main(argv=None):
     if args.command == 'prepare-raw':
         prepare_raw(args)
         return 0
+    if args.command == 'rebind-replay':
+        from deploy.multirun.visualiser_capacity_comparison import rebind
+        return rebind(args)
     if not 60 <= args.timeout_seconds <= 43200:
         parser.error('Use a per-case time bound of 60..43200 seconds')
     def interrupted(*_):
         raise KeyboardInterrupt()
     signal.signal(signal.SIGTERM, interrupted)
+    if args.command == 'compare':
+        if args.cache_modes not in (['cold'], ['cold','warm']):
+            parser.error('Run cold alone, or cold followed by warm; never imply an unprimed cache is warm')
+        for name in ('workers','cpu_millis','memory_mib'):
+            if len(getattr(args,name))!=len(set(getattr(args,name))):
+                parser.error('Do not repeat matrix values: '+name)
+        from deploy.multirun.visualiser_capacity_comparison import run as compare_run
+        return compare_run(args)
     return run(args)
 
 

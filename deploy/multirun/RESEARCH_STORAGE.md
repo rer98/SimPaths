@@ -850,6 +850,18 @@ including the required 100,000-person, 52-year, ten-seed comparison workload and
 the limitations of repeated-file capacity fixtures. The current provisional
 3 GiB reservation is not a measured optimum for that workload.
 
+## Population and decade resource profiles
+
+The [population/year profiling suite](POPULATION_RESOURCES.md) prepares sequential
+20,000-, 50,000- and 100,000-person trials through 2070. It records periodic and
+annual memory/CPU/GC observations and population counts, with interval and
+cumulative summaries through 2030/2040/2050/2060/2070. All use the same current
+model and fixed 4 GiB heap / 5 GiB container / 2-vCPU allowance, with growth and
+retries disabled. An independent annual output audit keeps hashes, sizes and
+exported population counts before verified bulk disposal between populations.
+The new suite and regression checks are prepared; native scientific resource
+measurements and validation of any smaller production allocations remain to do.
+
 ## Remaining host checks
 
 Follow the [hosted load-test plan](../HOSTED_LOAD_TEST_PLAN.md) for sequential

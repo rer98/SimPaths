@@ -7,7 +7,7 @@
 const fs=require('node:fs');
 const MAXIMUM=64*1024*1024;
 function replay(request){
-  if(!request||!Array.isArray(request.runs)||request.runs.length<2||request.runs.length>1000)
+  if(!request||!Array.isArray(request.runs)||request.runs.length<1||request.runs.length>1000)
     throw Error('Invalid replay request');
   const outputs=new Set();
   for(const run of request.runs){

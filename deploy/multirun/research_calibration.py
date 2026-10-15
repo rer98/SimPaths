@@ -49,6 +49,7 @@ FIELDS = {'population', 'end_year', 'repetitions', 'cpu_millis', 'heap_mib', 'me
           'max_memory_mib', 'storage_mib', 'setup_seconds', 'repetition_seconds', 'max_attempts'}
 VARIANTS = ('baseline', 'lower-saving-rate')
 BUILD_TIME = re.compile(r'^Time to complete initialisation ([0-9]+(?:\.[0-9]+)?) minutes\.$')
+YEAR_PROBE = ROOT/'deploy/acceptance/SimPathsYearProfileProbe.java'
 
 
 def json_record(value):
@@ -230,7 +231,7 @@ def arguments(config, receipt):
 
 class ResearchAdapter(ObservedAdapter):
     """Private adapter accepts this explicit receipt; service adapters still reject it."""
-    def __init__(self, prepared, classes, settings, variant='baseline'):
+    def __init__(self, prepared, classes, settings, variant='baseline', *, year_profile=False):
         self.prepared = Path(prepared).absolute()
         self.receipt = read_calibration(self.prepared)
         self.image = self.receipt['identity']['source_image']
@@ -239,6 +240,13 @@ class ResearchAdapter(ObservedAdapter):
         self.variant = variant
         self.resource_policy = trial_policy(self.settings)
         self.classes = classes
+        if type(year_profile) is not bool:
+            raise ArtifactError('Year profiling must be explicitly enabled')
+        if year_profile and (self.settings['max_attempts']!=1
+                or self.settings['memory_mib']!=self.settings['max_memory_mib']
+                or self.settings['repetitions']>2):
+            raise ArtifactError('Year profiling requires fixed memory, one attempt and one/two repetitions')
+        self.year_profile = year_profile
 
     def _configuration(self, lease):
         spec = lease.specification
@@ -274,7 +282,8 @@ class ResearchAdapter(ObservedAdapter):
         token = '-cp /request/probe:/inputs/model.jar SimPathsResourceProbe'
         if text.count(token) != 1:
             raise ArtifactError('Passive calibration runner changed')
-        runner.write_text(text.replace(token, f'-Dsimpaths.resource.sample.millis={sample_millis(self.settings)} '+token))
+        selected = token.replace('SimPathsResourceProbe','SimPathsYearProfileProbe') if self.year_profile else token
+        runner.write_text(text.replace(token, f'-Dsimpaths.resource.sample.millis={sample_millis(self.settings)} '+selected))
         return command
 
 
@@ -307,7 +316,7 @@ def collect_observations(entry, timestamped):
     boundary = set(entry.get('boundary', []))
     rows = list(entry.get('rows', [])); builds = list(entry.get('builds', [])); lines = []
     latest = cursor; latest_lines = set(boundary)
-    parsed = []
+    parsed = []; year_rows = []
     for line in timestamped.splitlines():
         match = re.fullmatch(r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{9}Z)(?: (.*))?', line)
         if match is None:raise ArtifactError('Docker did not return timestamped calibration logs')
@@ -322,11 +331,16 @@ def collect_observations(entry, timestamped):
         if stamp == cursor and content in boundary:continue
         lines.append(content)
         if content.startswith(PREFIX):rows.append(json.loads(content[len(PREFIX):]))
+        if content.startswith('SIMPATHS_YEAR_RESOURCE_SAMPLE '):
+            from deploy.multirun import research_year_profile
+            year_rows.append(research_year_profile.decode(content[len(research_year_profile.PREFIX):]))
         build = BUILD_TIME.fullmatch(content)
         if build:builds.append(float(build.group(1))*60)
     # Reuse the existing strict sequence/heap/cache/GC validation. Rotation
     # cannot silently turn a missing interval into a lower reported peak.
     if rows:telemetry('\n'.join(PREFIX+json.dumps(row) for row in rows))
+    if year_rows:
+        entry['year_rows']=research_year_profile.append(entry.get('year_rows',[]),year_rows)
     entry.update(cursor=latest, boundary=sorted(latest_lines), rows=rows, builds=builds,
         log='\n'.join(lines))
 
@@ -371,6 +385,9 @@ def observe(entry, lease, executor, record):
 def save_attempt(executor, entry, destination):
     destination.mkdir(mode=0o700, parents=True, exist_ok=True)
     atomic_json(destination/'telemetry.json', entry['rows'])
+    if entry.get('year_rows'):
+        from deploy.multirun.research_year_profile import write_samples
+        write_samples(destination/'year-samples.jsonl',entry['year_rows'])
     for name in ('execution.log', 'exit.json', 'container-policy.json', 'diagnostics.log'):
         source = executor.workspace(entry['lease'])/name
         if source.is_file():shutil.copyfile(source, destination/name)
@@ -567,6 +584,8 @@ def execute(output):
     from playwright.sync_api import expect
 
     value = json.loads(os.environ[ENV])
+    year_profile = value.get('year_profile',False)
+    if type(year_profile) is not bool:raise ArtifactError('Invalid private year-profile mode')
     settings = checked_settings(value['settings'])
     variant = value.get('variant', 'baseline')
     prepared = Path(value['prepared']).resolve(strict=True)
@@ -578,7 +597,7 @@ def execute(output):
     classes = work/'classes'; classes.mkdir()
     queue = Queue(os.environ['JASMINE_BATCH_TEST_DSN'], 'research-calibration', schema='research_'+uuid4().hex)
     executor = DockerExecutor(work/'execution', approved_images=[receipt['identity']['source_image']], input_roots=[prepared])
-    adapter = ResearchAdapter(prepared, classes, settings, variant)
+    adapter = ResearchAdapter(prepared, classes, settings, variant, year_profile=year_profile)
     worker = Worker(queue, executor, adapter, 'private-research-calibration')
     record = dict(passed=False, cleanup=False, production_acceptance=False, defaults_changed=False,
         settings=settings, variant=variant, start_year=2019, annual_years=list(range(2019, settings['end_year']+1)),
@@ -591,6 +610,13 @@ def execute(output):
     worker.before_claim = lambda:retire_failed(queue, executor, known, entries, record, output)
     try:
         compile_probe(prepared, classes, output/'probe-compile.log')
+        if year_profile:
+            with (output/'year-probe-compile.log').open('xb') as log:
+                subprocess.run(['javac','--release','17','-cp',os.pathsep.join((str(classes),str(prepared/'model.jar'))),
+                    '-d',str(classes),str(YEAR_PROBE)],check=True,stdout=log,stderr=subprocess.STDOUT,timeout=60)
+            record['year_profile_sources']={str(p.relative_to(ROOT)):fingerprint(p) for p in
+                (YEAR_PROBE,ROOT/'deploy/multirun/research_year_profile.py')}
+            record['year_profile_interval_ms']=2000
         record['probe_classes'] = inventory(classes)
         queue.migrate(); migrated = True
         seconds = attempt_seconds(settings)
@@ -664,6 +690,16 @@ def execute(output):
                         raise AssertionError('Missing model build timer for a completed repetition')
                 record['attempts'].append(detail)
                 save_attempt(executor, entry, directory)
+                if year_profile:
+                    from deploy.multirun.research_year_profile import summarise
+                    milestones=[y for y in (2030,2040,2050,2060,2070) if y<=settings['end_year']]
+                    if settings['end_year'] not in milestones:milestones.append(settings['end_year'])
+                    profiled=summarise(entry.get('year_rows',[]),population=settings['population'],
+                        seeds=configuration(receipt,settings,variant).as_dict()['seed_plan']['seeds'],
+                        end_year=settings['end_year'],milestones=milestones)
+                    write_json(directory/'year-profile.json',profiled)
+                    detail['year_profile']=dict(samples=fingerprint(directory/'year-samples.jsonl'),
+                        summary=fingerprint(directory/'year-profile.json'))
             stage = 'settled-cleanup'
             path = executor.workspace(last)
             record['runs_before_cleanup'] = storage_proof.run_summary(path)
@@ -741,6 +777,8 @@ def main():
     parser.add_argument('--output', type=Path)
     parser.add_argument('--finish-cleanup', type=Path, help='Verify a completed evidence directory and reclaim its retained scratch without another model run')
     parser.add_argument('--dry-run', action='store_true', help='Show the bounded plan without Docker, preparation or simulation')
+    parser.add_argument('--year-profile', action='store_true',help='Passive year/population profiling; fixed memory, one attempt, at most two repetitions')
+    parser.add_argument('--proof-only', action='store_true',help='Skip the general queue suite; keep the real disposable model proof')
     parser.add_argument('--execute-proof', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.execute_proof:
@@ -751,6 +789,9 @@ def main():
             parser.error('--finish-cleanup requires --prepared and excludes --prepare, --output and --dry-run')
         finish_cleanup(args.finish_cleanup, args.prepared); return 0
     settings = checked_settings({name:getattr(args, name) for name in FIELDS})
+    if args.year_profile and (settings['max_attempts']!=1 or settings['memory_mib']!=settings['max_memory_mib']
+            or settings['repetitions']>2):
+        parser.error('--year-profile requires --max-attempts 1, fixed memory and at most two repetitions')
     if bool(args.prepared) == bool(args.prepare):parser.error('Supply exactly one of --prepare or --prepared')
     if not 60 <= args.preparation_timeout <= 14400:parser.error('Preparation timeout must be 60–14400 seconds')
     output = (args.output or Path(tempfile.gettempdir())/('research-calibration-'+datetime.now().strftime('%Y%m%d-%H%M%S'))).absolute()
@@ -761,6 +802,7 @@ def main():
             proof_timeout_seconds=proof_timeout(settings), output=str(output),
             preparation=str(args.prepare) if args.prepare else None,
             prepared=str(args.prepared) if args.prepared else None,
+            year_profile=args.year_profile,
             stages=['public-input preparation and independent reuse check' if args.prepare else 'verify private prepared inputs',
                 'one sequential configuration in disposable PostgreSQL', 'measure and verify all annual output',
                 'reclaim input copies and retain verified output for aggregation'], defaults_changed=False), indent=2))
@@ -783,8 +825,10 @@ def main():
         '--output', str(output)]
     output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     preflight(settings, output.parent)
+    if args.proof_only:command.insert(2,'--proof-only')
     return subprocess.call(command, env=dict(os.environ, JASMINE_WEB_REPO=str(args.frontend), TMPDIR=str(output.parent),
-        **{ENV:json.dumps(dict(prepared=str(prepared), settings=settings, variant=args.variant))}))
+        **{ENV:json.dumps(dict(prepared=str(prepared), settings=settings, variant=args.variant,
+            **({'year_profile':True} if args.year_profile else {})))}))
 
 
 if __name__ == '__main__':raise SystemExit(main())

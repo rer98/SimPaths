@@ -7,6 +7,13 @@ Attribution scope and non-commentable/generated artifacts.
 
 # Attribution
 
+The population/year resource probes, unattended driver, validation and regression
+checks carry inline notices. Generated numeric year streams, annual/decade
+profiles, CSV comparisons, compact archives and retirement receipts are
+(C) Copyright 2026, by Ross Richardson; @author ross richardson, recorded in each
+campaign's evidence attribution. Model inputs, scientific outputs and third-party
+software retain their existing notices and licences.
+
 The automatic Visualiser preparation backend, private summary-cache tests,
 delegated-resource proof and candidate runtime examples carry inline notices.
 Generated preparation build manifests, kernel-proof JSON and numeric test

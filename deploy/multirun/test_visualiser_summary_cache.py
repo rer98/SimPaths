@@ -95,6 +95,7 @@ class SummaryCacheTests(unittest.TestCase):
 
     def test_invalid_paths_receipts_and_abandoned_publications_are_rejected(self):
         public = self.root/'public'; public.mkdir(mode=0o755)
+        public.chmod(0o755)  # Exercise public permissions even under a private caller umask.
         with self.assertRaises(ValueError): SummaryCache(public)
         linked = self.root/'link'; linked.symlink_to(self.cache.root)
         with self.assertRaises(ValueError): SummaryCache(linked)

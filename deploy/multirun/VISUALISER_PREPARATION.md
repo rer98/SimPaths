@@ -6,29 +6,38 @@ Agreed automatic Visualiser preparation design and resource-validation plan.
 
 # Automatic Visualiser preparation and resource tests
 
-**Decision record: 15 October 2026. Production changes: proposed, not implemented.**
+**Decision record: 15 October 2026. Opt-in implementation and targeted native correctness checks complete; capacity and installed-host acceptance pending.**
 
-This records the agreed preparation, scheduling and measurement work separately
-from the existing Visualiser implementation. Local test tooling is prepared;
-native capacity measurements are pending. A successful fixture test is not evidence that the new
-production behaviour exists or that its resource allowances are validated.
+The agreed scheduling and reuse behaviour is implemented behind explicit operator
+settings. Existing deployments retain their fixed allocations and on-demand
+preparation until enabled. The implementation checks below distinguish functional
+verification from the outstanding resource measurements and host acceptance.
 
 ## Current behaviour and evidence
 
-- Results-page **Prepare Visualiser** requests queue server-side preparation.
-  Selecting an experiment baseline preselects that choice in Results; it does
-  not currently trigger preparation on configuration completion.
+- Results-page **Prepare Visualiser** requests still work. With automatic mode,
+  the private dispatcher discovers verified successful configurations at bounded
+  60-second intervals, prepares standalone results, and queues each ready
+  selected-baseline/alternative pair without waiting for the whole experiment.
 - Preparation processes configurations and repetitions sequentially. Heavy
   calculations principally run in a single JavaScript thread. Increasing a
   worker's CPU allowance alone does not establish proportional acceleration.
 - The server prepares aggregates and selected-chart sections. Authenticated
   catalogue/section requests and bounded browser caching avoid repeatedly
   downloading the complete publication.
-- Intermediate per-seed summaries are temporary. A later comparison can repeat
-  raw-file processing rather than reusing durable configuration summaries.
-- The processor reserves capacity when it starts. Its CPU reservation is
-  scheduler accounting, not an operating-system CPU quota. There is no protected
-  idle aggregation allowance or implemented second-worker borrowing policy.
+- A new verified runner supports private role-independent per-seed summaries.
+  Opt-in reuse checks source descriptors/hashes, owner and immutable execution
+  identities. The bounded cache uses atomic publication and striped process
+  locks; expired or unavailable publications retire their referenced summaries.
+  A bounded process-local hash cache avoids rereading an unchanged baseline for
+  every alternative. It binds device/inode, size, nanosecond modification/change
+  times and expected hash; replacement or mutation requires a new hash. A service
+  restart starts with no remembered source checks. Summary bytes are still
+  checksum-verified on every reuse, and authority is independently rechecked.
+- The native private executor can protect idle primary-worker capacity and
+  enforce helper CPU/RAM/process limits in delegated cgroup v2 groups. A second
+  worker can borrow available capacity after verified quota reductions. The
+  example starts with one worker pending disk-contention measurements.
 
 The successful 100,000-person, 2019–2070 comparison proof used one baseline and
 one alternative with **one matched seed each**. Its processor reservation was
@@ -244,16 +253,18 @@ or hosted concurrency from the existing single-seed comparison proof.
 - [ ] Run the local resource trials and record the measured allocation decision.
 - [ ] Measure the full workload with genuine matching seeds, including several
   alternatives; explicitly separate any local capacity-fixture evidence.
-- [ ] Implement automatic completion-triggered configuration preparation.
-- [ ] Implement durable, private, role-independent per-seed summary reuse and
+- [x] Implement automatic completion-triggered configuration preparation.
+- [x] Implement durable, private, role-independent per-seed summary reuse and
   invalidation/retention rules.
-- [ ] Implement selected-baseline comparisons for every ready alternative.
-- [ ] Implement bounded priority for active-user and automatic preparation before
+- [x] Implement selected-baseline comparisons for every ready alternative.
+- [x] Implement bounded priority for active-user and automatic preparation before
   new simulations, protected aggregation capacity and borrowing for a second
-  worker; align reservations with enforced limits and guarantee queue progress.
-- [ ] Implement fair, revocable 1-to-2-vCPU simulation boosts, durable allocation
-  reconciliation and suitable minimum-CPU runtime budgets; measure dynamic
-  transitions and mixed hosted load separately from the fixed-quota trials.
+  worker; align reservations with enforced limits and provide bounded model
+  admission opportunities when resources fit. Native enforcement remains to test.
+- [x] Implement fair, revocable 1-to-2-vCPU simulation boosts, durable allocation
+  reconciliation and suitable minimum-CPU runtime budgets.
+- [ ] Measure dynamic transitions and mixed hosted load separately from the
+  fixed-quota trials.
 - [ ] Test publication, restart and permission behaviour under concurrent work.
 - [ ] Repeat representative concurrency and responsiveness measurements on the
   VPS before approving memory limits and maximum worker count for production.
@@ -399,13 +410,16 @@ remains to do, preferably where sufficient retained-output storage is available.
 The retained baseline has 135,095 summary cells and the alternative 135,017.
 A replay with two alternatives therefore produces approximately **405,129**
 aggregate rows, exceeding the existing **400,000-row** combined-publication cap.
-`--alternatives 2` or `3` can create stress fixtures, but a publication-row-limit
-failure is expected with the current implementation and is recorded separately
-from OOM. The benchmark does not silently raise production limits.
+`--alternatives 2` or `3` can create stress fixtures. The original capacity
+harness still exercises a monolithic publication and can hit this bound; it
+does not silently raise production limits. The new service composition builds
+separate bounded pairs and merges only catalogues/selected chart sections.
 
-- [ ] Replace the requirement for one ever-larger combined publication with
+- [x] Replace the requirement for one ever-larger combined publication with
   bounded per-configuration/per-pair results and selected-chart delivery as part
-  of the reusable-summary design, then rerun multi-alternative acceptance.
+  of the reusable-summary design. Fictional tests exceed the combined row cap
+  while validating independent pairs and selected-section parity.
+- [ ] Rerun genuine multi-alternative service and resource acceptance.
 
 ### Validation of the harness
 
@@ -427,3 +441,149 @@ the development sandbox cannot access the Docker daemon.
 Preparation checks on 15 October: **36 harness tests passed**, the retained
 fixture's full source/build hashes matched, and the Docker SDK accepted the
 constructed fixed-limit/isolation settings without contacting the daemon.
+
+## Opt-in runtime assembly
+
+`vm/throughput.toml.example` records the candidate assembly; it is not an
+approved measured server profile. It leaves 8 vCPUs/30 GiB for normal MultiRun
+starts, protects 2 vCPUs/5 GiB for SingleRun and 1 vCPU/3 GiB for the primary
+aggregate worker, and withholds 2 GiB of shared model-growth headroom. Pool
+totals are therefore 11 vCPUs/40 GiB. Leave the remaining host capacity for
+PostgreSQL, private orchestration, public services and the OS. Check the
+provider's actual usable RAM: 48 decimal GB is approximately 44.7 GiB.
+
+The growth buffer cannot admit extra ordinary jobs. A running model, or a
+resource-specific retry above its original reviewed size, may use it after
+normal recovery checks. It is a shared allowance, not a separate maximum
+reservation for every simulation. Primary aggregation and SingleRun holds stay
+protected during growth. The present user-data SingleRun allocation remains
+8 GiB until its separate preparation-exit/memory acceptance is complete: a
+5 GiB SingleRun hold does **not** guarantee admission of that older 8 GiB mode
+when MultiRun fills its budget. Promote the tested SingleRun setting separately.
+
+The candidate does not rewrite model release receipts. Register an explicitly
+approved resource policy using `releases.py --resource-policy` after checking
+the relevant workload evidence. For the measured large workload, the candidate
+is a 4 GiB heap/5 GiB container and working storage of 4 GiB plus 4 GiB per
+repetition. Existing two-repetition trials do not certify all policies or ten
+repetitions. Use the existing versioned workload profiles to bound population,
+years, repetitions and collector settings; reject unmatched configurations.
+
+New pool protection settings are immutable once configured. Use a new pool ID
+and a controlled drained migration rather than silently changing existing pool
+or review budgets. Set SingleRun's `VM_SHARED_POOL_ID` to that same ID when the
+services share this capacity. Actual disk admission checks remain required;
+completed retained outputs, uploads, download archives and caches still occupy
+the filesystem after execution reservations are released.
+
+The scheduling implementation has these explicit bounds:
+
+- CPU floors are 1 vCPU; temporary boosts use half-vCPU steps up to 2 vCPUs.
+  Waiting credit and owner fairness are reconsidered every 30 seconds by
+  default, including when membership is unchanged. A lower Docker limit must
+  be verified before its reservation shrinks. Lost replies, restarts and
+  cancellations retain the conservative reservation until reconciliation.
+  Boosts never create a new attempt or change the JVM processor count, heap,
+  seeds, inputs or runtime deadline. Runtime budgets must allow the 1-vCPU case
+  (the example allows 15 minutes setup plus four hours per repetition).
+- Authenticated demand expires after five minutes unless refreshed. Active
+  preparations lead; automatic tasks older than 15 minutes join that priority
+  class. Owner round-robin dispatch history survives service restart.
+- Runnable preparation normally precedes new models. After 60 seconds of that
+  preference, queued models receive an admission opportunity. Extra aggregate
+  workers pause new borrowing until one model is admitted or no eligible model
+  remains. The protected primary worker continues in its own allowance. A model
+  still waits if RAM, disk, permissions or its owner's active allowance prevent
+  admission; a CPU reduction cannot free memory.
+  Work waiting behind an already full set of aggregate workers does not idle
+  otherwise available model capacity; no additional preparation can start then.
+- One primary worker is enabled in the example. The optional second worker
+  requires its full independently available RAM and scratch allowance. Set
+  `max_workers = 2` only after measuring a benefit. This runs independent
+  preparations concurrently; it does not parallelise a single JavaScript
+  calculation.
+- The example allocates 2 GiB of scratch per active worker, a 2 GiB persistent
+  summary cache, and an 8 GiB total Visualiser cache including both. Publications
+  expire after 24 hours. Byte/entry caps, source identity checks and private
+  retirement apply throughout. These disk and memory budgets still require
+  genuine ten-seed measurement.
+
+With `hard_limits = true`, install the reviewed
+`vm/simpaths-executor-resources.conf.example` as the private executor's systemd
+drop-in. It delegates only that service's cgroup subtree. The orchestrator moves
+to a bounded manager leaf; each heavy preparation has its own enforced CPU,
+whole-group memory, zero-swap and process limits. All Node and publication/index
+helpers enter through an inherited directory descriptor before execution.
+Scope cleanup kills surviving descendants and verifies an empty group before
+returning capacity, including after interrupted work. The drop-in's enclosing
+10 GiB service limit covers up to two 3 GiB helper groups and orchestration;
+Docker model containers have their own separate enforced reservations.
+General RPC/chart-read orchestration is accounted for outside the model pool.
+
+Kernel delegation background: [systemd control group interface](https://systemd.io/CONTROL_GROUP_INTERFACE/)
+and [Linux cgroup v2 documentation](https://docs.kernel.org/admin-guide/cgroup-v2.html).
+
+### Native correctness checks
+
+The PostgreSQL suite uses fictional jobs and tiny aggregate fixtures, with no
+simulations or email delivery:
+
+```bash
+cd ~/git/JAS-mine/JAS-mine-web &&
+TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 ~/simpaths-browser-tests/venv/bin/python \
+  scripts/test_batch_queue.py \
+  --test-pattern test_adaptive_cpu.py test_processing_capacity.py test_postgres.py \
+                 test_resource_recovery.py test_visualiser.py \
+  --output "/tmp-codex/adaptive-preparation-postgres-$(date +%Y%m%d-%H%M%S)"
+```
+
+The separate kernel proof creates tiny helper groups in a disposable user
+systemd scope. It verifies fractional CPU/RAM limits, group OOM containment and
+cleanup of descendants that closed inherited descriptors. It does not install
+or change a production unit and does not run Docker or models:
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths &&
+systemd-run --user --scope \
+  --property=Delegate=yes --property=MemoryMax=4G \
+  env TMPDIR=/tmp-codex ~/simpaths-browser-tests/venv/bin/python \
+  deploy/multirun/processing_scope_proof.py \
+  --frontend "$HOME/git/JAS-mine/JAS-mine-web" \
+  --output "/tmp-codex/processing-scope-proof-$(date +%Y%m%d-%H%M%S)"
+```
+
+Actual live Docker CPU transitions have two additional native cases. These use
+five tiny sleeping Python containers at most, not scientific simulations. The
+following command also checks automatic preparation through the real database
+and service startup/shutdown. The database and containers are removed after the
+proof:
+
+```bash
+cd ~/git/JAS-mine/JAS-mine-web &&
+TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 ~/simpaths-browser-tests/venv/bin/python \
+  scripts/test_batch_queue.py --docker-tests \
+  --test-pattern test_visualiser_automatic.py test_adaptive_cpu_docker.py \
+  --proof-script "$HOME/git/SimPathsWeb/SimPaths/deploy/multirun/vm_proof.py" \
+  --proof-requirements "$HOME/git/SimPathsWeb/SimPaths/deploy/multirun/requirements.txt" \
+  --output "/tmp-codex/preparation-runtime-native-$(date +%Y%m%d-%H%M%S)"
+```
+
+### Implementation verification recorded on 15 October
+
+| Area | Result and evidence |
+| --- | --- |
+| Adaptive CPU, protected capacity, queue/recovery and existing Visualiser database checks | 92 checks passed; `/tmp-codex/adaptive-preparation-postgres-20261015-153609/report.json`. |
+| Additional CPU, growth and shared SingleRun admission checks | 35 checks passed (11 CPU, eight processing, 16 shared-pool). The enclosing run stopped later on a test-fixture SQL lookup error in one automatic-preparation case; `/tmp-codex/preparation-runtime-native-20261015-160040/report.json` preserves that original failure. The corrected case passed in the focused rerun below. |
+| Automatic preparation, live Docker CPU changes and service shutdown | All 25 checks passed: three automatic-preparation, two Docker CPU and 20 runtime/shutdown checks; `/tmp-codex/preparation-runtime-native-retry-20261015-162152/report.json` and its `model-proof/report.json`. Verified same-container CPU changes, conservative recovery after a lost update reply, automatic standalone/baseline preparation, permission invalidation and joining both private worker slots. Disposable resources were cleaned up. |
+| Whole-helper kernel limits | Passed fractional CPU/RAM limits, zero swap, group OOM containment and cleanup of descendants that closed inherited descriptors; `/tmp-codex/processing-scope-proof-20261015-160143/report.json`. |
+| Concurrent preparation, immutable selections and bounded pair composition | 14 functional checks passed; `/tmp-codex/preparation-functional-tests-20261015.log`. |
+| New calculation build, summary reuse, mutation rejection and configuration | 35 checks passed with one historical-runner-only case skipped; `/tmp-codex/preparation-config-backend-tests-20261015-final.log`. New build: `/tmp-codex/visualiser-build-20261015-preparation-a`. |
+| Results progress and maintained compiled charts | Results JavaScript checks and all three compiled application/bundle/runner test files passed; `/tmp-codex/preparation-results-js-20261015.log` and `/tmp-codex/preparation-compiled-js-20261015.log`. |
+
+The sandbox cannot provide delegated kernel control files or start the
+disposable PostgreSQL Docker container; the native checks above run from the
+operator's terminal. Installed service/drop-in and distinct-UID acceptance,
+genuine ten-seed/multi-alternative processing, CPU changes under hosted concurrent
+load, and throughput/disk-contention measurements remain required before rollout.
+The completed correctness checks do not establish production capacity or an
+optimal allocation.

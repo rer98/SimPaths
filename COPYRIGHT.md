@@ -7,6 +7,12 @@ Attribution scope and non-commentable/generated artifacts.
 
 # Attribution
 
+The automatic Visualiser preparation backend, private summary-cache tests,
+delegated-resource proof and candidate runtime examples carry inline notices.
+Generated preparation build manifests, kernel-proof JSON and numeric test
+evidence are (C) Copyright 2026, by Ross Richardson; @author ross richardson.
+Copied Visualiser assets and dependencies retain their existing notices.
+
 Local user-data memory trial scripts, tests and inline Java changes carry their
 own notices. Generated trial Dockerfiles, timing records and numeric memory
 evidence are attributed in the trial directory's `COPYRIGHT.md`; public model

@@ -23,7 +23,8 @@ def main():
     if args.output.exists():
         parser.error('Choose new evidence output')
     args.output.mkdir(parents=True, mode=0o700)
-    suite = unittest.defaultTestLoader.loadTestsFromName('deploy.multirun.test_vm_runtime')
+    suite = unittest.defaultTestLoader.loadTestsFromNames([
+        'deploy.multirun.test_vm_runtime','deploy.multirun.test_download_shutdown'])
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     passed = result.wasSuccessful() and not result.skipped
     (args.output/'report.json').write_text(json.dumps(dict(passed=passed, tests=result.testsRun,

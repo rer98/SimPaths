@@ -25,14 +25,23 @@ DEFAULTS = {
               'dsn_file': None, 'prepared': []},
     'model': {'image': None},
     'pool': {'cpu_millis': 3000, 'memory_mib': 6144, 'storage_mib': 13312,
-             'per_user_active': 1, 'hold_cpu_millis': 0, 'hold_memory_mib': 0, 'hold_storage_mib': 0},
+             'per_user_active': 1, 'hold_cpu_millis': 0, 'hold_memory_mib': 0, 'hold_storage_mib': 0,
+             'growth_memory_mib': 0},
+    'scheduling': {'adaptive_cpu': False, 'cpu_cooldown_seconds': 30,
+                   'preparation_priority_seconds': 60},
     'limits': {'max_configurations': 100, 'max_repetitions': 12,
                'max_unfinished_jobs': 110, 'pool_unfinished_jobs': 220,
                'runtime_setup_minutes': 15, 'runtime_per_repetition_minutes': 60,
                'runtime_budget_multiplier': 3, 'upload_allowance_gib': 4},
     'downloads': {'threshold_mib': 512, 'cache_gib': 10, 'cache_hours': 24},
     'notifications': {'enabled': False, 'retention_cleanup': False, 'admin_email': ''},
-    'visualiser': {'build': '', 'preview': False, 'memory_mib': 1024, 'timeout_seconds': 600},
+    'visualiser': {'build': '', 'preview': False, 'memory_mib': 1024, 'timeout_seconds': 600,
+                  'automatic': False, 'max_workers': 1, 'cpu_millis': 1000, 'storage_mib': 512,
+                  'protected': False, 'hard_limits': False, 'bounded_comparisons': False,
+                  'summaries': False, 'summary_cache_mib': 2048, 'cache_mib': 256,
+                  'cache_hours': 24, 'max_entries': 512, 'per_owner_entries': 256,
+                  'artifact_mib': 16, 'comparison_mib': 64,
+                  'rows_per_series': 50000, 'comparison_rows': 200000},
     'workspaces': {'quota_socket': '/run/jasmine-workspace-quotas/broker.sock',
                    'guard': '/usr/local/libexec/jasmine-workspace-guard'},
 }
@@ -127,6 +136,7 @@ def load_config(path):
     for key, minimum in (('cpu_millis', 2000), ('memory_mib', 5120), ('storage_mib', 12288)):
         number(pool['hold_'+key], 'pool.hold_'+key, 0, pool[key]-minimum)
     number(pool['per_user_active'], 'pool.per_user_active', 1, 100)
+    number(pool['growth_memory_mib'], 'pool.growth_memory_mib', 0, pool['memory_mib']-5120)
     if pool['per_user_active'] > limits['max_unfinished_jobs']:
         raise ValueError('Active allowance exceeds unfinished-job allowance')
     downloads = sections['downloads']
@@ -138,6 +148,12 @@ def load_config(path):
     if notifications['enabled'] and not notifications['admin_email']:
         raise ValueError('Notification delivery requires an administrator recipient')
     visualiser = sections['visualiser']
+    scheduling = sections['scheduling']
+    number(scheduling['cpu_cooldown_seconds'], 'scheduling.cpu_cooldown_seconds', 5, 300)
+    number(scheduling['preparation_priority_seconds'], 'scheduling.preparation_priority_seconds', 5, 300)
+    if scheduling['adaptive_cpu'] and (limits['runtime_per_repetition_minutes'] < 240 or
+                                       limits['runtime_setup_minutes'] < 15):
+        raise ValueError('Adaptive CPU needs runtime allowances validated for its 1-vCPU floor')
     if bool(visualiser['build']) != visualiser['preview']:
         raise ValueError('Visualiser preview requires both a build and explicit preview setting')
     if visualiser['build']:
@@ -146,6 +162,37 @@ def load_config(path):
             raise ValueError('Install the public Visualiser build outside private storage')
     number(visualiser['memory_mib'], 'visualiser.memory_mib', 512, 4096)
     number(visualiser['timeout_seconds'], 'visualiser.timeout_seconds', 60, 3600)
+    for key, low, high in (('max_workers',1,2), ('cpu_millis',1000,2000),
+            ('storage_mib',512,16384), ('summary_cache_mib',1,65536), ('cache_mib',48,131072),
+            ('cache_hours',1,168), ('max_entries',1,4096), ('per_owner_entries',1,4096),
+            ('artifact_mib',1,128), ('comparison_mib',1,256),
+            ('rows_per_series',1,200000), ('comparison_rows',1,400000)):
+        number(visualiser[key], 'visualiser.'+key, low, high)
+    if (visualiser['cpu_millis'] % 500 or
+            visualiser['per_owner_entries'] > visualiser['max_entries'] or
+            visualiser['comparison_mib'] < visualiser['artifact_mib'] or
+            visualiser['comparison_rows'] < visualiser['rows_per_series'] or
+            visualiser['cache_mib'] < 3*visualiser['artifact_mib']):
+        raise ValueError('Inconsistent bounded Visualiser budgets')
+    enhanced=any(visualiser[key] for key in ('automatic','protected','hard_limits','bounded_comparisons','summaries'))
+    if enhanced and not visualiser['preview']:
+        raise ValueError('Preparation options require an explicitly enabled Visualiser build')
+    if visualiser['automatic'] and not all(visualiser[key] for key in
+            ('protected','hard_limits','bounded_comparisons','summaries')):
+        raise ValueError('Automatic preparation requires protected, limited workers and bounded reusable summaries')
+    if visualiser['max_workers'] > 1 and not (visualiser['automatic'] and visualiser['hard_limits']):
+        raise ValueError('A second aggregate worker requires bounded automatic preparation')
+    if visualiser['automatic']:
+        minimum_cache=visualiser['summary_cache_mib']+visualiser['max_workers']*visualiser['storage_mib']+3*visualiser['artifact_mib']
+        if visualiser['cache_mib'] < minimum_cache:
+            raise ValueError('Visualiser cache must cover summaries, active workspaces and publications')
+    for key in ('cpu_millis','memory_mib','storage_mib'):
+        floor=visualiser[key] if visualiser['protected'] else 0
+        growth=pool['growth_memory_mib'] if key=='memory_mib' else 0
+        minimum={'cpu_millis':1000 if scheduling['adaptive_cpu'] else 2000,
+                 'memory_mib':5120,'storage_mib':12288}[key]
+        if pool[key]-pool['hold_'+key]-floor-growth < minimum:
+            raise ValueError('Protected allocations must leave capacity for a model configuration')
     if visualiser['preview'] and pool['memory_mib'] < visualiser['memory_mib']:
         raise ValueError('Visualiser reservation exceeds pool memory')
     # Check the largest calculated runtime without importing the hosting repository.
@@ -171,6 +218,10 @@ def load_config(path):
         retention_cleanup=notifications['retention_cleanup'], admin_email=notifications['admin_email'] or None,
         visualiser_build=visualiser['build'] or None, visualiser_preview=visualiser['preview'],
         visualiser_memory_mib=visualiser['memory_mib'], visualiser_timeout_seconds=visualiser['timeout_seconds'],
+        **{'visualiser_'+key:visualiser[key] for key in visualiser if key not in ('build','preview','memory_mib','timeout_seconds')},
+        adaptive_cpu=scheduling['adaptive_cpu'],cpu_cooldown_seconds=scheduling['cpu_cooldown_seconds'],
+        preparation_priority_seconds=scheduling['preparation_priority_seconds'],
+        growth_memory_mib=pool['growth_memory_mib'],
         capacity={k: pool[k] for k in ('cpu_millis', 'memory_mib', 'storage_mib')},
         holdback={k: pool['hold_'+k] for k in ('cpu_millis', 'memory_mib', 'storage_mib')},
         per_user_active=pool['per_user_active'], command='serve', email=None)

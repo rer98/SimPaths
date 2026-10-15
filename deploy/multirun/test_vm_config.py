@@ -59,6 +59,29 @@ class VMConfigTests(unittest.TestCase):
             self.assertEqual(main(['check', '--config', str(self.path)]), 0)
         self.assertEqual(sorted(p.name for p in self.root.iterdir()), ['settings.toml'])
 
+    def test_throughput_candidate_is_explicit_and_protects_non_model_work(self):
+        text=(TEMPLATE.parent/'throughput.toml.example').read_text().replace(
+            'sha256:REPLACE_WITH_64_HEXADECIMAL_DIGITS','sha256:'+'a'*64)
+        options=self.config(text)
+        self.assertTrue(options.adaptive_cpu)
+        self.assertTrue(options.visualiser_automatic)
+        self.assertEqual(options.visualiser_max_workers,1)
+        self.assertEqual(options.runtime_per_repetition_minutes,240)
+        self.assertEqual(options.capacity['cpu_millis']-options.holdback['cpu_millis']-
+                         options.visualiser_cpu_millis,8000)
+        self.assertEqual(options.capacity['memory_mib']-options.holdback['memory_mib']-
+                         options.visualiser_memory_mib-options.growth_memory_mib,30720)
+        for old,new in (('hard_limits = true','hard_limits = false'),
+                        ('summaries = true','summaries = false'),
+                        ('runtime_per_repetition_minutes = 240','runtime_per_repetition_minutes = 60'),
+                        ('cache_mib = 8192','cache_mib = 256'),
+                        ('memory_mib = 40960','memory_mib = 10000'),
+                        ('max_workers = 1','max_workers = 3')):
+            with self.subTest(new=new),self.assertRaises(ValueError):self.config(text.replace(old,new))
+        legacy=self.config()
+        self.assertFalse(legacy.adaptive_cpu)
+        self.assertFalse(legacy.visualiser_automatic)
+
     def test_recovery_is_operator_opt_in_and_unknown_or_invalid_settings_fail(self):
         self.assertFalse(self.config().recovery_enabled)
         legacy=re.sub(r'(?ms)^\[recovery\]\n.*?(?=^\[|\Z)','',self.text)

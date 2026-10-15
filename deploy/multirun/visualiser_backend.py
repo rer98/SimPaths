@@ -5,7 +5,8 @@ Own-input/public previews use upstream seed-paired multi-scenario calculations;
 restricted provider results still require approved disclosure controls.
 @author ross richardson
 """
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager, nullcontext
+from collections import OrderedDict
 import hashlib
 import json
 import os
@@ -13,6 +14,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import threading
 
 
 class VisualiserBackend:
@@ -22,7 +24,9 @@ class VisualiserBackend:
         'pmh_logo.png','UKRILogo.png','Interpreting-results.html','Interpreting-results.css',
         'citation.html','citation.css','SimPaths-logo-transparent.png'})
 
-    def __init__(self, build, execution_root, *, public_datasets=(), memory_mib=1024):
+    def __init__(self, build, execution_root, *, public_datasets=(), memory_mib=1024,
+                 summary_cache_root=None, summary_cache_bytes=2*1024**3,
+                 summary_cache_entries=256):
         from jasmine_web.batch.results import open_output
         self.build=Path(build).resolve(strict=True)
         self.root=Path(execution_root)
@@ -58,6 +62,17 @@ class VisualiserBackend:
                     re.fullmatch(r'\d+\.visualiser\.js',name) or name.endswith('.LICENSE.txt')):
                 self.assets[name]=content
         self.manifest=manifest
+        self.supports_summary_cache=(b'simpaths.visualiser.role-independent-metrics.v1'
+                                     in (self.build/'runner.cjs').read_bytes())
+        self.summary_cache=None
+        self.source_checks=OrderedDict()
+        self.source_check_mutex=threading.Lock()
+        if summary_cache_root is not None:
+            if not self.supports_summary_cache:
+                raise ValueError('Summary reuse requires a reviewed build with role-independent metrics')
+            from .visualiser_summary_cache import SummaryCache
+            self.summary_cache=SummaryCache(summary_cache_root, maximum_bytes=summary_cache_bytes,
+                                            maximum_entries=summary_cache_entries)
         self.paired=manifest['mode']=='development-paired'
         # Advertise a set only when the verified application bundle includes
         # its v2 reader. Older pinned builds still support the original pair.
@@ -66,6 +81,27 @@ class VisualiserBackend:
         self.public_datasets=frozenset(public_datasets)
         self.identity=dict(build=manifest,publication='own-and-public-preview-v1',
                            public_datasets=sorted(self.public_datasets),node=version,memory_mib=memory_mib)
+
+    def prune_summaries(self, *, owner=None, configuration=None):
+        if self.summary_cache is None:
+            return dict(entries=0,bytes=0)
+        return self.summary_cache.prune(owner=owner,configuration=configuration)
+
+    def _summary_identity(self, source, run, inputs):
+        """Selection role and display names never identify scientific summaries."""
+        configuration=source['configuration']
+        owner=source.get('owner')
+        if not isinstance(owner,str) or not owner or len(owner)>256:
+            raise ValueError('Private summary reuse requires the verified owner identity')
+        selected=source.get('identity',{})
+        return dict(owner=owner,configuration=configuration['id'],seed=str(run['seed']),
+                    model=configuration['model'],dataset=configuration['dataset'],
+                    prepared=configuration.get('prepared_fingerprint'),
+                    execution={key:selected[key] for key in ('job','attempt','execution_key','prepared')
+                               if key in selected},
+                    files=[{key:item[key] for key in ('path','bytes','sha256')} for item in inputs],
+                    calculation={key:self.manifest['files'][key] for key in ('runner.cjs','calculation.cjs')},
+                    node=self.identity['node'])
 
     def allowed(self,origins,owner):
         return bool(origins) and all(origin==['user',owner] or
@@ -79,6 +115,45 @@ class VisualiserBackend:
             with verified_file(self.build,dict(path=name,bytes=file.stat().st_size,
                                               sha256=self.manifest['files'][name])):
                 pass
+
+    @contextmanager
+    def _verified_source(self, entry):
+        """Reuse a successful hash only for the exact unchanged open file.
+
+        Metadata is held in bounded process memory, never trusted from disk or
+        browser input. Replacement, size, modification/change time, expected
+        hash or inode changes require a fresh hash. Restart starts empty.
+        """
+        from jasmine_web.batch.results import open_output, OutputUnavailable
+        if self.summary_cache is None:
+            from jasmine_web.batch.results import verified_file
+            with verified_file(self.root,entry) as source:
+                yield source
+            return
+        with open_output(self.root,entry['path']) as source:
+            def stamp():
+                info=os.fstat(source.fileno())
+                if info.st_size!=entry['bytes'] or info.st_nlink!=1:
+                    raise OutputUnavailable()
+                return (info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns,info.st_ctime_ns)
+            initial=stamp()
+            key=(entry['sha256'],initial)
+            with self.source_check_mutex:
+                known=key in self.source_checks
+                if known:self.source_checks.move_to_end(key)
+            if not known:
+                digest=hashlib.sha256()
+                while chunk:=source.read(1024**2):digest.update(chunk)
+                if stamp()!=initial or digest.hexdigest()!=entry['sha256']:
+                    raise OutputUnavailable()
+                with self.source_check_mutex:
+                    self.source_checks[key]=True
+                    self.source_checks.move_to_end(key)
+                    while len(self.source_checks)>4096:self.source_checks.popitem(last=False)
+            source.seek(0)
+            yield source
+            if stamp()!=initial:
+                raise OutputUnavailable()
 
     def process(self,sources,work,command,progress,*,comparison_set=False):
         """Dictionary compatibility for calculation tests and trusted tooling."""
@@ -96,11 +171,11 @@ class VisualiserBackend:
         """Leave bounded JSON rows private for the platform's aggregate helper."""
         from jasmine_web.batch.aggregate_io import AggregateFiles
         from jasmine_web.batch.local_executor import atomic_json
-        from jasmine_web.batch.results import verified_file, OutputUnavailable
+        from jasmine_web.batch.results import OutputUnavailable
         if comparison_set and not self.supports_comparison_sets:
             raise ValueError('This Visualiser build supports single/pair results only')
         self._verify_code()
-        metrics=[]
+        groups=[]
         series=[]
         done=0
         for configuration_index,configuration in enumerate(sources):
@@ -118,45 +193,62 @@ class VisualiserBackend:
                 inputs=[one('person'),one('benefit')]
                 output=work/('configuration-'+str(configuration_index)+'-run-'+str(index)+'.json')
                 with ExitStack() as stack:
-                    descriptors=[stack.enter_context(verified_file(self.root,item)) for item in inputs]
+                    descriptors=[stack.enter_context(self._verified_source(item)) for item in inputs]
                     before=[os.fstat(f.fileno()) for f in descriptors]
-                    atomic_json(work/'request.json',dict(operation='run',
-                        person_fd=descriptors[0].fileno(),benefit_fd=descriptors[1].fileno(),
-                        role=role,run=run['seed'],output=str(output)))
-                    command([self.node,'--max-old-space-size='+str(max(128,self.memory-256)),
-                             str(self.build/'runner.cjs'),str(work/'request.json')],
-                            pass_fds=tuple(f.fileno() for f in descriptors))
+                    cached=(self.summary_cache.entry(self._summary_identity(configuration,run,inputs))
+                            if self.summary_cache is not None else nullcontext(None))
+                    with cached as entry:
+                        if entry is None or not entry.restore(output):
+                            atomic_json(work/'request.json',dict(operation='run',
+                                person_fd=descriptors[0].fileno(),benefit_fd=descriptors[1].fileno(),
+                                role='baseline' if entry is not None else role,run=run['seed'],output=str(output)))
+                            command([self.node,'--max-old-space-size='+str(max(128,self.memory-256)),
+                                     str(self.build/'runner.cjs'),str(work/'request.json')],
+                                    pass_fds=tuple(f.fileno() for f in descriptors))
+                            for initial,source in zip(before,descriptors):
+                                after=os.fstat(source.fileno())
+                                if (initial.st_size,initial.st_mtime_ns,initial.st_ctime_ns)!=(
+                                        after.st_size,after.st_mtime_ns,after.st_ctime_ns):
+                                    raise OutputUnavailable()
+                            if entry is not None:
+                                entry.publish(output)
                     for initial,source in zip(before,descriptors):
                         after=os.fstat(source.fileno())
                         if (initial.st_size,initial.st_mtime_ns,initial.st_ctime_ns)!=(
                                 after.st_size,after.st_mtime_ns,after.st_ctime_ns):
                             raise OutputUnavailable()
-                configuration_metrics.append(str(output));done+=1;progress(done)
+                configuration_metrics.append(dict(path=str(output),role=role,seed=str(run['seed']),canonical=True)
+                    if self.summary_cache is not None else str(output))
+                done+=1;progress(done)
+            groups.append(configuration_metrics)
             if comparison_set:
                 output=work/('configuration-'+str(configuration_index)+'-aggregate.json')
-                if self.paired:
-                    metrics.extend(configuration_metrics)
-                else:
+                if not self.paired:
                     # Retained older builds aggregate one alternative at a time.
                     atomic_json(work/'request.json',dict(operation='aggregate',metrics=configuration_metrics,output=str(output)))
                     command([self.node,'--max-old-space-size='+str(max(128,self.memory-256)),
                              str(self.build/'runner.cjs'),str(work/'request.json')])
                 series.append(output)
-            else:
-                metrics.extend(configuration_metrics)
         notice='Development preview using Visualiser revision '+self.manifest['revision'][:12]+(
             '. Policy impacts and uncertainty use runs with matching random seeds.' if self.paired else
             '. Baseline and scenario levels are shown. Paired impact calculations will use the updated Visualiser release.')
         if comparison_set:
             if self.paired:
-                atomic_json(work/'request.json',dict(operation='aggregate',metrics=metrics,
-                    outputs=[dict(path=str(path),role='baseline' if index==0 else 'scenario_'+str(index))
-                             for index,path in enumerate(series)]))
-                command([self.node,'--max-old-space-size='+str(max(128,self.memory-256)),
-                         str(self.build/'runner.cjs'),str(work/'request.json')])
+                # Accumulator memory scales with one baseline/alternative pair,
+                # independent of the number of alternatives in the experiment.
+                # The first pair writes the common baseline; later pairs only
+                # write their alternative. Scientific calculations are unchanged.
+                for index in range(1,max(2,len(groups))):
+                    metrics=groups[0]+(groups[index] if index<len(groups) else [])
+                    outputs=([dict(path=str(series[0]),role='baseline')] if index==1 else [])
+                    if index<len(groups):
+                        outputs.append(dict(path=str(series[index]),role='scenario_'+str(index)))
+                    atomic_json(work/'request.json',dict(operation='aggregate',metrics=metrics,outputs=outputs))
+                    command([self.node,'--max-old-space-size='+str(max(128,self.memory-256)),
+                             str(self.build/'runner.cjs'),str(work/'request.json')])
             return AggregateFiles(tuple(series),notice,comparison_available=self.paired)
         output=work/'aggregate.json'
-        atomic_json(work/'request.json',dict(operation='aggregate',metrics=metrics,output=str(output)))
+        atomic_json(work/'request.json',dict(operation='aggregate',metrics=[m for group in groups for m in group],output=str(output)))
         command([self.node,'--max-old-space-size='+str(max(128,self.memory-256)),
                  str(self.build/'runner.cjs'),str(work/'request.json')])
         return AggregateFiles((output,),notice,comparison_available=self.paired and len(sources)>1)

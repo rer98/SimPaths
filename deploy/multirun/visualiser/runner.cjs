@@ -6,6 +6,32 @@
 const fs=require('fs'),core=require('./calculation.cjs');
 const readline=require('node:readline');
 const MIB=1024*1024;
+// Capability checked only after the platform verifies this runner's build hash.
+const SUMMARY_FORMAT='simpaths.visualiser.role-independent-metrics.v1';
+function readMetrics(item){
+  if(typeof item==='string')return JSON.parse(fs.readFileSync(item,'utf8'));
+  if(!item||typeof item.path!=='string'||item.canonical!==true||typeof item.seed!=='string'||
+      !/^[0-9]+$/.test(item.seed)||typeof item.role!=='string'||
+      !/^(baseline|scenario(?:_[1-9][0-9]*)?)$/.test(item.role))throw Error('Invalid private summary reference');
+  const fd=fs.openSync(item.path,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);
+  let rows;
+  try{
+    const info=fs.fstatSync(fd);
+    if(!info.isFile()||info.nlink!==1||info.size>64*MIB)throw Error('Invalid private summary file');
+    rows=JSON.parse(fs.readFileSync(fd,'utf8'));
+  }finally{fs.closeSync(fd);}
+  if(!Array.isArray(rows)||!rows.length||rows.length>500000)throw Error('Invalid private summary rows');
+  const keys=['metric_type','metric_value','n','run','scenario','stratifier','stratifier_value','variable','variable_value','year'];
+  for(const row of rows){
+    if(!row||Object.keys(row).sort().join(',')!==keys.join(',')||row.scenario!=='baseline'||
+        String(row.run)!==item.seed||!Number.isInteger(row.year)||!Number.isFinite(row.n)||row.n<0||
+        (row.metric_value!==null&&!Number.isFinite(row.metric_value))||
+        ['variable','variable_value','stratifier','stratifier_value','metric_type'].some(key=>typeof row[key]!=='string'))
+      throw Error('Private summary identity or schema changed');
+    row.scenario=item.role;
+  }
+  return rows;
+}
 // Small/older outputs keep their existing parser path. Large native outputs
 // arrive in annual blocks; each complete year is passed to the same upstream
 // calculation. aggregateSingleRun groups independently by year, so this changes
@@ -92,7 +118,7 @@ if(request.operation==='run'){
 }else if(request.operation==='aggregate'){
   const grouped=core.createGroupedAccumulator();
   // Feed and release one run's private metrics at a time. Match by actual seed.
-  for(const file of request.metrics)core.accumulateRunMetrics(grouped,JSON.parse(fs.readFileSync(file,'utf8')));
+  for(const file of request.metrics)core.accumulateRunMetrics(grouped,readMetrics(file));
   const rows=core.finaliseAggregation(grouped);
   for(const row of rows){
     if(row.variable==='Employment status')row.variable_value=({
@@ -121,7 +147,7 @@ if(request.operation==='run'){
   }else write(request.output,rows);
 }else throw Error('Unknown private operation');
 }
-module.exports={annualCsv,processAnnual,main};
+module.exports={annualCsv,processAnnual,main,readMetrics,SUMMARY_FORMAT};
 if(require.main===module){
   main(JSON.parse(fs.readFileSync(process.argv[2],'utf8'))).catch(error=>{
     console.error(error.stack);process.exitCode=1;

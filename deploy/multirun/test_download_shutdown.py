@@ -194,6 +194,22 @@ class PrivateDownloadShutdownTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any(t.is_alive() and t.name in (
             'multirun-private-cache','multirun-private-visualiser') for t in threading.enumerate()))
 
+    async def test_two_private_slots_are_started_and_joined_before_lifespan_returns(self):
+        stopped,closed=threading.Event(),threading.Event()
+        started=[threading.Event(),threading.Event()]
+        visualiser=SimpleNamespace(stop=threading.Event(),max_workers=2,
+            tick=lambda slot=0:started[slot].set(),retire=lambda:None)
+        visualiser.close=visualiser.stop.set
+        downloads=SimpleNamespace(retire=lambda:None,close=closed.set)
+        service=SimpleNamespace(results=SimpleNamespace(downloads=downloads),visualiser=visualiser)
+        async with private_processors(service,stopped):
+            self.assertTrue(await asyncio.to_thread(started[0].wait,2))
+            self.assertTrue(await asyncio.to_thread(started[1].wait,2))
+        self.assertTrue(stopped.is_set())
+        self.assertTrue(closed.is_set())
+        self.assertFalse(any(t.is_alive() and t.name.startswith('multirun-private-visualiser')
+                             for t in threading.enumerate()))
+
     async def test_executor_cancellation_drains_rpc_before_entering_cache_shutdown(self):
         closing, release, storage_closed = (threading.Event() for _ in range(3))
         loop = asyncio.get_running_loop()

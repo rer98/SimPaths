@@ -1,0 +1,109 @@
+# (C) Copyright 2026, by Ross Richardson
+# Candidate Contabo VPS 12 throughput assembly; validate before hosted use.
+# Use a new/drained pool. Existing reviews and model releases remain immutable.
+# @author ross richardson
+[service]
+origin = "https://multirun.example.org"
+port = 5002
+pool_id = "simpaths-online-throughput"
+dedicated_storage = true
+
+[rpc]
+socket = "/run/simpaths-executor/control.sock"
+frontend_user = "simpaths-web"
+
+[paths]
+frontend = "/opt/simpaths-online/JAS-mine-web"
+private_root = "/srv/simpaths-online/private"
+state = "/srv/simpaths-online/private/multirun"
+dsn_file = "/etc/simpaths-online/database-url"
+prepared = []
+
+[model]
+image = "sha256:REPLACE_WITH_64_HEXADECIMAL_DIGITS"
+
+[monitoring]
+enabled = true
+sample_seconds = 15
+retention_days = 30
+max_rows = 20000
+
+[pool]
+# 8 CPUs/30 GiB for models, 2 CPUs/5 GiB for SingleRun, 1 CPU/3 GiB
+# for primary chart preparation, and 2 GiB shared model-growth headroom.
+# Reserve OS/PostgreSQL/public web resources OUTSIDE this pool.
+# 48 decimal GB is about 44.7 GiB: check actual host capacity on deployment.
+cpu_millis = 11000
+memory_mib = 40960
+storage_mib = 307200
+hold_cpu_millis = 2000
+hold_memory_mib = 5120
+hold_storage_mib = 10240
+growth_memory_mib = 2048
+per_user_active = 6
+
+[limits]
+max_configurations = 100
+max_repetitions = 10
+max_unfinished_jobs = 110
+pool_unfinished_jobs = 220
+runtime_setup_minutes = 15
+runtime_per_repetition_minutes = 240
+runtime_budget_multiplier = 3
+upload_allowance_gib = 4
+
+[downloads]
+threshold_mib = 512
+cache_gib = 10
+cache_hours = 24
+
+[recovery]
+enabled = true
+pressure_percent = 85
+memory_step_mib = 1024
+max_memory_mib = 7168
+heap_step_mib = 1024
+max_heap_mib = 4096
+storage_step_percent = 25
+storage_multiplier = 2
+check_seconds = 10
+
+[notifications]
+enabled = false
+retention_cleanup = false
+admin_email = ""
+
+[visualiser]
+# A NEW reviewed build must contain role-independent summary support.
+# Provider/confidential output still requires its approved disclosure policy.
+build = "/opt/simpaths-online/visualiser-preparation"
+preview = true
+automatic = true
+protected = true
+hard_limits = true
+bounded_comparisons = true
+summaries = true
+memory_mib = 3072
+cpu_millis = 1000
+storage_mib = 2048
+timeout_seconds = 3600
+# Start with one worker. Test the optional second worker for disk contention.
+max_workers = 1
+summary_cache_mib = 2048
+cache_mib = 8192
+cache_hours = 24
+max_entries = 512
+per_owner_entries = 256
+artifact_mib = 96
+comparison_mib = 256
+rows_per_series = 200000
+comparison_rows = 400000
+
+[scheduling]
+adaptive_cpu = true
+cpu_cooldown_seconds = 30
+preparation_priority_seconds = 60
+
+[workspaces]
+quota_socket = "/run/jasmine-workspace-quotas/broker.sock"
+guard = "/usr/local/libexec/jasmine-workspace-guard"

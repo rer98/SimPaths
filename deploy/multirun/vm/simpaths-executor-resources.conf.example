@@ -1,0 +1,13 @@
+# (C) Copyright 2026, by Ross Richardson
+# Opt-in delegated helper limits for bounded automatic chart preparation.
+# Install as simpaths-executor.service.d/resources.conf after host acceptance.
+# @author ross richardson
+[Service]
+Delegate=cpu memory pids
+ProtectControlGroups=false
+# Two 3 GiB helper groups plus bounded private orchestration and read helpers.
+# Docker model containers remain in their own separately accounted cgroups.
+MemoryMax=10G
+MemorySwapMax=0
+CPUQuota=500%
+TasksMax=1024

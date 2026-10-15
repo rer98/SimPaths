@@ -57,33 +57,39 @@ async def private_processors(service, stop):
             except Exception as error:
                 print('Private cache cleanup waiting: '+type(error).__name__,flush=True)
             stop.wait(30)
-    def process():
+    def process(slot):
         while not service.visualiser.stop.is_set():
             try:
-                service.visualiser.tick()
+                if slot==0:
+                    service.visualiser.tick()
+                else:
+                    service.visualiser.tick(slot)
             except Exception as error:
                 print('Private Visualiser processor waiting: '+type(error).__name__,flush=True)
             service.visualiser.stop.wait(1)
     maintenance=threading.Thread(target=maintain,name='multirun-private-cache',daemon=True)
-    processor=(threading.Thread(target=process,name='multirun-private-visualiser',daemon=True)
-               if hasattr(service,'visualiser') else None)
+    processors=([threading.Thread(target=process,args=(slot,),
+                    name='multirun-private-visualiser'+('-'+str(slot) if slot else ''),daemon=True)
+                 for slot in range(getattr(service.visualiser,'max_workers',1))]
+                if hasattr(service,'visualiser') else [])
     try:
         maintenance.start()
-        if processor is not None:
+        for processor in processors:
             processor.start()
         yield
     finally:
         async def shutdown():
             stop.set()
-            if processor is not None:
+            if processors:
                 service.visualiser.close()
             # close() now joins builders. Run it off the event loop and retain
             # ownership even if the enclosing shutdown is cancelled again.
             await asyncio.to_thread(service.results.downloads.close)
             if maintenance.ident is not None:
                 await asyncio.to_thread(maintenance.join)
-            if processor is not None and processor.ident is not None:
-                await asyncio.to_thread(processor.join)
+            for processor in processors:
+                if processor.ident is not None:
+                    await asyncio.to_thread(processor.join)
         await finish_before_cancelling(asyncio.create_task(shutdown()))
 
 
@@ -93,6 +99,10 @@ def create_registry(args,q,state,send_mail,*,capacity=Resources(2000,5120,12288)
     q.create_pool(capacity,holdback=getattr(args,'holdback',None),policy=Policy(per_user_active=per_user_active,
         per_user_unfinished=args.max_unfinished_jobs,pool_unfinished=args.pool_unfinished_jobs),
         update_admission_limits=True)
+    protected=(Resources(getattr(args,'visualiser_cpu_millis',1000),args.visualiser_memory_mib,
+                         getattr(args,'visualiser_storage_mib',512))
+               if getattr(args,'visualiser_protected',False) else None)
+    q.configure_processing(protected,growth_memory_mib=getattr(args,'growth_memory_mib',0))
     access=Access(q,secret_file(state/'session-secret'),send_mail)
     datasets=Datasets(q,state/'uploads',owner_limit=args.upload_allowance_gib << 30)
     preparations=Preparations(datasets)
@@ -179,8 +189,14 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                 service.lifecycle.retire(state/'artifacts')
                 service.outputs.retire()
                 service.lifecycle.reconcile()
+                if hasattr(service,'preparation_scheduler'):
+                    return service.preparation_scheduler.before_claim(worker)
+            scheduler=getattr(service,'preparation_scheduler',None)
             worker=Worker(q,executor,adapter,'local-browser-worker' if local_codes else 'vm-browser-worker',
-                          before_claim=before_claim)
+                          before_claim=before_claim,
+                          cpu_hold=scheduler.cpu_hold if scheduler else None,
+                          admission_guard=(lambda:scheduler.guard) if scheduler else None,
+                          after_claim=scheduler.claimed if scheduler else None)
             with worker.open():
                 while not stop.is_set():
                     try:
@@ -190,7 +206,7 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                             retire_finished(q,executor)
                             service.lifecycle.retire(state/'artifacts')
                             service.outputs.retire()
-                        worker.tick()
+                        worker.tick(max_claims=1 if scheduler else 32)
                         health['message']=''
                     except Exception as error:
                         health['message']=('The dispatcher is waiting for recovery. Submitted jobs remain recorded; check the server terminal.'
@@ -262,10 +278,15 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
     recovery=recovery_policy(args)
     recovery_storage_ceiling=(executor.workspace_quotas.recovery_ceiling()
                               if recovery is not None and executor.workspace_quotas is not None else None)
+    adaptive=None
+    if getattr(args,'adaptive_cpu',False):
+        from jasmine_web.batch.adaptive_cpu import AdaptiveCPUPolicy
+        adaptive=AdaptiveCPUPolicy(cooldown_seconds=getattr(args,'cpu_cooldown_seconds',30))
     service=Submissions(access,datasets,BrowserModel(releases,max_repetitions=args.max_repetitions,
                         max_configurations=args.max_configurations),
                         allow_deadline_credit=local_codes,runtime_allowance=configuration_runtime(args),
-                        resource_recovery=recovery,recovery_storage_ceiling_mib=recovery_storage_ceiling)
+                        resource_recovery=recovery,recovery_storage_ceiling_mib=recovery_storage_ceiling,
+                        adaptive_cpu=adaptive)
     print('Automatic resource recovery: '+('enabled for new reviews; frozen ceilings and original retry/time budgets apply'
                                           if recovery else 'disabled'),flush=True)
     if getattr(args,'operational_metrics',False):
@@ -285,11 +306,43 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
     if args.visualiser_preview:
         from .visualiser_backend import VisualiserBackend
         from jasmine_web.batch.visualiser import Visualiser
+        automatic=getattr(args,'visualiser_automatic',False)
+        scoped=getattr(args,'visualiser_hard_limits',False)
+        if (automatic or scoped) and not private_service:
+            raise ValueError('Bounded automatic preparation requires the separated private executor')
+        scopes=None
+        workers=getattr(args,'visualiser_max_workers',1)
+        if scoped:
+            from jasmine_web.batch.processing_scope import DelegatedScopes
+            scopes=DelegatedScopes(minimum_memory_mib=workers*args.visualiser_memory_mib+2048)
+        backend_options={}
+        if getattr(args,'visualiser_summaries',False):
+            backend_options=dict(summary_cache_root=execution/'visualiser-cache'/'summaries',
+                summary_cache_bytes=getattr(args,'visualiser_summary_cache_mib',2048)*1024**2)
         backend=VisualiserBackend(args.visualiser_build,execution,public_datasets=keys,
-                                  memory_mib=args.visualiser_memory_mib)
+            memory_mib=max(256,args.visualiser_memory_mib-768) if scoped else args.visualiser_memory_mib,
+            **backend_options)
+        from jasmine_web.batch.aggregate_limits import AggregateLimits
+        limits=AggregateLimits(getattr(args,'visualiser_artifact_mib',16)*1024**2,
+            getattr(args,'visualiser_comparison_mib',64)*1024**2,
+            getattr(args,'visualiser_rows_per_series',50000),getattr(args,'visualiser_comparison_rows',200000))
         service.visualiser=Visualiser(service.results,backend,
-            resources=Resources(1000,args.visualiser_memory_mib,512),runtime=args.visualiser_timeout_seconds)
-        print('Online Visualiser: development aggregate preview; paired impacts await the updated release',flush=True)
+            resources=Resources(getattr(args,'visualiser_cpu_millis',1000),args.visualiser_memory_mib,
+                                getattr(args,'visualiser_storage_mib',512)),
+            runtime=args.visualiser_timeout_seconds,automatic=automatic,max_workers=workers,
+            resource_scope=scopes,bounded_comparisons=getattr(args,'visualiser_bounded_comparisons',False),
+            capacity=getattr(args,'visualiser_cache_mib',256)*1024**2,
+            lifetime=getattr(args,'visualiser_cache_hours',24)*3600,
+            max_entries=getattr(args,'visualiser_max_entries',64),
+            per_owner_entries=getattr(args,'visualiser_per_owner_entries',256) if automatic else 10,
+            publication_limits=limits)
+        if automatic:
+            from jasmine_web.batch.preparation_scheduler import PreparationScheduler
+            service.preparation_scheduler=PreparationScheduler(q,service.visualiser,
+                priority_seconds=getattr(args,'preparation_priority_seconds',60))
+            service.visualiser.processing_admission=service.preparation_scheduler.reserve
+        print('Online Visualiser: bounded selected-chart delivery'+
+              ('; automatic configuration/baseline preparation enabled' if automatic else ''),flush=True)
     service.outputs=OutputManagement(service,executor,result_deletion_targets)
     service.attempt_cleanup=AttemptCleanup(q,executor,outputs=result_deletion_targets,
                                            failed_preparation=adapter.preparation.retire_failed)
@@ -308,7 +361,10 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
     atomic_json(state/'operator-settings.json',dict(format='simpaths.operator.settings.v1',
         pool_id=q.pool_id,schema=q.schema,recorded_at=datetime.now(timezone.utc).isoformat(),
         model_release=default,notification_delivery=args.notification_emails,
-        retention_cleanup=args.retention_cleanup,visualiser_enabled=args.visualiser_preview))
+        retention_cleanup=args.retention_cleanup,visualiser_enabled=args.visualiser_preview,
+        adaptive_cpu=adaptive is not None,visualiser_automatic=getattr(args,'visualiser_automatic',False),
+        visualiser_workers=getattr(args,'visualiser_max_workers',1),
+        growth_memory_mib=getattr(args,'growth_memory_mib',0)))
     def ready():
         result={'ready':False,'worker_status':health['message']}
         if health['message'] or fatal.is_set():

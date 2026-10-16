@@ -76,6 +76,9 @@ def run_tasks(args, manifest, built, work, sampler, record, api):
         finally:
             value.update(elapsed_seconds=time.monotonic()-tick, before=before,
                 after=sampler.capture(), sampled_peaks=dict(sampler.peaks.get(key, {})))
+            # Capture failures too. This is one shared-cache cumulative snapshot,
+            # not a per-worker delta to sum across simultaneous workers.
+            record['summary_cache_usage'] = cache.statistics()
             api.write_json(args.output/'report.json', record)
 
     with (args.output/'processing.log').open('xb') as log:
@@ -140,14 +143,15 @@ def run_tasks(args, manifest, built, work, sampler, record, api):
                                         sources = [stack.enter_context(verified_file(args.raw_root,
                                             dict(path=run[k], **manifest['files'][run[k]]))) for k in source_keys]
                                         initial = [os.fstat(s.fileno()) for s in sources]
-                                        node_run(args.build/'runner.cjs', dict(operation='run',
-                                            person_fd=sources[0].fileno(), benefit_fd=sources[1].fileno(),
-                                            role='baseline', run=run['seed'], output=str(output)),
-                                            pass_fds=tuple(s.fileno() for s in sources))
-                                        for first, source in zip(initial, sources):
-                                            last = os.fstat(source.fileno())
-                                            if (first.st_size,first.st_mtime_ns,first.st_ctime_ns) != (last.st_size,last.st_mtime_ns,last.st_ctime_ns):
-                                                raise ValueError('Raw source changed during parsing')
+                                        with entry.raw_processing(sum(manifest['files'][run[k]]['bytes'] for k in source_keys)):
+                                            node_run(args.build/'runner.cjs', dict(operation='run',
+                                                person_fd=sources[0].fileno(), benefit_fd=sources[1].fileno(),
+                                                role='baseline', run=run['seed'], output=str(output)),
+                                                pass_fds=tuple(s.fileno() for s in sources))
+                                            for first, source in zip(initial, sources):
+                                                last = os.fstat(source.fileno())
+                                                if (first.st_size,first.st_mtime_ns,first.st_ctime_ns) != (last.st_size,last.st_mtime_ns,last.st_ctime_ns):
+                                                    raise ValueError('Raw source changed during parsing')
                                 task['cache']['compute_seconds'] += time.monotonic()-tick
                                 task['cache']['computed_bytes'] += output.stat().st_size
                                 task['cache']['published'] += bool(entry.publish(output))
@@ -256,6 +260,7 @@ def run_tasks(args, manifest, built, work, sampler, record, api):
             task['ready_wall_time_ns'] = time.time_ns()
             task['elapsed_seconds'] = task['ready_seconds']-task['started_seconds']
             task['cache']['retained'] = cache.prune()
+            task['cache']['usage'] = cache.statistics()
             task['result_identity'] = identity(task)
             api.write_json(args.output/'report.json', record)
             shutil.rmtree(task_work)

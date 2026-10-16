@@ -16,7 +16,7 @@ import unittest
 from unittest.mock import patch
 
 from .artifacts import fingerprint, inventory, write_json
-from .operator_status import collect, launch_settings, main, release_inventory, literal
+from .operator_status import collect, launch_settings, main, release_inventory, literal, render
 from .releases import ReleaseRegistry
 from deploy._workflow import frontend_path
 
@@ -100,6 +100,25 @@ class OperatorTests(unittest.TestCase):
 
     def test_terminal_labels_escape_control_characters(self):
         self.assertEqual(literal('name\x1b[2J\nmore'),'name?[2J?more')
+
+    def test_operator_includes_read_only_numeric_summary_eviction_costs_without_database(self):
+        from .visualiser_summary_cache import SummaryCache
+        cache=SummaryCache(self.state/'execution/visualiser-cache/summaries', maximum_entries=1)
+        data=self.root/'metrics';data.write_bytes(b'{"fictional":true}');data.chmod(0o600)
+        for number in range(2):
+            with cache.entry(dict(owner='PRIVATE_OWNER',configuration=str(number))) as entry:
+                entry.publish(data)
+        with cache.entry(dict(owner='PRIVATE_OWNER',configuration='0')) as entry:
+            self.assertFalse(entry.restore(self.root/'evicted'))
+            with entry.raw_processing(1024):pass
+        before=self.contents()
+        report=collect(self.queue,self.state,read_database=False)
+        self.assertTrue(report['summary_cache_usage']['available'])
+        self.assertEqual(report['summary_cache_usage']['counters']['eviction_raw_completed'],1)
+        self.assertIn('after known eviction: 1',render(report))
+        self.assertNotIn('PRIVATE_OWNER',json.dumps(report))
+        self.assertNotIn(str(data),json.dumps(report))
+        self.assertEqual(before,self.contents())
 
     def test_cli_errors_are_json_and_do_not_echo_credentials_or_private_paths(self):
         from . import vm_web

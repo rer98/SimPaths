@@ -202,14 +202,17 @@ class VisualiserBackend:
                             atomic_json(work/'request.json',dict(operation='run',
                                 person_fd=descriptors[0].fileno(),benefit_fd=descriptors[1].fileno(),
                                 role='baseline' if entry is not None else role,run=run['seed'],output=str(output)))
-                            command([self.node,'--max-old-space-size='+str(max(128,self.memory-256)),
-                                     str(self.build/'runner.cjs'),str(work/'request.json')],
-                                    pass_fds=tuple(f.fileno() for f in descriptors))
-                            for initial,source in zip(before,descriptors):
-                                after=os.fstat(source.fileno())
-                                if (initial.st_size,initial.st_mtime_ns,initial.st_ctime_ns)!=(
-                                        after.st_size,after.st_mtime_ns,after.st_ctime_ns):
-                                    raise OutputUnavailable()
+                            measured=(entry.raw_processing(sum(item['bytes'] for item in inputs))
+                                      if entry is not None else nullcontext())
+                            with measured:
+                                command([self.node,'--max-old-space-size='+str(max(128,self.memory-256)),
+                                         str(self.build/'runner.cjs'),str(work/'request.json')],
+                                        pass_fds=tuple(f.fileno() for f in descriptors))
+                                for initial,source in zip(before,descriptors):
+                                    after=os.fstat(source.fileno())
+                                    if (initial.st_size,initial.st_mtime_ns,initial.st_ctime_ns)!=(
+                                            after.st_size,after.st_mtime_ns,after.st_ctime_ns):
+                                        raise OutputUnavailable()
                             if entry is not None:
                                 entry.publish(output)
                     for initial,source in zip(before,descriptors):

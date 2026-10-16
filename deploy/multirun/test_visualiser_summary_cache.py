@@ -228,6 +228,34 @@ class SummaryBackendTests(unittest.TestCase):
             results=list(pool.map(lambda _:self.execute(selected),range(2)))
         self.assertEqual(results[0],results[1])
         self.assertEqual(self.runs(),6)
+        counters=self.backend.summary_cache.statistics()['counters']
+        self.assertEqual((counters['raw_started'],counters['raw_completed'],counters['hits']),(6,6,6))
+
+    def test_real_csv_parser_records_eviction_reprocessing_without_changing_results(self):
+        selected=self.selected()
+        self.backend.summary_cache.maximum_entries=3
+        first=self.execute(selected)
+        initial=self.backend.summary_cache.statistics()['counters']
+        self.assertEqual((initial['raw_started'],initial['eviction_raw_started']),(6,0))
+        second=self.execute(selected)
+        self.assertEqual(first,second)
+        counters=self.backend.summary_cache.statistics()['counters']
+        self.assertEqual((counters['raw_started'],counters['raw_completed']),(12,12))
+        self.assertEqual((counters['eviction_raw_started'],counters['eviction_raw_completed']),(6,6))
+        self.assertEqual(counters['eviction_raw_input_bytes'],sum(f['bytes'] for c in selected for f in c['files']))
+        self.assertGreater(counters['eviction_raw_elapsed_ns'],0)
+        self.assertEqual(counters['eviction_raw_failed'],0)
+
+    def test_failed_parser_is_measured_but_never_published(self):
+        selected=self.selected()
+        work=self.root/'failed';work.mkdir()
+        def failure(*args,**kwargs):
+            raise ValueError('Fictional parser rejection')
+        with self.assertRaisesRegex(ValueError,'Fictional parser rejection'):
+            self.backend.process_files(selected,work,failure,lambda _:None)
+        counters=self.backend.summary_cache.statistics()['counters']
+        self.assertEqual((counters['raw_started'],counters['raw_completed'],counters['raw_failed']),(1,0,1))
+        self.assertEqual(self.backend.prune_summaries()['entries'],0)
 
     def test_cache_hit_still_verifies_original_source_and_owner_identity(self):
         from jasmine_web.batch.results import OutputUnavailable

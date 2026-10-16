@@ -7,6 +7,8 @@ No models, Docker daemon or full-size aggregation run in these tests.
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -76,6 +78,25 @@ class CapacityDriverTests(unittest.TestCase):
         options = trial.container_options('image', self.root/'snapshot', self.fixture,
             self.root/'raw', self.root/'out', 2048, 'test')
         self.assertEqual(options['volumes'][str(self.root/'raw')], {'bind':'/raw', 'mode':'ro'})
+
+    def test_container_tool_snapshot_contains_importable_cache_measurement_dependency(self):
+        frontend=self.root/'frontend';(frontend/'jasmine_web').mkdir(parents=True)
+        (frontend/'jasmine_web/__init__.py').write_text('# Fictional package\n')
+        build=self.root/'build';build.mkdir()
+        files={}
+        for name in ('runner.cjs','calculation.cjs'):
+            (build/name).write_text('// Fictional reviewed '+name+'\n')
+            files[name]=trial.fingerprint(build/name)['sha256']
+        (build/'build.json').write_text(json.dumps(dict(files=files)))
+        fixture=dict(self.record,backend={name+'_sha256':files[name+'.cjs'] for name in ('runner','calculation')})
+        snapshot=self.root/'snapshot';snapshot.mkdir()
+        copied=trial.snapshot_tools(frontend,build,snapshot,fixture)
+        self.assertIn('visualiser_cache_usage.py',copied['tools'])
+        # The Docker entry point imports tools as plain modules, without the
+        # SimPaths package. Test that exact import environment, without Docker.
+        subprocess.run([sys.executable,'-I','-B','-c',
+            'import sys; sys.path.insert(0,sys.argv[1]); from visualiser_summary_cache import SummaryCache',
+            str(snapshot/'tools')],check=True,timeout=10)
 
     def test_admission_checks_total_ram_for_two_workers_and_disk(self):
         with patch.object(trial, 'available_memory', return_value=9*trial.GIB), \

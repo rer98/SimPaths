@@ -7,6 +7,16 @@ Attribution scope and non-commentable/generated artifacts.
 
 # Attribution
 
+The portable comparison reader, UI integration and tiny package/round-trip tests
+carry inline notices. Generated comparison-package test manifests and numeric
+validation evidence are (C) Copyright 2026, by Ross Richardson; @author ross
+richardson. Scientific data and copied third-party assets retain their notices.
+
+The Visualiser summary-cache usage tracker and regression checks carry inline
+notices. Generated numeric cache-usage snapshots and storage-size evidence are
+(C) Copyright 2026, by Ross Richardson; @author ross richardson. Private hashed
+history is diagnostic metadata and does not confer access to scientific results.
+
 The population/year resource probes, unattended driver, validation and regression
 checks carry inline notices. Generated numeric year streams, annual/decade
 profiles, CSV comparisons, compact archives and retirement receipts are

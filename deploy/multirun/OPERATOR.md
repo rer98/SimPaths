@@ -115,6 +115,33 @@ unchanged. Native backup/restore includes these tables with the other schema
 records. Older application code cannot open the newer schema; follow the existing
 verified restore procedure when rolling back to code that lacks this migration.
 
+### Visualiser summary-cache reprocessing
+
+When the updated private summary cache is used, the same read-only status command
+includes `summary_cache_usage` in JSON and a short text summary. This is bounded
+private filesystem metadata, independent of the optional history collector and
+requiring no new database migration. It is absent/unknown for older deployments
+or until the cache records activity.
+
+It reports hits/misses, capacity evictions, and genuine raw-parser attempt counts,
+elapsed nanoseconds and logical CSV input bytes. `eviction_raw_*` is the subset
+whose cache lookup had a retained record of a capacity eviction. A first/unknown
+miss, source/calculation change, explicit invalidation, rejected entry or replay
+of precomputed summaries is not attributed to eviction. Failed attempts are
+separate from completed ones; `unfinished_raw_starts` includes still-running or
+hard-interrupted attempts for which no end record was possible.
+
+Counters accumulate from `started_ns` across ordinary service restarts; compare
+two snapshots for interval rates. They are not the seven-day DB-history window.
+The reason history retains at most 1,024 hashed identities for 30 days; its age
+and overflow counts show when eviction attribution becomes incomplete. A lost
+marker makes a later miss unknown, so the measured eviction cost is a lower
+bound. No names, keys, paths or scientific rows appear in the exported snapshot.
+Corrupt/unreadable tracking is reported unavailable rather than zero. Updates
+are best effort; an update failure can leave the last valid snapshot, so check
+`updated_ns`. Tracking does not prevent scientific processing. The full design and measured saved-result
+sizes are in [Visualiser preparation](VISUALISER_PREPARATION.md#measuring-eviction-led-raw-reprocessing).
+
 ### Focused proof
 
 After any ongoing scientific calibration has finished, run:

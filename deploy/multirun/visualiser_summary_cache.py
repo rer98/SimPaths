@@ -14,6 +14,12 @@ import re
 import shutil
 import stat
 import tempfile
+import time
+
+if __package__:
+    from .visualiser_cache_usage import CacheUsage, statistics
+else:
+    from visualiser_cache_usage import CacheUsage, statistics
 
 
 MIB = 1024 ** 2
@@ -30,7 +36,8 @@ class SummaryCache:
 
     Calculation runs under one of 64 striped locks, so concurrent requests for
     the same seed compute once. A separate short lock covers reads, eviction and
-    publication. No database, raw data copy, or authority token is stored here.
+    publication. Numeric usage/history has its own fixed 512-KiB metadata bound.
+    No database, raw data copy, or authority token is stored here.
     """
     def __init__(self, root, *, maximum_bytes=2 * 1024 ** 3, maximum_entries=256,
                  entry_bytes=64 * MIB):
@@ -49,6 +56,11 @@ class SummaryCache:
             raise ValueError('Summary cache directory must not contain symlinks')
         self.maximum_bytes, self.maximum_entries = maximum_bytes, maximum_entries
         self.entry_bytes = entry_bytes
+        self.usage = CacheUsage(self.root)
+
+    def statistics(self):
+        """Read cumulative numeric usage; the operator needs no raw-file access."""
+        return statistics(self.root)
 
     @contextmanager
     def _lock(self, name):
@@ -114,6 +126,7 @@ class SummaryCache:
 
     def _entries(self):
         entries = []
+        rejected = []
         for path in self.root.iterdir():
             if path.name.startswith('.pending-'):
                 # Publication holds the global lock while creating pending files,
@@ -125,15 +138,24 @@ class SummaryCache:
                     entries.append((used, path.name, size, receipt))
                 except (OSError, ValueError, KeyError, TypeError):
                     self._remove(path)
+                    rejected.append((path.name, None, 'rejected'))
+        if rejected:
+            self.usage.update(dict(rejections=len(rejected)), markers=rejected)
         return sorted(entries)
 
     def _evict(self, entries, needed_bytes=0, needed_entries=0):
         total = sum(entry[2] for entry in entries)
+        evicted = []
+        removed_bytes = 0
         while entries and (total + needed_bytes > self.maximum_bytes
                           or len(entries) + needed_entries > self.maximum_entries):
-            _, key, size, _ = entries.pop(0)
+            _, key, size, receipt = entries.pop(0)
             self._remove(self.root / key)
+            evicted.append((key, receipt['identity'], 'evicted'))
+            removed_bytes += size
             total -= size
+        if evicted:
+            self.usage.update(dict(evictions=len(evicted), evicted_bytes=removed_bytes), markers=evicted)
         return dict(entries=len(entries), bytes=total)
 
     def prune(self, *, owner=None, configuration=None):
@@ -144,19 +166,49 @@ class SummaryCache:
             entries = self._entries()
             if owner is not None:
                 retained = []
+                invalidated = []
                 for entry in entries:
                     identity = entry[3]['identity']
                     if identity['owner'] == owner and (configuration is None or identity['configuration'] == configuration):
                         self._remove(self.root / entry[1])
+                        invalidated.append((entry[1], identity, 'invalidated'))
                     else:
                         retained.append(entry)
                 entries = retained
+                self.usage.update(dict(invalidations=len(invalidated)), markers=invalidated,
+                                  invalidate=(owner, configuration))
             return self._evict(entries)
 
 
 class SummaryEntry:
     def __init__(self, cache, key, identity):
         self.cache, self.key, self.identity = cache, key, identity
+        self.miss_reason = 'unknown'
+
+    @contextmanager
+    def raw_processing(self, input_bytes):
+        """Count only actual CSV parsing, never summary replay or aggregation.
+
+        The input size is logical CSV bytes offered to the parser, not measured
+        physical disk I/O. A killed parent can leave an unmatched start; do not
+        disguise it as a completed parse or fabricate its duration.
+        """
+        if type(input_bytes) is not int or not 0 <= input_bytes < 2**63:
+            raise ValueError('Invalid raw summary input size')
+        prefixes = ['raw_'] + (['eviction_raw_'] if self.miss_reason == 'evicted' else [])
+        with self.cache._lock('.cache.lock'):
+            self.cache.usage.update({prefix + suffix: amount for prefix in prefixes
+                                     for suffix, amount in (('started', 1), ('input_bytes', input_bytes))})
+        started = time.monotonic_ns()
+        completed = False
+        try:
+            yield
+            completed = True
+        finally:
+            elapsed = max(0, time.monotonic_ns() - started)
+            with self.cache._lock('.cache.lock'):
+                self.cache.usage.update({prefix + suffix: amount for prefix in prefixes
+                    for suffix, amount in (('completed' if completed else 'failed', 1), ('elapsed_ns', elapsed))})
 
     def restore(self, output):
         """Verify and copy one bounded summary into the current private workspace."""
@@ -165,6 +217,7 @@ class SummaryEntry:
             cache._evict(cache._entries())
             directory = cache.root / self.key
             if not directory.exists():
+                self.miss_reason = cache.usage.update(lookup=(self.key, False)) or 'unknown'
                 return False
             temporary = None
             try:
@@ -186,9 +239,13 @@ class SummaryEntry:
                 os.replace(temporary, output)
                 temporary = None
                 os.utime(directory / 'receipt.json', None, follow_symlinks=False)
+                self.miss_reason = None
+                cache.usage.update(lookup=(self.key, True), forget=(self.key,))
                 return True
             except (OSError, ValueError, KeyError, TypeError):
                 cache._remove(directory)
+                cache.usage.update(dict(rejections=1), markers=[(self.key, self.identity, 'rejected')])
+                self.miss_reason = cache.usage.update(lookup=(self.key, False)) or 'unknown'
                 return False
             finally:
                 if temporary is not None:
@@ -232,6 +289,7 @@ class SummaryEntry:
                         os.chmod(temporary / 'receipt.json', 0o600)
                         target.write(receipt); target.flush(); os.fsync(target.fileno())
                     os.rename(temporary, cache.root / self.key)
+                    cache.usage.update(forget=(self.key,))
                     return True
                 finally:
                     if temporary.exists():

@@ -426,6 +426,8 @@ class BoundedPipelineIntegrationTests(unittest.TestCase):
         self.assertEqual(cold['result_identity'],warm['result_identity'])
         self.assertEqual((cold['cache']['hits'],cold['cache']['misses']),(0,6))
         self.assertEqual((warm['cache']['hits'],warm['cache']['misses']),(6,0))
+        self.assertEqual(cold['cache']['usage']['counters']['raw_started'],0)
+        self.assertEqual(warm['cache']['usage']['counters']['raw_started'],0)
         self.assertEqual(len(cold['parts']),2)
         self.assertTrue(all(v['rows_per_configuration']==[52,52] for v in cold['validation']))
         self.args.tasks=[0,1]
@@ -447,6 +449,9 @@ class BoundedPipelineIntegrationTests(unittest.TestCase):
             return original(log,argv,**kwargs)
         with self.assertRaises(InterruptedError):
             self.run_pipeline('interrupted',interrupt)
+        interrupted=legacy.read_json(self.args.output/'report.json')
+        self.assertTrue(interrupted['summary_cache_usage']['available'])
+        self.assertEqual(interrupted['summary_cache_usage']['counters']['raw_started'],0)
         retry=self.run_pipeline('retry')['tasks'][0]
         self.assertEqual((retry['cache']['hits'],retry['cache']['misses']),(6,0))
         self.assertEqual(len(retry['parts']),2)
@@ -493,6 +498,10 @@ class BoundedPipelineIntegrationTests(unittest.TestCase):
         self.assertEqual(len(cold['parts']),1)
         self.assertEqual(cold['result_identity'],warm['result_identity'])
         self.assertEqual((warm['cache']['hits'],warm['cache']['misses']),(2,0))
+        for task in (cold,warm):
+            self.assertEqual(task['cache']['usage']['counters']['raw_completed'],2)
+            self.assertEqual(task['cache']['usage']['counters']['eviction_raw_started'],0)
+            self.assertEqual(task['cache']['usage']['counters']['raw_input_bytes'],sum(f['bytes'] for f in files.values()))
         self.assertTrue(cold['validation'][0]['nonzero_paired_cells'])
 
 

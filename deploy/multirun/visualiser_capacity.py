@@ -146,6 +146,7 @@ def snapshot_tools(frontend, build, output, fixture):
     wanted = {'visualiser_capacity_worker.py': ROOT/'deploy/multirun/visualiser_capacity_worker.py',
               'visualiser_capacity_bounded.py': ROOT/'deploy/multirun/visualiser_capacity_bounded.py',
               'visualiser_summary_cache.py': ROOT/'deploy/multirun/visualiser_summary_cache.py',
+              'visualiser_cache_usage.py': ROOT/'deploy/multirun/visualiser_cache_usage.py',
               'visualiser/capacity_replay.cjs': ROOT/'deploy/multirun/visualiser/capacity_replay.cjs'}
     tools = snapshot_files(wanted, output/'tools')
     package = frontend/'jasmine_web'

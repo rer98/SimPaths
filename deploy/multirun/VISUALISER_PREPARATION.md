@@ -115,6 +115,238 @@ output. Align retention with expected use and source-result retention so an
 overnight preparation is not routinely expired before the user returns. Restart
 recovery must avoid duplicate workers and partial publications.
 
+### Finished chart data, sizes and retention — 16 October 2026
+
+The finished data is distinct from the temporary per-seed summary cache. Removing
+an intermediate summary does not itself remove a ready comparison. However,
+the current ready-comparison policy still expires publications after 24 hours
+in the candidate configuration, and serving a ready publication rechecks that
+its original source results remain available. Raw-output deletion therefore
+also makes those charts unavailable. This is the current implementation, not
+the desired longer-lived result policy below.
+
+The native 52-year summary-replay trial recorded these finished file sizes per
+baseline/alternative pair, using ten synthetic seed labels:
+
+| Saved component | Bytes | MiB |
+| --- | ---: | ---: |
+| Complete aggregate publication | 142,583,453 | 135.98 |
+| 404 selected-chart section files | 131,098,435 | 125.03 |
+| Section index and catalogue | 92,092 | 0.09 |
+| **Total per pair** | **273,773,980** | **261.09** |
+| **Baseline with two alternatives: two pairs** | **547,547,960** | **522.18** |
+
+Source: `tasks[0].parts` in
+`/tmp-codex/visualiser-capacity-bounded-20261016-001241/round-1-3072m-1000cpu-1workers/cold/worker-1/report.json`.
+These totals sum the immutable publication and helper-verified index/section
+receipts; they exclude small job/selection receipts, transient working files,
+the separate per-seed summary cache and filesystem overhead. Production keeps
+both the full publication and its indexed sections. The benchmark removed the
+bulky files after fingerprinting them. Each pair currently repeats the baseline;
+two alternatives therefore use approximately twice the storage of one pair.
+The browser renders charts from these rows; it does not need stored PNGs for
+each chart, nor does it download all these files to display one selected chart.
+
+**Current user downloads:** the Visualiser exports selected-chart data as CSV
+(including time series, level estimates and paired differences) and chart images
+as PNG. Its **CSV (all)** control covers the panels for the selected variable/
+breakdown and enabled scenarios, not every variable in the prepared comparison.
+Results-page raw-output/comparison ZIPs are a separate download with separate
+permissions. The new hosted build also provides a complete aggregate comparison
+download and matching local reader, described below. It does not include an
+offline copy of the interactive application.
+
+**Implemented portable export/import — 16 October 2026:** the hosted adapter
+provides **Download comparison data** and **Open saved comparison** together.
+The download includes every available variable, breakdown and year for the
+selected baseline and alternatives, independently of which chart/scenarios are
+currently visible. It preserves stable
+scenario IDs/names, seed metadata, level estimates, paired differences,
+confidence intervals, suppressed/missing values and the calculation/schema
+version. It exports already approved finished data without reparsing raw files
+or including private paths, credentials or person-level records.
+
+The server streams a compressed ZIP containing `manifest.json`, approved chart
+indices and their JSON sections. It omits the duplicate complete publication;
+all its chart rows are retained in the indexed sections. The separate local
+reader uses an extracted folder and reads only the indices/sections needed for
+the current chart. It does not parse the complete aggregate dataset into RAM.
+The existing **Visualise Locally Saved Data** control continues to read raw
+Person/BenefitUnit CSV folders; **Open saved comparison** handles the prepared
+format and never calls that raw parser.
+
+Download steps: open an authorised ready online comparison, choose **Download
+comparison data**, and extract the ZIP. In the hosted Visualiser choose **Open
+saved comparison**, then select the extracted folder containing `manifest.json`.
+The public application shell at `/visualiser/local` can also reopen a package
+without an existing online comparison or a signed-in session. No selected local
+file is uploaded. The File System Access folder picker requires a compatible
+browser and a secure origin (HTTPS, or localhost for testing).
+
+This package recreates the saved comparisons using a compatible Visualiser,
+including after server-side expiry. It does not run new simulations or derive
+new seed-paired baseline comparisons from pooled statistics alone. A fully
+offline copy of the application is a separate packaging feature; a data archive
+does not itself contain the interactive application. The data download remains
+subject to the current source/owner checks while being delivered. A completed
+download is an intentional local copy; later server expiry cannot erase it.
+
+The package format is `simpaths.visualiser.package.v1`: a catalogue, a list of
+checksum/byte-bound part indices, the application hash, and selected calculation/
+model/prepared-input identities. Local reads verify file sizes, SHA-256 hashes, selected-configuration
+metadata and the closed aggregate row schema. Manifest/index limits are 1/16 MiB;
+selected charts retain the online 8-MiB/20,000-row limits. Downloads allow at most
+50,000 files and 64 GiB of uncompressed chart/index bytes, bounded further by the
+existing publication/cache limits. One export per execution root shares the
+existing two download slots. Read locks, periodic permission/stop checks and
+final authorisation prevent a changed/revoked source producing a completed ZIP;
+close/disconnect releases the slot and locks. No temporary ZIP is retained.
+
+The eight focused server tests, seven local-reader tests, existing archive/RPC
+checks and compiled round-trip proof pass locally. The round-trip proof exports
+using the real Python server, extracts that ZIP, opens it in the compiled React
+application, and matches level/paired CSVs for two alternatives with the server
+made unavailable. It verifies that unused chart sections remain unread. The new
+build is `/tmp-codex/visualiser-build-20261016-portable-b`.
+The native Chromium/private-RPC proof passed: it downloads a complete package
+while an alternative is hidden, reopens it through real origin-private filesystem
+handles, matches CSVs, denies a second owner's archive request, and reopens the saved
+package after actual server-source deletion. All thirteen HTTP/remote-service
+checks passed on 16 October. The browser-only rerun then passed with complete RPC
+evidence and cleanup, recorded at
+`~/simpaths-benchmarks/vm-visualiser-portable-retry-20261016-110048/model-proof/report.json`.
+Its fictional three-configuration package contains 515 files in a 341,013-byte
+ZIP. Both archive RPC requests were recorded; private processor errors are empty,
+and private processors and RPC handlers stopped cleanly. This same-UID transport
+proof does not replace installed-host UID isolation acceptance.
+The earlier failed run remains preserved; its test-only fixture-variable collision
+was corrected before the successful rerun.
+No upstream message or PR has been sent.
+
+Run the final HTTP and native private-service/browser checks with networking
+enabled, outside any quiet scientific benchmark. They use fictional data and a
+disposable PostgreSQL container, with no scientific simulations or emails:
+
+```bash
+cd ~/git/JAS-mine/JAS-mine-web &&
+TMPDIR=/tmp-codex ~/simpaths-browser-tests/venv/bin/python \
+  -m unittest discover -s tests -p 'test_batch_remote_service.py' -v &&
+TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 ~/simpaths-browser-tests/venv/bin/python \
+  tests/browser/batch_visualiser.py --browser-only --private-rpc \
+  --build /tmp-codex/visualiser-build-20261016-portable-b \
+  --output "$HOME/simpaths-benchmarks/vm-visualiser-portable-$(date +%Y%m%d-%H%M%S)"
+```
+
+The sandbox cannot complete even a minimal native thread-to-event-loop wakeup;
+the unchanged HTTP test likewise waits indefinitely there. The terminal check
+therefore covers both the HTTP streaming/denial case and actual Chromium,
+filesystem, database and private-socket behaviour. Local checks use direct ZIP
+streams, bounded RPC test wires and the compiled application with JSDOM.
+
+Earlier genuine 100,000-person/52-year outputs used approximately 3.46 GiB per
+configuration/seed. Ten repetitions extrapolate to about 35 GiB per configuration,
+or 70 GiB for one baseline/alternative pair. The measured 261 MiB finished pair
+is around 0.4% of that extrapolated raw size. This compares a replay measurement
+with a raw-size estimate; it is **not** a ten-independent-seed raw-output trial.
+Do not treat it as a universal size bound. Finished rows pool repetitions, so
+their size need not increase tenfold with ten seeds; years, variables, populated
+groups, alternative pairs and numeric precision matter. Population size does
+not directly multiply the number of fixed aggregate cells, although it can
+populate previously empty cells.
+
+An older, genuine one-seed pair's full publication was 141,658,767 bytes
+(135.1 MiB). Its 11,317,023-byte `.zst` copy is compressed **archived evidence**,
+not the current live storage format. Neither this compressed size nor the tiny
+selected-chart HTTP response measures the full live publication-plus-index size.
+
+**Refined retention decision, still to implement:** raw output and finished
+comparison/chart data must have **independent retention policies**, initially
+set to the same or approximately the same period. Equal initial values are a
+starting choice, not an invariant: the operator must be able to shorten or
+lengthen finished-result retention without changing raw-output retention.
+Treat finished data as retained owned results with explicit byte quotas and
+expiry, separately from the temporary intermediate-summary LRU.
+
+For example, seven days for raw output and seven days for finished chart data
+would be matching initial settings; later changing chart data to 30 days or
+three days must leave raw output at seven days. These are design examples, not
+new runtime defaults. Existing raw-output retention uses a seven-day window
+with dependency holds and notice/grace rules; finished comparisons currently
+use the independent 24-hour cache lifetime noted above. A new policy needs a
+defined expiry basis and visible per-result deadlines. Account for preparation
+delay and experiments whose configurations complete at different times; matching
+duration values alone do not guarantee identical deletion dates. Ordinary chart
+reads should not silently renew retention.
+
+The existing 8-GiB combined Visualiser cache includes summaries, active work and
+publications; it must not silently promise longer retention at arbitrary
+experiment counts. The retained-result budget and retirement rules need to be
+made consistent with the selected independent policies.
+
+Keeping finished results after raw-data expiry needs an independent verified
+provenance record, ownership/licence and revocation checks that do not require
+the CSV files, separate handling of automatic raw expiry versus an explicit
+delete/revocation, browser-cache invalidation, and backup/restore coverage.
+Removing source-existence checks alone would weaken the current protection.
+Changed-baseline/new comparisons may still require per-seed summaries or raw
+files; keeping one finished comparison cannot recreate every future comparison.
+Setting a longer cache lifetime alone does not implement independent retention:
+current source-existence checks would still cap chart availability at raw deletion.
+Explicit deletion of all results, account removal and access revocation must
+continue to apply to retained aggregates, even when automatic raw expiry does not.
+
+### Measuring eviction-led raw reprocessing
+
+With private summary reuse enabled, the cache now records cumulative numeric
+counts and costs in private bounded metadata. `operator_status` includes them
+under `summary_cache_usage` without reading scientific data or changing files:
+
+- Hits, misses, capacity evictions and evicted bytes.
+- Misses after a known capacity eviction, explicit invalidation or a rejected
+  entry, with other misses classified as **unknown**, not assumed first use.
+- Genuine raw parsing attempts, completed/failed counts, elapsed wall time and
+  logical CSV input bytes; a separate subset records only attempts caused by a
+  known eviction. A missed lookup or summary replay never counts as raw parsing.
+- Starts without a completion record remain visible after a hard interruption;
+  they may be running or interrupted and have no invented completion/duration.
+
+These counters survive ordinary process restarts and are independent of the
+optional PostgreSQL operational-history collector. They start with the updated
+backend; old trials cannot retrospectively supply these measurements. Counts
+are cumulative since `started_ns`, not per-task deltas or hourly DB buckets.
+Compare successive snapshots to measure rates; `eviction_fraction_of_raw_starts`
+shows the cumulative fraction of raw attempts attributed to eviction.
+Input bytes describe the offered CSV files, not physical disk reads. Timing
+covers the parser command and its source-stability check, excluding preliminary
+source hash verification, later pair combination and publication/indexing.
+
+Eviction/invalidation history retains at most 1,024 hashed identities for 30 days;
+age/overflow discard counts are reported. After a marker is discarded, a miss is
+unknown, so eviction attribution is a **lower bound**, not a claim of complete
+lifetime attribution. The private state file is capped at 512 KiB, with at most
+one equally bounded temporary replacement; this metadata is additional to the
+summary data/receipt byte cap and counts toward overall filesystem usage.
+Operator snapshots contain no cache keys, owner names, raw paths or scientific
+values. Missing/invalid measurement state is reported as unavailable rather
+than zero. Updates are best effort and do not prevent scientific processing;
+an update failure can leave the previous valid snapshot and its original
+`updated_ns`, so interpret counts with that timestamp.
+
+The genuine-raw capacity mode uses the same measurements. Summary-replay mode
+reports zero raw parsing attempts, and reports cumulative cache usage separately
+from its existing per-task hit/miss and stage timing fields. The tests use tiny
+fictional CSV files and deliberately force cache eviction to verify both the
+cost accounting and unchanged calculated results.
+
+Local verification passed 89 focused checks: 25 cache-usage/cache/operator
+checks, nine backend checks (the legacy-runner guard tested against its historical
+build), and 55 capacity/worker/packaging checks. These include actual tiny CSV
+calculations, repeated eviction with identical results, separate processes,
+hard-interruption accounting, invalid/oversized tracking, immutable snapshot
+imports, and raw versus replay accounting. No Docker or scientific model was
+started for these checks. Full raw-output capacity and mixed hosted trials are
+still pending.
+
 ## Agreed scheduling policy
 
 - Normally prioritise eligible work in this order: **results a user is actively
@@ -169,7 +401,9 @@ does not inadvertently kill an otherwise correctly limited child.
 **To do; not implemented or enabled.** Reconsider lending unused emergency
 model-growth memory to the optional second aggregation worker only if the planned
 quiet laptop one/two-worker trials demonstrate a worthwhile improvement in time
-to ready charts or preparation throughput. Confirm the benefit under mixed load
+to ready charts or preparation throughput. The first native summary-replay round
+on 16 October shows a throughput benefit, as recorded below; repeat-order and
+mixed-load validation remain outstanding. Confirm the benefit under mixed load
 on the VPS, including disk contention, website responsiveness and discarded work.
 Both the second worker and this separate loan option must remain disabled by
 default; demonstrating a concurrency benefit alone does not establish safe recall.
@@ -306,8 +540,24 @@ or hosted concurrency from the existing single-seed comparison proof.
 ## Outstanding work
 
 - [x] Prepare the bounded local resource harness, fixture verification and
-  guard tests. See commands below. Full-size resource trials have not run.
-- [ ] Run the local resource trials and record the measured allocation decision.
+  guard tests. See commands below; summary-replay trials have run.
+- [x] Record the first local summary-replay resource trials. Genuine raw-output
+  resource and mixed hosted trials remain required before approving limits.
+- [x] Measure known cache-eviction-led raw reprocessing separately from initial/
+  unknown misses, invalidation and rejected entries; expose numeric costs to
+  the operator and to future genuine-raw capacity reports.
+- [x] Portable comparison export/import: download all available finished
+  chart data with its metadata, and reopen it through a bounded local-section
+  reader; local integrity/permission/stream and compiled round-trip checks pass.
+- [x] Run native Chromium/private-service acceptance for the portable download
+  and saved-comparison reader against the new candidate build; 16 October
+  browser-only rerun passed with RPC evidence and cleanup.
+- [ ] Implement independently configurable raw-output and finished-comparison
+  retention policies, initially using matching periods, with explicit byte
+  quotas, expiry bases, user-visible deadlines and tested deletion semantics.
+- [ ] Support shorter or longer finished-result retention independently of raw
+  output; implement provenance, permission/revocation, browser invalidation and
+  backup/restore checks before allowing chart access after automatic raw expiry.
 - [ ] Conditional follow-up: evaluate revocable loans from unused model-growth
   headroom to a disposable second aggregation worker, subject to the performance
   and recall-safety gates above. Keep disabled until both are demonstrated.
@@ -609,6 +859,76 @@ scientific-build source inventories match. These checks do not start Docker or
 establish native memory limits, cancellation latency or a safe growth deadline.
 The earlier Docker SDK option-construction check also passed without contacting
 the daemon.
+
+### First native resource comparison — 16 October 2026
+
+The [native report](/tmp-codex/visualiser-capacity-bounded-20261016-001241/report.json)
+and [comparison](/tmp-codex/visualiser-capacity-bounded-20261016-001241/comparison.md)
+passed **24 batches in one round**, completing 48 experiment-comparison tasks.
+Each task compares one baseline with two alternatives in separate bounded pairs.
+All task identities/publication hashes matched across resource and cache settings;
+all containers were removed, with no OOM events/kills or cleanup errors. The
+separate cancellation/cached-retry check also passed. The run started at
+00:12:41 BST and its final report was written at 01:22:47 BST, about **70 minutes**;
+summed timing-batch duration was 67.9 minutes. The original two-round command
+would run 48 batches; this report contains only round one.
+
+These are native Docker/cgroup measurements of **summary replay**, not ten
+independent model repetitions or raw-output parsing. The fixture repeats verified
+52-year source summaries under ten synthetic seed labels and copies the one
+original alternative. There was no running website or scientific simulation
+load. Cache labels describe the private summary cache; filesystem caches were
+not cleared.
+
+At **3 GiB per worker**, equal total CPU gives:
+
+| Arrangement | Total CPU allowance | Total RAM reservation | Two tasks finished, cold | Two tasks finished, warm | First pair ready, cold / warm |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| One worker, 2 vCPUs | 2 vCPUs | 3 GiB | 219.5 s | 170.3 s | 69.1 / 45.0 s |
+| Two workers, 1 vCPU each | 2 vCPUs | 6 GiB | 145.7 s | 109.9 s | 90.5 / 56.8 s |
+
+Two workers increased throughput by **50.6% cold / 54.9% warm**, finishing the
+same batch **33.6% / 35.4% sooner**, with twice the RAM reservation. They processed
+independent tasks concurrently, not parallel stages of one calculation. The
+earliest pair appeared later with two workers, so this is not evidence that
+every actively waiting user's first result becomes faster. A first whole task
+was ready at 109.2/85.4 s with one worker versus approximately 144.4/108.9 s with
+two; the benefit was earlier completion of the queued work as a whole.
+
+Other observations from the matched cases:
+
+- **2 GiB passed all cases**, but elapsed times were about 6–16% longer than at
+  3 GiB. It is a candidate for a constrained worker, not an approved minimum for
+  genuine raw workloads or a tested mixed 3-GiB/2-GiB worker arrangement.
+- **4 GiB changed elapsed times by less than 3%** relative to 3 GiB, including a
+  few slightly slower warm cases. There is no measured reason in this first
+  round to prefer 4 GiB for this fixture.
+- Raising one worker from 1 to 2 vCPUs at 3 GiB shortened its batch by about
+  10–11%; raising both workers did so by about 7%. Extra worker concurrency gave
+  a larger gain than extra CPU quota for one worker, subject to sufficient RAM.
+- Warm private summaries shortened the 3-GiB batches by about 22–25%. All 60
+  summary lookups hit in each warm batch, versus 60 misses in each cold batch.
+- Sampled working memory at 3 GiB was approximately 1.43–1.50 GiB for one worker
+  and 2.79–2.84 GiB combined for two. Total charged memory could reach the caps
+  because it includes file cache; working peaks are not safe container limits.
+- Minimum sampled host headroom was 10.83 GiB available RAM and 5.48 GiB free
+  disk during work. Per-case admission still checked the required free space;
+  intermediates/cache state were reclaimed between completed resource groups.
+
+The optional cancellation check stopped a worker at the first pair's aggregate
+stage in **0.34 s**, with confirmed removal and scratch cleanup **0.91 s** after
+the request. Its retry reused completed summaries and matched uninterrupted
+results. This measures one quiet cancellation point, not memory-pressure
+detection, memory reservation transfer, Docker model growth, or safe recall
+under mixed disk/CPU pressure. Emergency-memory loans remain unimplemented and
+disabled.
+
+**Candidate direction, without changing production settings:** keep 3 GiB and
+1 vCPU as the primary worker's starting allocation; consider a second independent
+1-vCPU worker when RAM and other capacity permit. Before enabling it, repeat in
+reverse resource order, measure the real source/standalone/pair workload and
+test urgent-user priority plus website responsiveness on the VM under simulation
+and disk load. Tiny local chart-helper reads are not website response timings.
 
 ## Opt-in runtime assembly
 

@@ -88,6 +88,11 @@ def collect(queue, state, *, limit=20, read_database=True):
     except Exception:
         result.update(storage=None,complete=False)
         result['warnings'].append('storage_inventory_unavailable')
+    from .visualiser_cache_usage import statistics
+    result['summary_cache_usage'] = statistics(Path(state)/'execution/visualiser-cache/summaries')
+    if result['summary_cache_usage']['recorded'] and not result['summary_cache_usage']['available']:
+        result['complete'] = False
+        result['warnings'].append('summary_cache_usage_unavailable')
     try:
         result['models'] = release_inventory(state)
     except Exception:
@@ -182,6 +187,22 @@ def render(report):
                          f"; {cache['expired']} expired receipt(s), {cache['invalid']} invalid")
     else:
         lines.append('Storage measurements: unknown')
+    usage = report.get('summary_cache_usage', {})
+    if usage.get('available'):
+        counters = usage['counters']
+        lines.append(f"Summary cache: {counters['hits']} hits, {counters['misses']} misses, "
+                     f"{counters['evictions']} capacity evictions")
+        lines.append(f"  Raw parsing attempts: {counters['raw_started']}; after known eviction: "
+                     f"{counters['eviction_raw_started']} ({counters['eviction_raw_completed']} completed, "
+                     f"{counters['eviction_raw_failed']} failed); "
+                     f"{counters['eviction_raw_elapsed_ns']/1e9:.1f}s; "
+                     f"{gib(counters['eviction_raw_input_bytes'])} logical CSV input")
+        lines.append('  Eviction attribution retains at most 1,024 markers for 30 days; '
+                     f"{counters['history_expired']} aged out, {counters['history_overflow']} overflowed")
+        if usage['unfinished_raw_starts']:
+            lines.append(f"  {usage['unfinished_raw_starts']} raw attempts have no completion record (running or interrupted)")
+    else:
+        lines.append('Summary cache usage: unavailable' if usage.get('recorded') else 'Summary cache usage: not recorded')
     models=report['models']
     if models:
         lines.append(f"Model releases: {len(models['releases'])} retained; selected default {models['selected_default']}")

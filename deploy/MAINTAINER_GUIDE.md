@@ -349,8 +349,9 @@ Generic image-tool tests live in JAS-mine-web's `tests/test_deployment_*.py`.
 
 The user-data preparation worker exits before Build. The application JVM stays
 alive, so preparation must fit the worker plus that waiting application inside
-one container. The existing 8 GiB catalogue allowance is unchanged. This local
-comparison tests two operator settings, without promoting either:
+one container. The user-data catalogue now uses the tested 4 GiB application heap
+and 5 GiB container allowance. This local comparison still explicitly selects
+both limits and tests two preparation-heap settings without editing the catalogue:
 
 | Setting | First case | Second case |
 |---|---:|---:|
@@ -368,12 +369,28 @@ The second preparation tests a surviving application and warmed caches; compare
 the same numbered pass between cases. Stage timings and sampled combined RAM
 are retained. Garbage-collection counters are not measured by this procedure.
 
+Both preparations occur before the first Build. The startup controller locks
+dataset uploads, review and preparation after Build begins; Reset retains that
+lock and the confirmed inputs. Preparing another dataset after a simulation
+therefore requires a fresh session in the current workflow. These trials do not
+measure preparation alongside an application that retains a previously built
+model. Any future same-session re-preparation feature needs verified model/
+database cleanup or an application restart and its own combined-memory test.
+
 Keep the laptop otherwise idle and connected to power. Enable networking for
 the image build; the simulation cases use local inputs and make no AI-provider
 calls. Docker, Chromium and `postgres:17-alpine` must already be available. Allow
 at least 8 GiB free on the root and evidence filesystems **after** the image build;
 the runner checks again before each case. It takes the existing research sequence
 lock in the output parent directory to exclude overlapping benchmark work there.
+
+Keep internet access enabled throughout the comparison if your Docker
+configuration uses an online credential helper, such as `docker-credential-gcloud`.
+The Docker SDK can request registry credentials for each tiny local heap-variant
+build, even with `pull=False` and build networking disabled. That helper may need
+to refresh its login online. A DNS/credential-refresh failure before the first
+case starts is a setup failure; reconnect and rerun with a new output directory.
+The scientific calculations themselves use local inputs and services.
 
 After Java changes, build the core into the isolated Maven cache and package the
 model. The cache must contain current dependencies; omit `-o` if it needs refilling:
@@ -429,3 +446,75 @@ limits, unexpected workers/restarts, failed preparation and unconfirmed cleanup
 fail the trial. A successful trial is workload-specific evidence, not proof that
 every uploaded dataset or simulation horizon fits 5 GiB. Representative research
 inputs and hosted concurrency still require validation before changing defaults.
+
+### First native memory comparison — 16 October 2026
+
+Both cases passed in
+[`/tmp-codex/user-data-memory-20261016-120123/report.json`](/tmp-codex/user-data-memory-20261016-120123/report.json).
+The complete sequence took approximately 64 minutes, with four successful
+preparations and four full 50,000-person simulations through 2026. Each case
+used a 4 GiB application heap, a fixed 5 GiB container, two CPUs and no swap.
+
+| Preparation maximum heap | First preparation | Second preparation | Sampled peak working RAM, whole session |
+|---|---:|---:|---:|
+| 3 GiB | 386.1 seconds | 380.0 seconds | 3.559 GiB |
+| 4 GiB | 377.8 seconds | 368.0 seconds | 3.505 GiB |
+
+The actual worker heaps were checked and both preparation workers in each case
+were confirmed gone before Build; only the original application JVM remained.
+Reset/rebuild, all eight annual summary rows, restricted SQL, downloads,
+permissions, private RPC shutdown and disposable-service cleanup passed. The
+downloaded HealthStatistics CSV hashes match between heap cases for the same
+numbered simulation; this does not establish equality of every output file.
+
+The larger preparation heap was about 2–3% faster in these observations, but
+there is only one case order and no GC-counter measurement. That difference
+does not establish a repeatable speed benefit or justify increasing the heap
+solely for performance. Both settings fit this tested workload in 5 GiB; larger
+uploads, other horizons and hosted mixed load remain to validate. Total charged
+container RAM reached the 5 GiB limit in both cases, including reclaimable file
+cache. Use the full container allowance for scheduler admission, not the lower
+sampled working-memory peak. The trials did not edit production settings. After
+their successful completion, the user-data catalogue was updated to request a
+4 GiB application heap and 5 GiB container/reservation. The preparation-worker
+default is now also 4 GiB, retaining the operator override for smaller heaps.
+Rebuild the model JAR and user-data image to apply the Java default; the existing
+memory candidate was already verified at 4 GiB through its explicit override.
+Reload the SingleRun services and use new sessions to apply catalogue changes.
+
+### Deferred SimPaths maintenance suggestions: preparation performance
+
+Deferred by agreement on 16 October 2026 for later work or consideration by the
+SimPaths maintainers. These are potential improvements to the shared model's
+input preparation, benefiting both desktop and web users. Shared parser changes
+belong in SimPaths maintenance; any concurrent orchestration should be designed
+for reuse by the relevant entry points. They are separate from the current web
+deployment/resource changes. No upstream issue or message has been sent for
+these suggestions.
+
+The retained CPU counters already show more than one CPU being used during
+preparation. Between the first and last samples wholly within each preparation
+stage, container CPU time divided by elapsed wall time averaged 1.431/1.413
+vCPUs for the 3 GiB heap and 1.409/1.383 for the 4 GiB heap (first/second pass).
+That is approximately 69–72% of the two-vCPU allowance. These counters cover the
+whole container, including both JVMs and background threads, and omit the stage
+edges between samples. They do not identify each importer's CPU or I/O cost.
+
+- [ ] Measure elapsed/CPU time, working memory and I/O for population import,
+  donor-file conversion, donor database creation and tax-unit calculation.
+- [ ] Evaluate bounded streaming of donor files: the current converter calls
+  `Files.readAllLines`, splits rows and retains selected data from all files.
+  Preserve column selection, row ordering, escaping and validation.
+- [ ] Evaluate two threads within the existing preparation JVM, overlapping
+  population import with donor-file conversion after shared settings are
+  initialised. Check shared state and retain sequential database writes, joined
+  failure/cancellation handling and the same final validation/install boundary.
+  Measure combined memory and disk contention within the existing limits.
+- [ ] Consider bounded tax-unit calculation and batched persistence separately.
+  The current loop uses one Hibernate persistence context, which must not be
+  shared across concurrent threads. Parallel work needs detached input/results
+  or independently owned contexts and deterministic table-value checks.
+
+These are unimplemented performance candidates, not measured speedups. Use the
+serial implementation as a reference and verify prepared table contents before
+promoting any optimisation.

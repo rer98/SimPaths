@@ -944,10 +944,17 @@ The growth buffer cannot admit extra ordinary jobs. A running model, or a
 resource-specific retry above its original reviewed size, may use it after
 normal recovery checks. It is a shared allowance, not a separate maximum
 reservation for every simulation. Primary aggregation and SingleRun holds stay
-protected during growth. The present user-data SingleRun allocation remains
-8 GiB until its separate preparation-exit/memory acceptance is complete: a
-5 GiB SingleRun hold does **not** guarantee admission of that older 8 GiB mode
-when MultiRun fills its budget. Promote the tested SingleRun setting separately.
+protected during growth. The public-upload SingleRun preparation-exit/memory
+comparison passed on 16 October with 3/4 GiB preparation heaps, a 4 GiB
+application heap and a 5 GiB container; see
+[the measured comparison](../MAINTAINER_GUIDE.md#first-native-memory-comparison--16-october-2026).
+This covers the public 50,000-person/2019–2026 workflow, not arbitrary uploads or
+horizons. The user-data catalogue now requests that 4 GiB application heap and
+5 GiB container, fitting the candidate SingleRun memory hold. Restart the
+SingleRun services and launch fresh sessions with the verified image to apply
+the setting; old catalogues or existing 8 GiB sessions still need their full
+reservations. The CPU and storage holds and actual pool admission checks apply
+as well.
 
 The candidate does not rewrite model release receipts. Register an explicitly
 approved resource policy using `releases.py --resource-policy` after checking

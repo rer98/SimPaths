@@ -80,23 +80,35 @@ Neither process prepares data in the source checkout.
 ## Runtime and validation notes
 
 The current catalogue allocates training sessions a 3 GiB simulation heap, 5 GiB
-container memory and two CPUs. User-data sessions have a 3 GiB simulation heap,
-8 GiB container memory and two CPUs; startup preparation uses a separate process
-with a 3 GiB heap and a one-hour timeout. Size the production host for overlapping
+container memory and two CPUs. User-data sessions have a 4 GiB simulation heap,
+5 GiB container memory and two CPUs; startup preparation uses a separate process
+with a 4 GiB maximum heap and a one-hour timeout. Size the production host for overlapping
 work and validate the chosen allocations for the supported workloads.
 
 The preparation worker exits successfully before Build becomes available. Its
 process memory is then reusable, while the application JVM remains alive. The
-current 8 GiB user-data reservation is a conservative allowance for the two
-processes during preparation; it is not a measured minimum. Changing the worker
-heap does not enlarge the application heap or reduce the scheduler reservation.
+previous 8 GiB user-data reservation was a conservative allowance for the two
+processes during preparation. The 16 October public-upload trials verified both
+3/4 GiB preparation heaps with a 4 GiB application heap in a fixed 5 GiB container,
+including worker exit, reset/rebuild and full 50,000-person runs through 2026.
+The catalogue now uses that 5 GiB container/admission allowance. Changing the
+worker heap does not enlarge the application heap or reduce that reservation.
 
 For local calibration, `SIMPATHS_PREPARATION_HEAP_MIB` is an operator-only image
-environment setting. It defaults to 3072 MiB and accepts whole numbers from 512
+environment setting. It defaults to 4096 MiB and accepts whole numbers from 512
 through 4096; it is not supplied by a browser request. The isolated procedure in
 [the maintainer guide](MAINTAINER_GUIDE.md#local-user-data-memory-trials) compares
-3072 and 4096 with a 4096 MiB application heap and 5120 MiB container. Deployment
-catalogue defaults remain unchanged until representative testing supports a change.
+3072 and 4096 with a 4096 MiB application heap and 5120 MiB container. Other input
+sizes, horizons and hosted mixed load still need validation. Use an image with
+the verified preparation-worker exit behaviour; editing the catalogue does not
+rebuild images or change existing sessions. Restart both SingleRun services to
+load the catalogue for new sessions.
+
+The 4 GiB preparation default is a Java worker setting and requires a rebuilt
+model JAR and user-data image. An existing image retains its packaged default;
+an explicit operator heap override still takes precedence. The container remains
+5 GiB in the catalogue, shared by the application and preparation worker while
+preparation runs.
 
 User-data startup enforces upload and preparation-work budgets and reports
 confirmed disk-full/quota errors. Its free-space checks are admission checks,

@@ -16,8 +16,8 @@ import static org.junit.jupiter.api.Assertions.*;
 class SimPathsPreparationHeapTest {
     @TempDir Path root;
 
-    @Test void defaultRemainsThreeGiBAndOverridesUseIntegerMiB() {
-        assertEquals("-Xmx3072m", SimPathsUserDataPreparation.preparationHeapOption(null));
+    @Test void defaultIsFourGiBAndOverridesUseIntegerMiB() {
+        assertEquals("-Xmx4096m", SimPathsUserDataPreparation.preparationHeapOption(null));
         assertEquals("-Xmx3072m", SimPathsUserDataPreparation.preparationHeapOption("3072"));
         assertEquals("-Xmx4096m", SimPathsUserDataPreparation.preparationHeapOption("4096"));
         assertEquals("-Xmx512m", SimPathsUserDataPreparation.preparationHeapOption("512"));

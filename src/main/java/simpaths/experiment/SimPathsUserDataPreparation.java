@@ -20,7 +20,7 @@ public final class SimPathsUserDataPreparation {
     private SimPathsUserDataPreparation() {}
     /** Operator-only worker heap; never populated from an uploaded file or web request. */
     static String preparationHeapOption(String configured) {
-        if (configured == null) return "-Xmx3072m";
+        if (configured == null) return "-Xmx4096m";
         if (!configured.matches("[1-9][0-9]{2,3}"))
             throw new IllegalArgumentException("SIMPATHS_PREPARATION_HEAP_MIB must be an integer from 512 to 4096");
         int heapMiB = Integer.parseInt(configured);

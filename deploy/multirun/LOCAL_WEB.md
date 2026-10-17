@@ -1151,6 +1151,22 @@ messages. Leave that option off for laptop testing. A future deployed service
 must use its public HTTPS origin for Results links, rather than this localhost
 launcher's address. See JAS-mine-web `docs/batch-queue.md` for the delivery contract.
 
+### Optional storage-delay updates
+
+With real notification delivery configured, add `--storage-wait-emails` to enable
+one owner warning after six continuous hours waiting for server disk space and a
+follow-up when the configuration actually starts. `--storage-wait-hours 6` is the
+default threshold; 1–720 whole hours are supported. The optional feature otherwise
+stays off. The existing administrator alert still uses five minutes.
+
+These notices require batch migration 026. A warning is suppressed if the job
+starts before delivery; a start update is sent only after a warning was delivered.
+Both messages identify the job and direct the owner to My Jobs for current status.
+The follow-up records the confirmed start and current status, including an already
+completed job. Normal queue age, input preparation and simulation runtime do not
+count toward the storage-delay threshold. Retention dates remain independent.
+No messages are sent by the fictional notification tests.
+
 ### Enabling delivery when the service is ready
 
 1. Configure `SMTP_HOST` and `SMTP_FROM_EMAIL` in the service environment, plus

@@ -6,12 +6,21 @@ Agreed automatic Visualiser preparation design and resource-validation plan.
 
 # Automatic Visualiser preparation and resource tests
 
-**Decision record: 15 October 2026. Opt-in implementation; verification evidence and outstanding capacity/host acceptance are recorded below.**
+For the focused two/five/ten-repetition benchmark of regeneration from already
+retained summaries, see [VISUALISER_REPETITION_TRIALS.md](VISUALISER_REPETITION_TRIALS.md).
+The agreed pressure-eviction, warning and bounded-expansion follow-up is recorded
+in [EXPERIMENT_ITERATION.md](EXPERIMENT_ITERATION.md); those actions remain to
+implement and are not enabled by running the benchmark.
 
-The agreed scheduling and reuse behaviour is implemented behind explicit operator
-settings. Existing deployments retain their fixed allocations and on-demand
-preparation until enabled. The implementation checks below distinguish functional
-verification from the outstanding resource measurements and host acceptance.
+**Decision record: 15 October 2026; follow-up decisions and resource evidence updated 17 October 2026. Opt-in implementation; verification evidence and outstanding capacity/host acceptance are recorded below.**
+
+Completion-triggered preparation, protected capacity and bounded summary reuse
+are implemented behind explicit operator settings. Existing deployments retain
+their fixed allocations and on-demand preparation until enabled. Bounded retention
+for pending comparisons is implemented independently of worker resources; explicit
+simulation-to-preparation resource handover remains to implement. The checks
+distinguish local and native database verification from outstanding hosted
+resource and deployment acceptance.
 
 ## Current behaviour and evidence
 
@@ -29,7 +38,8 @@ verification from the outstanding resource measurements and host acceptance.
 - A new verified runner supports private role-independent per-seed summaries.
   Opt-in reuse checks source descriptors/hashes, owner and immutable execution
   identities. The bounded cache uses atomic publication and striped process
-  locks; expired or unavailable publications retire their referenced summaries.
+  locks. Publication expiry retires unheld referenced summaries; pending-pair
+  holds preserve those still needed. Source invalidation overrides these holds.
   A bounded process-local hash cache avoids rereading an unchanged baseline for
   every alternative. It binds device/inode, size, nanosecond modification/change
   times and expected hash; replacement or mutation requires a new hash. A service
@@ -40,13 +50,21 @@ verification from the outstanding resource measurements and host acceptance.
   worker can borrow available capacity after verified quota reductions. The
   example starts with one worker pending disk-contention measurements.
 
-The successful 100,000-person, 2019–2070 comparison proof used one baseline and
+The earlier successful 100,000-person, 2019–2070 comparison proof used one baseline and
 one alternative with **one matched seed each**. Its processor reservation was
 1 vCPU and 3 GiB, with a separately configured 2 GiB Node allowance. That is a
 working starting point, not a measured minimum or optimum. The proof did not
 measure peak memory of the entire processing group. Its total duration also
 included registration, validation and browser checks, so it is not a pure
 aggregation timing.
+
+The 17 October raw-output resource comparison also passed with one baseline,
+one genuine policy alternative and two matching repetitions each. All 24
+resource/cache batches matched their calculation/publication identities, with
+no OOMs or cleanup failures. The detailed results below support 3 GiB as a
+starting worker allowance and show a throughput/first-result trade-off for two
+workers. They do not establish ten-repetition limits or hosted mixed-load
+responsiveness.
 
 ## Agreed preparation sequence
 
@@ -65,6 +83,41 @@ aggregation timing.
 4. Do not calculate alternative-versus-alternative comparisons speculatively.
    Once a baseline is selected, all its alternatives should be available
    together in the Visualiser as their preparation completes.
+
+### Finish all available preparation before waiting — 17 October 2026
+
+**Agreed:** intermediate per-seed summaries are not the stopping point for a
+completed configuration whose comparison partner is still running. Combine its
+repetitions into standalone estimates and uncertainty intervals where applicable,
+then publish its standalone chart sections and metadata. This does not require
+another configuration. Automatic mode already queues this standalone pipeline.
+Baseline differences and their seed-paired uncertainty must wait until both
+configurations have the required verified results and matching seed summaries.
+
+Where comparison inputs are ready, continue through combination and final
+publication in the admitted worker when possible. Do not introduce a mandatory
+second queue or handover to the protected worker just because raw summarisation
+has finished. If an input is missing, finish the available standalone work and
+release processing capacity; do not keep a worker or RAM reservation idle while
+waiting. One ready baseline/alternative pair remains usable while another
+alternative is still simulating or preparing.
+
+**Resource-handover extension, to implement and test:** prefer assigning safely
+released simulation capacity to eligible preparation before a replacement model,
+subject to the existing fairness/progress policy. Verify simulation exit and
+reservation ownership before reassignment, including restart/failure recovery.
+Allocate the worker's measured requirements rather than automatically retaining
+the model's whole 5 GiB. Reconsider CPU against current demand; the model's last
+1-to-2-vCPU allowance is not an entitlement to an additional unaccounted worker.
+Keep protected SingleRun, essential services and emergency memory outside this
+handover. Existing optional-worker borrowing is not an explicit per-configuration
+handover or parallel processing of its repetitions.
+
+Retain verified per-seed summaries for authorised pending comparisons: finished
+standalone averages and confidence intervals cannot replace the original
+matching-seed statistics. Bounded dependency-aware holds are now implemented as
+described below. Waiting on another configuration does not keep a live RAM
+reservation or imply indefinite disk retention.
 
 ### Completion delivery and recovery
 
@@ -114,6 +167,94 @@ Bound cache bytes and entry counts; record storage separately from retained raw
 output. Align retention with expected use and source-result retention so an
 overnight preparation is not routinely expired before the user returns. Restart
 recovery must avoid duplicate workers and partial publications.
+
+### Pending-comparison retention — implemented 17 October 2026
+
+This is independent of simulation-to-preparation CPU/RAM handover. With private
+summary reuse enabled, the platform derives dependencies
+from authorised configuration snapshots, the selected experiment baseline and
+explicitly requested pending pairs. Once at least one member has completed, it
+attempts to admit a persistent disk-retention plan for both configurations. It
+does not create holds for hypothetical comparisons without a selected baseline,
+or for an entirely unfinished pair. Automatic mode registers dependencies on
+completion; manually started preparation reconciles them before processing too.
+Changing to on-demand mode does not strand existing holds or block a manual pair
+when its formerly unfinished partner completes.
+
+- Admitted per-seed summaries are protected from ordinary LRU eviction. Shared
+  baseline seeds count once across the owner's pending comparisons. Exact job,
+  successful attempt, owner, configuration, seed and calculation/runtime scope
+  select the retained entries; existing source hashes and permissions still
+  control whether they can be reused. An old attempt cannot satisfy a pending
+  partner's future reservation.
+- Reserve missing seed summaries at the supported maximum: 64 MiB of metrics
+  plus up to 64 KiB of receipt metadata each. Published seeds use their measured
+  sizes. This protects capacity for an unfinished baseline/alternative, rather
+  than filling the whole cache with results whose partners cannot then fit.
+  All promises share the existing summary-cache byte/entry limits. The owner's
+  retained-configuration limit follows its configured preparation-entry allowance,
+  bounded by the global summary-entry limit. Multiple seeds do not count as
+  separate configurations. No larger runtime storage budget is enabled.
+- If another dependency cannot fit, leave its preparation queued with a storage
+  message and a bounded 30-second retry delay. Check admission before source
+  hashing or CSV parsing. Do not evict admitted dependencies, grow the cache
+  beyond its cap, repeatedly parse an unadmitted comparison, or restart models.
+  Deferred work does not hold simulation-admission CPU priority during backoff.
+- Holds have fixed deadlines: the independently configured summary period
+  (seven days by default) from the first completed member, capped by owner approval.
+  Routine raw expiry does not shorten this period. Reads and repeated
+  reconciliation do not renew an existing hold. Source deletion, access loss,
+  cancellation/expiry of a required partner or an incompatible dependency removes
+  the promise. These checks do not extend raw-output retention or authorisation.
+- A ready pair releases its dependency; an unfinished alternative may still keep
+  the shared baseline held. Expiring a standalone publication preserves summaries
+  held for another pending comparison. Explicit invalidation overrides all holds.
+  Retiring a pair with one deleted/denied source invalidates that source; an
+  authorised baseline needed by a different pair remains protected.
+  Once released or expired, surviving summaries return to ordinary LRU treatment;
+  the finished publication remains separate from its intermediate summaries.
+- Plans live in the private, atomically replaced `.summary-holds.json`. Metadata
+  is capped at 512 KiB/256 comparison records, with at most one bounded temporary
+  replacement. New work cannot consume already promised storage if metadata or
+  capacity is unavailable. Locks, cache publication and reservation checks are
+  shared across processes. Restarts retain promises; bounded rotating maintenance
+  rechecks current dependencies every 30 seconds, up to 64 experiments per pass.
+  A full metadata allowance delays preparation without stopping model dispatch.
+- Read-only operator status reports admitted/deferred comparison counts and shared
+  seed-slot counts without private owner IDs, paths, cache keys or scientific
+  values. Existing eviction-led raw-reprocessing counters remain available.
+
+The guarantee applies to **admitted dependencies before their fixed deadlines**,
+not unlimited experiments, lost/corrupt storage or revoked results. Releasing a
+hold permits later eviction; selecting a different baseline after release can
+still require raw reprocessing. Already queued preparation reconciles dependencies
+before starting, so it does not depend on replaying an old completion event.
+
+Local checks cover LRU pressure, future-partner capacity, per-owner/global bounds,
+restart, deadline expiry/non-renewal, source changes, explicit invalidation,
+concurrent publication in separate processes and storage backpressure. Tiny real
+CSV calculations prove standalone-to-pair reuse after pressure/restart with
+identical published results. Mode-switch and selective-source retirement checks
+additionally cover preserving another alternative's valid baseline.
+
+The native PostgreSQL run passed **49 checks** (11 automatic-preparation, 25
+Visualiser and 13 Results), with disposable-database cleanup confirmed:
+`/tmp-codex/visualiser-summary-retention-20261017-092122/report.json`.
+This verifies real completion receipts, permission snapshots, standalone expiry
+and release after pair publication. Subsequent on-demand-mode and selective-source
+retirement refinements are covered by the local planner regressions; the database
+snapshot queries did not change. Hosted mixed-load acceptance remains separate
+from these functional retention checks.
+
+Final local evidence:
+`/tmp-codex/visualiser-summary-retention-final-20261017-093314/report.json`.
+The suite ran 157 cases: 156 passed and the historical-runner-only guard was
+skipped against the current build. That guard separately passed against
+`visualiser-build-20261011-cache-b`, recorded in the linked compatibility evidence.
+The current run includes 17 platform retention-planning checks, 14 cache/hold
+checks, real tiny CSV/publication parity, cross-process writers, operator privacy,
+capacity packaging and scheduling/remote-facade regressions. No scientific
+simulation was launched. Both repositories pass `git diff --check`.
 
 ### Finished chart data, sizes and retention — 16 October 2026
 
@@ -259,41 +400,30 @@ An older, genuine one-seed pair's full publication was 141,658,767 bytes
 not the current live storage format. Neither this compressed size nor the tiny
 selected-chart HTTP response measures the full live publication-plus-index size.
 
-**Refined retention decision, still to implement:** raw output and finished
-comparison/chart data must have **independent retention policies**, initially
-set to the same or approximately the same period. Equal initial values are a
-starting choice, not an invariant: the operator must be able to shorten or
-lengthen finished-result retention without changing raw-output retention.
-Treat finished data as retained owned results with explicit byte quotas and
-expiry, separately from the temporary intermediate-summary LRU.
+**Independent retention is implemented:** raw output, intermediate summaries and
+finished comparison/chart data have separate lifetime settings. The candidate
+uses seven-day summary/chart periods, configurable independently from 1–8760
+hours. Changing chart data to 30 days or three days leaves raw retention
+unchanged. Summary protection begins at simulation completion; chart expiry
+begins at publication readiness and is visible in Results. Reads and restore do
+not renew either clock. Matching durations do not guarantee matching dates when
+preparation is delayed. See [the retention/recovery guide](VISUALISER_RETENTION.md)
+for the exact permission and expiry rules.
 
-For example, seven days for raw output and seven days for finished chart data
-would be matching initial settings; later changing chart data to 30 days or
-three days must leave raw output at seven days. These are design examples, not
-new runtime defaults. Existing raw-output retention uses a seven-day window
-with dependency holds and notice/grace rules; finished comparisons currently
-use the independent 24-hour cache lifetime noted above. A new policy needs a
-defined expiry basis and visible per-result deadlines. Account for preparation
-delay and experiments whose configurations complete at different times; matching
-duration values alone do not guarantee identical deletion dates. Ordinary chart
-reads should not silently renew retention.
-
-The existing 8-GiB combined Visualiser cache includes summaries, active work and
-publications; it must not silently promise longer retention at arbitrary
+The previous 8-GiB combined Visualiser cache included summaries, active work and
+publications; the iterative candidate increases this to 16 GiB. It must not silently promise longer retention at arbitrary
 experiment counts. The retained-result budget and retirement rules need to be
 made consistent with the selected independent policies.
 
-Keeping finished results after raw-data expiry needs an independent verified
-provenance record, ownership/licence and revocation checks that do not require
-the CSV files, separate handling of automatic raw expiry versus an explicit
-delete/revocation, browser-cache invalidation, and backup/restore coverage.
-Removing source-existence checks alone would weaken the current protection.
-Changed-baseline/new comparisons may still require per-seed summaries or raw
-files; keeping one finished comparison cannot recreate every future comparison.
-Setting a longer cache lifetime alone does not implement independent retention:
-current source-existence checks would still cap chart availability at raw deletion.
-Explicit deletion of all results, account removal and access revocation must
-continue to apply to retained aggregates, even when automatic raw expiry does not.
+Migration 029 stores verified aggregate-source provenance and distinguishes
+routine raw expiry from explicit deletion. Current permissions remain mandatory;
+revocation or explicit deletion denies hosted charts and summary reuse. Routine
+expiry permits existing charts and new comparisons from still-valid retained
+summaries, without opening missing raw files. A changed calculation, absent or
+expired summary cannot be regenerated after raw expiry. New offline/online
+backups include committed summaries and ready publications/indexed sections,
+with their fixed deadlines and matching database provenance. Keeping one finished
+comparison cannot recreate every future comparison.
 
 ### Measuring eviction-led raw reprocessing
 
@@ -385,6 +515,12 @@ still pending.
   reduction in time to ready charts or increased preparation throughput without
   unacceptable disk contention or website latency. A larger CPU allowance for
   one single-threaded calculation does not itself establish a speed improvement.
+  Two is the current implementation/measurement ceiling, not a universal optimum.
+  A future generalisation may admit more workers when total CPU, RAM, scratch
+  space and measured disk performance permit, while preserving website
+  responsiveness. Do not automatically create two workers for each completion;
+  admit only useful independent work within the shared budgets. Parallel seeds
+  within one configuration and mixed 3-GiB/2-GiB workers remain unverified.
 - Release borrowed capacity when preparation finishes. Keep the protected
   SingleRun slot and general-service budget outside borrowing. Automatic
   background preparation uses the same aggregation capacity as user-requested
@@ -541,8 +677,11 @@ or hosted concurrency from the existing single-seed comparison proof.
 
 - [x] Prepare the bounded local resource harness, fixture verification and
   guard tests. See commands below; summary-replay trials have run.
-- [x] Record the first local summary-replay resource trials. Genuine raw-output
-  resource and mixed hosted trials remain required before approving limits.
+- [x] Record the first local summary-replay resource trials.
+- [x] Run and record genuine raw-output resource trials with two matching
+  repetitions per configuration: 24 batches passed on 17 October. Full
+  ten-repetition, multi-alternative and mixed hosted trials remain required
+  before approving production limits.
 - [x] Measure known cache-eviction-led raw reprocessing separately from initial/
   unknown misses, invalidation and rejected entries; expose numeric costs to
   the operator and to future genuine-raw capacity reports.
@@ -552,10 +691,10 @@ or hosted concurrency from the existing single-seed comparison proof.
 - [x] Run native Chromium/private-service acceptance for the portable download
   and saved-comparison reader against the new candidate build; 16 October
   browser-only rerun passed with RPC evidence and cleanup.
-- [ ] Implement independently configurable raw-output and finished-comparison
+- [x] Implement independently configurable raw-output and finished-comparison
   retention policies, initially using matching periods, with explicit byte
   quotas, expiry bases, user-visible deadlines and tested deletion semantics.
-- [ ] Support shorter or longer finished-result retention independently of raw
+- [x] Support shorter or longer finished-result retention independently of raw
   output; implement provenance, permission/revocation, browser invalidation and
   backup/restore checks before allowing chart access after automatic raw expiry.
 - [ ] Conditional follow-up: evaluate revocable loans from unused model-growth
@@ -564,6 +703,19 @@ or hosted concurrency from the existing single-seed comparison proof.
 - [ ] Measure the full workload with genuine matching seeds, including several
   alternatives; explicitly separate any local capacity-fixture evidence.
 - [x] Implement automatic completion-triggered configuration preparation.
+- [ ] Implement and test explicit simulation-to-preparation capacity handover,
+  continuing through ready standalone/comparison publication without a mandatory
+  second queue, and releasing capacity when comparison inputs are missing.
+- [x] Retain per-seed summaries needed by pending comparisons through bounded
+  dependency-aware holds; test budget pressure, expiry, restart, invalidation
+  and avoidance of repeated raw parsing. Local tests and tiny real calculations
+  pass; native PostgreSQL verification is recorded separately below.
+- [x] Verify pending-summary dependencies through the native PostgreSQL
+  completion, Results permission and publication-retirement suites: 49 passed,
+  disposable resources cleaned up; evidence recorded above.
+- [ ] Generalise heavy-worker admission beyond the current two-worker ceiling
+  if measurements justify it; separately test parallel seeds within one
+  configuration and any mixed-memory worker arrangement before enabling them.
 - [x] Implement durable, private, role-independent per-seed summary reuse and
   invalidation/retention rules.
 - [x] Implement selected-baseline comparisons for every ready alternative.
@@ -930,6 +1082,126 @@ reverse resource order, measure the real source/standalone/pair workload and
 test urgent-user priority plus website responsiveness on the VM under simulation
 and disk load. Tiny local chart-helper reads are not website response timings.
 
+### Genuine raw-output resource comparison — 17 October 2026
+
+Evidence: [native report](/tmp-codex/visualiser-raw-20261016-171532-results/report.json),
+[generated comparison](/tmp-codex/visualiser-raw-20261016-171532-results/comparison.md),
+and the verified fixture at
+`/tmp-codex/visualiser-raw-20261016-171532-fixture/manifest.json`.
+
+Two new configurations, baseline and lower-saving-rate, each completed two
+genuine repetitions with seeds **606 and 607**, initial population **100,000**
+and all **52 annual years, 2019–2070**. Both used the same pinned model runtime
+as the preceding research trials, 4 GiB maximum Java heap, fixed 5 GiB container
+RAM and a 2-vCPU quota. Each completed in one attempt with no limit increases;
+the model containers ran for 2 h 58 min each. The complete model proofs took
+about 3 h 10 min each, including their verification/cleanup. Retained output was
+**6.930 GiB per configuration**, **13.861 GiB in total**; working storage peaked
+at approximately 9.304 GiB per configuration.
+
+The raw fixture mounts the original Person/BenefitUnit CSVs read-only, rather
+than copying them. Selected source CSVs total **13.599 GiB**. Each benchmark task
+prepares one baseline/alternative comparison using both genuine seeds. The two
+tasks use distinct experiment identities over the same saved raw files; this
+forces separate summary-cache entries while permitting shared filesystem-cache
+effects. They are concurrent complete comparisons, not parallel stages of a
+single comparison or additional scientific repetitions.
+
+All **24 batches / 48 tasks** passed across 2/3/4 GiB per worker, 1/2 vCPUs per
+worker, one/two workers, and cold/warm summary caches. Each task's result
+identity matched across settings, original sources remained unchanged, and all
+36 worker containers were cleaned up with **zero OOM events/kills**. This is
+calculation/output equivalence across resource settings, not an independent
+validation of the model's scientific assumptions. There was one timing round,
+in the fixed 3/2/4-GiB resource order, with no running website or other simulation
+load and no cancellation/recall trial in this run.
+
+Aggregation started at **23:36:53 BST on 16 October**; the final report was
+written at **06:08:34 BST on 17 October**, about **6 h 32 min**. Summed timing
+batches took 6 h 31 min. Including generation of the four scientific runs and
+fixture verification, the full command took approximately **12 h 53 min**.
+
+At **3 GiB per worker**, the observations were:
+
+| Worker arrangement | Total CPU allowance | Total worker RAM allowance | Both tasks finished, cold | Both tasks finished, warm | First pair ready, cold |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| One worker, 1 vCPU | 1 vCPU | 3 GiB | 39.16 min | 3.21 min | 18.91 min |
+| One worker, 2 vCPUs | 2 vCPUs | 3 GiB | 33.34 min | 3.16 min | 16.15 min |
+| Two workers, 1 vCPU each | 2 vCPUs | 6 GiB | 22.95 min | 1.96 min | 21.97 min |
+| Two workers, 2 vCPUs each | 4 vCPUs | 6 GiB | 20.37 min | 1.92 min | 19.56 min |
+
+The two-task elapsed columns include source verification before/after the tasks
+and worker completion. First-pair timing starts with the batch and includes
+initial source verification, but excludes the later final verification. These
+are preparation timings, not browser response times or time to reopen an
+already-finished chart publication.
+
+**CPU and concurrency:** with the same total 2-vCPU allowance, two 1-vCPU
+workers finished both cold tasks **31.2% sooner**, corresponding to **45.3%
+greater throughput**, than one 2-vCPU worker. The warm figures were **38.1%
+sooner / 61.6% greater throughput**. The RAM allowance doubled from 3 to 6 GiB.
+However, the first pair was **36.0% later cold** (21.97 versus 16.15 min) and
+24.8% later warm. This supports two workers for useful queued work when RAM
+permits, with a deliberate user-priority policy; it does not show that starting
+a second worker accelerates an urgent user's first result.
+
+Increasing one worker from 1 to 2 vCPUs reduced its cold batch duration by
+**14.9%**. Increasing both workers from 1 to 2 vCPUs each reduced their cold batch
+by **11.3%**. The corresponding warm improvements were only about **1–2%**.
+There is therefore a modest measured cold-processing benefit to additional CPU
+quota, with no proportional acceleration. It must be weighed against CPU taken
+from simulations and other work.
+
+**Memory:** all 2-GiB cases passed, but took **4.3–17.2% longer** than the
+corresponding 3-GiB cases. At 4 GiB, elapsed times ranged from 0.5% faster to
+5.7% slower than 3 GiB; this round gives no consistent reason to prefer 4 GiB.
+The harness changes Node's old-space ceiling alongside worker RAM: 1/2/3 GiB
+old-space for 2/3/4-GiB workers, respectively. This is a comparison of complete
+worker resource profiles, not an isolated change to file-cache capacity.
+
+At the 3-GiB allowance, sampled working memory was about **1.15–1.51 GiB** for
+one worker and **1.88–2.78 GiB combined** for two. Individual cgroups could reach
+their full charged caps because charged usage includes file cache. Working
+peaks are not safe replacement caps, and individually observed cgroup peaks do
+not establish simultaneous combined usage. The minimum sampled host margins
+across the matrix were approximately **11.00 GiB available RAM** and **10.82 GiB
+free disk**. Two genuine seeds do not establish the memory needed for ten.
+
+**Reusable summaries:** at 3 GiB/1 vCPU, the two-task batch fell from **39.16 to
+3.21 min** with retained summaries, a **91.8% reduction**. Each cold batch made
+eight raw-summary calculations; each matching warm batch had eight hits and
+**zero additional raw parses**. Raw parsing accounted for approximately 34.9
+of the 39.2 cold minutes in the one-worker/1-vCPU batch. Cumulative shared-cache
+counters carry the previous cold phase forward; compare snapshots for phase
+deltas rather than adding snapshots from two workers.
+
+Warm does not mean no raw-file reads. The harness deliberately rehashes all
+sources twice per task even on summary hits. Total verification took about
+128 seconds cold and 126 seconds warm for the one-worker/1-vCPU batch. The two
+warm task calculations themselves took approximately **32 and 33 seconds**.
+Production source-hash memoisation may avoid repeated full reads for unchanged
+sources, but this trial does not measure that saving or HTTP/browser latency.
+
+The shared summary cache retained **eight entries / 243.9 MiB** for the two
+experiment identities; each configuration's two seed summaries accounted for
+about **61.0 MiB**. There were **no evictions**, and therefore no eviction-led
+raw reprocessing in this workload. This confirms the accounting at zero churn,
+not the adequacy of a 2-GiB cache under production churn. One finished pair used
+approximately **140.35 MiB** for its complete publication, **129.38 MiB** for
+404 chart sections, and **0.11 MiB** for index/catalogue, about **269.84 MiB**
+in total, excluding transient files and the separate summary cache.
+
+**Candidate direction:** retain 3 GiB/1 vCPU as the protected primary worker,
+consider a temporary 2-vCPU allowance for uncached urgent work when capacity
+permits, and evaluate a second independent 3-GiB/1-vCPU worker for a backlog.
+The additional worker needs actual spare RAM as well as CPU; reducing a
+simulation's CPU quota does not release its RAM reservation. Keep the second
+worker disabled by default pending an order-reversed repeat and hosted mixed
+load/priority acceptance. Emergency-memory loans remain unimplemented and
+disabled; this run did not test recall, model-growth deadlines or reservation
+transfer. Retain the genuine raw sources until any planned repeat is complete,
+then use verified archive/disposal tooling to reclaim them.
+
 ## Opt-in runtime assembly
 
 `vm/throughput.toml.example` records the candidate assembly; it is not an
@@ -997,9 +1269,11 @@ The scheduling implementation has these explicit bounds:
   `max_workers = 2` only after measuring a benefit. This runs independent
   preparations concurrently; it does not parallelise a single JavaScript
   calculation.
-- The example allocates 2 GiB of scratch per active worker, a 2 GiB persistent
-  summary cache, and an 8 GiB total Visualiser cache including both. Publications
-  expire after 24 hours. Byte/entry caps, source identity checks and private
+- The example allocates 2 GiB of scratch per active worker, an 8 GiB persistent
+  summary allowance, and a 16 GiB total Visualiser allowance including both.
+  Completed-scenario summaries and finished chart files each have a separately
+  configured seven-day period. See [iteration and retention](EXPERIMENT_ITERATION.md).
+  Byte/entry caps, source identity checks and private
   retirement apply throughout. These disk and memory budgets still require
   genuine ten-seed measurement.
 

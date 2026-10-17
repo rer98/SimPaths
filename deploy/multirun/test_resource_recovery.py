@@ -4,6 +4,8 @@ Recovery launcher settings and immutable model/heap integration checks.
 @author ross richardson
 """
 from copy import deepcopy
+from contextlib import redirect_stderr
+import io
 from types import SimpleNamespace
 import unittest
 
@@ -31,6 +33,15 @@ class ResourceRecoveryTests(unittest.TestCase):
                           ('recovery_max_memory_mib',True)]:
             changed=deepcopy(args); setattr(changed,key,value)
             with self.assertRaises(ValueError):policy(changed)
+
+    def test_fractional_multiplier_round_trips_through_cli_without_changing_defaults(self):
+        args=parse_args(['serve','--console-codes','--resource-recovery','--recovery-storage-multiplier','1.3'])
+        self.assertEqual(policy(args).storage_multiplier,1.3)
+        self.assertEqual(policy(args).storage_step_percent,25)
+        self.assertEqual(policy(parse_args(['serve','--console-codes','--resource-recovery'])).storage_multiplier,2)
+        for value in ('nan','inf','0.9','4.1'):
+            with self.subTest(value=value),redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):
+                parse_args(['serve','--console-codes','--resource-recovery','--recovery-storage-multiplier',value])
 
     def test_model_uses_frozen_retry_heap_without_changing_scientific_settings(self):
         fixture=test_container_adapter.ContainerAdapterTests(); fixture.setUp(); self.addCleanup(fixture.doCleanups)

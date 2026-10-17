@@ -25,11 +25,11 @@ def main():
     write_attribution(args.output)
     from deploy._workflow import frontend_path
     sys.path[:0]=[str(frontend_path()),str(frontend_path()/'tests'),str(frontend_path()/'tests/batch')]
-    names=['test_observability','test_operator_status',
+    names=['test_observability','test_performance_review','test_operator_status',
         'test_postgres.PostgresQueueTests.test_atomic_migration_and_checksum',
         'test_postgres.PostgresQueueTests.test_configuration_input_migration_preserves_existing_jobs',
         'test_resource_recovery',
-        'deploy.multirun.test_resource_profiles','deploy.multirun.test_releases',
+        'deploy.multirun.test_resource_profiles','deploy.multirun.test_performance_review','deploy.multirun.test_releases',
         'deploy.multirun.test_prepared_dataset','deploy.multirun.test_submission_adapter',
         'deploy.multirun.test_container_adapter','deploy.multirun.test_vm_config',
         'deploy.multirun.test_operator_status','deploy.multirun.test_vm_runtime',

@@ -6,6 +6,7 @@ Concurrent private summary reuse, corruption, eviction and source-role parity.
 from concurrent.futures import ThreadPoolExecutor
 import copy
 from contextlib import contextmanager
+from datetime import datetime,timedelta,timezone
 import hashlib
 import json
 import os
@@ -14,9 +15,11 @@ import shutil
 import tempfile
 import threading
 import unittest
+import time
 
 from deploy.multirun.visualiser_summary_cache import SummaryCache, MIB
 from deploy.multirun.visualiser_backend import VisualiserBackend
+from deploy.multirun.visualiser_summary_holds import SummaryCapacityError
 from deploy.multirun.test_visualiser_backend import BUILD, VisualiserBackendTests, sources
 
 
@@ -194,6 +197,31 @@ class SummaryBackendTests(unittest.TestCase):
     def runs(self):
         return sum(r['operation']=='run' for r in self.operations)
 
+    def test_retained_sources_combine_from_cached_summaries_without_opening_expired_raw_files(self):
+        selected=self.selected()
+        expected=self.execute(selected)
+        count=self.runs()
+        for source in selected:
+            source['retained_only']=True
+            source['configuration']['completed_at']=datetime.now(timezone.utc).isoformat()
+        from unittest.mock import patch
+        with patch.object(self.backend,'_verified_source',side_effect=AssertionError('No expired raw reads')):
+            self.assertEqual(self.execute(selected),expected)
+        self.assertEqual(self.runs(),count)
+        self.backend.summary_cache.prune(owner='alice')
+        with patch.object(self.backend,'_verified_source',side_effect=AssertionError('No raw fallback')), \
+             self.assertRaisesRegex(ValueError,'expired raw output cannot be reparsed'):
+            self.execute(selected)
+        self.assertEqual(self.runs(),count)
+
+    def test_retained_only_sources_cannot_reuse_expired_intermediates(self):
+        selected=self.selected();self.execute(selected)
+        for source in selected:
+            source['retained_only']=True
+            source['configuration']['completed_at']=(datetime.now(timezone.utc)-timedelta(days=8)).isoformat()
+        with self.assertRaisesRegex(ValueError,'summaries have expired'):
+            self.execute(selected)
+
     def test_standalone_then_pair_then_baseline_swap_reuse_exact_scientific_rows(self):
         selected=self.selected()
         self.execute([selected[0]])
@@ -212,6 +240,65 @@ class SummaryBackendTests(unittest.TestCase):
                     and row['variable']=='Mental Component Summary (MCS)'
                     and row['stratifier']=='Overall' and row['variable_value']=='Continuous Mean')
         self.assertEqual(metric['paired_mean_delta'],-5)
+
+    def test_retained_standalone_survives_pressure_and_restart_without_reparsing_for_pair(self):
+        from unittest.mock import patch
+        selected=self.selected()
+        self.backend.summary_cache.maximum_entries=6
+        created=time.time()-60
+        plan=dict(comparison='baseline-alternative',created_at=created,expires_at=created+86400,
+            configurations=[dict(configuration=s['configuration']['id'],job=s['identity']['job'],
+                attempt=s['identity']['attempt'] if i==0 else None,
+                seeds=[str(r['seed']) for r in s['configuration']['runs']]) for i,s in enumerate(selected)])
+        self.backend.retain_summaries('alice','experiment',[plan],owner_entries=6)
+        self.execute([selected[0]])
+        self.assertEqual(self.runs(),3)
+        self.backend.prune_summaries(owner='alice',configuration=selected[0]['configuration']['id'],unless_held=True)
+        other=copy.deepcopy(selected)
+        for source in other:source['owner']='bob'
+        with patch.object(self.backend,'_verified_source',side_effect=AssertionError('Deferred work must not read raw CSVs')),self.assertRaises(SummaryCapacityError):
+            self.execute(other)
+        self.assertEqual(self.runs(),3)
+        self.assertEqual(self.backend.retain_summaries('bob','another',[plan],owner_entries=6),
+                         dict(admitted=0,deferred=1))
+        selection=dict(owner='bob',jobs=[dict(configuration=s['configuration']['id'],
+            job=s['identity']['job'],attempt=s['identity']['attempt'],
+            repetitions=[dict(seed=r['seed']) for r in s['configuration']['runs']]) for s in selected])
+        with self.assertRaises(SummaryCapacityError):
+            self.backend.check_summary_dependencies(selection)
+        restarted=VisualiserBackend(self.build,self.root,summary_cache_root=self.root/'summaries',
+                                    summary_cache_entries=6)
+        plan['configurations'][1]['attempt']=selected[1]['identity']['attempt']
+        restarted.retain_summaries('alice','experiment',[plan],owner_entries=6)
+        result=self.execute(selected,backend=restarted)
+        self.assertEqual(self.runs(),6)
+        counters=restarted.summary_cache.statistics()['counters']
+        self.assertEqual((counters['raw_started'],counters['raw_completed']),(6,6))
+        self.assertGreaterEqual(counters['hits'],3)
+        self.assertEqual(result,self.execute(selected,backend=VisualiserBackend(self.build,self.root)))
+        restarted.retain_summaries('alice','experiment',[],owner_entries=6)
+        self.assertEqual(restarted.summary_retention_experiments(),[('bob','another')])
+        restarted.retain_summaries('bob','another',[],owner_entries=6)
+        self.assertEqual(restarted.summary_retention_experiments(),[])
+
+    def test_held_summaries_do_not_bypass_changed_source_checks_or_explicit_invalidation(self):
+        from jasmine_web.batch.results import OutputUnavailable
+        selected=self.selected()
+        created=time.time()-60
+        plan=dict(comparison='pair',created_at=created,expires_at=created+86400,
+            configurations=[dict(configuration=s['configuration']['id'],job=s['identity']['job'],
+                attempt=s['identity']['attempt'],seeds=[str(r['seed']) for r in s['configuration']['runs']])
+                for s in selected])
+        self.backend.retain_summaries('alice','experiment',[plan],owner_entries=6)
+        self.execute(selected)
+        first=selected[0]['files'][0]
+        (self.root/first['path']).write_text('changed')
+        with self.assertRaises(OutputUnavailable):
+            self.execute(selected)
+        self.assertEqual(self.runs(),6)
+        self.backend.prune_summaries(owner='alice')
+        self.assertEqual(self.backend.summary_retention_experiments(),[])
+        self.assertEqual(self.backend.prune_summaries()['entries'],0)
 
     def test_pairwise_accumulator_never_contains_all_alternatives(self):
         selected=self.selected(alternatives=3)

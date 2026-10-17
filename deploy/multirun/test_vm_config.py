@@ -59,6 +59,13 @@ class VMConfigTests(unittest.TestCase):
             self.assertEqual(main(['check', '--config', str(self.path)]), 0)
         self.assertEqual(sorted(p.name for p in self.root.iterdir()), ['settings.toml'])
 
+    def test_visualiser_periods_are_independent_and_can_outlast_raw_retention(self):
+        text=self.text.replace('summary_hours = 168','summary_hours = 336').replace('cache_hours = 168','cache_hours = 720')
+        settings=self.config(text)
+        self.assertEqual(settings.visualiser_summary_hours,336)
+        self.assertEqual(settings.visualiser_cache_hours,720)
+        with self.assertRaises(ValueError):self.config(text.replace('summary_hours = 336','summary_hours = 8761'))
+
     def test_throughput_candidate_is_explicit_and_protects_non_model_work(self):
         text=(TEMPLATE.parent/'throughput.toml.example').read_text().replace(
             'sha256:REPLACE_WITH_64_HEXADECIMAL_DIGITS','sha256:'+'a'*64)
@@ -74,7 +81,7 @@ class VMConfigTests(unittest.TestCase):
         for old,new in (('hard_limits = true','hard_limits = false'),
                         ('summaries = true','summaries = false'),
                         ('runtime_per_repetition_minutes = 240','runtime_per_repetition_minutes = 60'),
-                        ('cache_mib = 8192','cache_mib = 256'),
+                        ('cache_mib = 16384','cache_mib = 256'),
                         ('memory_mib = 40960','memory_mib = 10000'),
                         ('max_workers = 1','max_workers = 3')):
             with self.subTest(new=new),self.assertRaises(ValueError):self.config(text.replace(old,new))
@@ -91,6 +98,32 @@ class VMConfigTests(unittest.TestCase):
         self.assertEqual(configured.recovery_max_heap_mib,4096)
         for setting in ('pressure_percent = 99','storage_multiplier = 0','max_heap_mib = true','unlimited = true'):
             with self.assertRaises(ValueError): self.config(legacy+'\n[recovery]\n'+setting+'\n')
+        for value in ('1.3','2.0','4.0'):
+            fractional=self.config(legacy+'\n[recovery]\nenabled = true\nstorage_multiplier = '+value+'\n')
+            self.assertEqual(fractional.recovery_storage_multiplier,float(value))
+        for value in ('0.9','4.1','nan','inf','true','"1.3"'):
+            with self.subTest(value=value),self.assertRaises(ValueError):
+                self.config(legacy+'\n[recovery]\nenabled = true\nstorage_multiplier = '+value+'\n')
+
+    def test_storage_wait_email_opt_in_and_hour_threshold_are_validated(self):
+        defaults=self.config()
+        self.assertFalse(defaults.storage_wait_emails)
+        self.assertEqual(defaults.storage_wait_hours,6)
+        legacy=re.sub(r'(?m)^storage_wait_(emails|hours) = .*\n','',self.text)
+        self.assertEqual(self.config(legacy).storage_wait_hours,6)
+        configured=self.text.replace('storage_wait_emails = false','storage_wait_emails = true')
+        with self.assertRaisesRegex(ValueError,'require notification delivery'):
+            self.config(configured)
+        configured=configured.replace(
+            'enabled = false\nretention_cleanup = false\nadmin_email = ""',
+            'enabled = true\nretention_cleanup = false\nadmin_email = "admin@example.org"')
+        for hours in (1,6,24,168,720):
+            options=self.config(configured.replace('storage_wait_hours = 6',f'storage_wait_hours = {hours}'))
+            self.assertTrue(options.storage_wait_emails)
+            self.assertEqual(options.storage_wait_hours,hours)
+        for value in ('0','-1','721','true','1.5','"6"'):
+            with self.subTest(value=value),self.assertRaises(ValueError):
+                self.config(configured.replace('storage_wait_hours = 6','storage_wait_hours = '+value))
 
     def test_untrusted_or_accidentally_incompatible_configuration_is_rejected(self):
         replacements = [('https://multirun.example.org', 'http://multirun.example.org'),

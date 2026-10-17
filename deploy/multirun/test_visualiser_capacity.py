@@ -92,6 +92,7 @@ class CapacityDriverTests(unittest.TestCase):
         snapshot=self.root/'snapshot';snapshot.mkdir()
         copied=trial.snapshot_tools(frontend,build,snapshot,fixture)
         self.assertIn('visualiser_cache_usage.py',copied['tools'])
+        self.assertIn('visualiser_summary_holds.py',copied['tools'])
         # The Docker entry point imports tools as plain modules, without the
         # SimPaths package. Test that exact import environment, without Docker.
         subprocess.run([sys.executable,'-I','-B','-c',

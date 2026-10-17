@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -129,6 +130,24 @@ class OperatorTests(unittest.TestCase):
         self.assertEqual(code,2)
         result=json.loads(output.getvalue()); self.assertFalse(result['complete'])
         self.assertNotIn('secret',output.getvalue()); self.assertNotIn('/private',output.getvalue())
+
+    def test_summary_dependency_snapshot_is_numeric_read_only_and_reports_capacity_pressure(self):
+        from .visualiser_summary_cache import SummaryCache
+        cache=SummaryCache(self.state/'execution/visualiser-cache/summaries',maximum_entries=2)
+        created=time.time()-60
+        plan=dict(comparison='PRIVATE_COMPARISON',created_at=created,expires_at=created+86400,
+            configurations=[dict(configuration=name,job='PRIVATE_JOB_'+name,attempt=None,seeds=['606'])
+                            for name in ('baseline','alternative')])
+        for owner in ('PRIVATE_OWNER','PRIVATE_OTHER'):
+            cache.holds.replace(owner,'PRIVATE_EXPERIMENT',[plan],calculation='a'*64,owner_entries=2)
+        before=self.contents()
+        report=collect(self.queue,self.state,read_database=False)
+        value=report['summary_retention']
+        self.assertEqual((value['admitted_comparisons'],value['deferred_comparisons'],value['retained_seed_slots']),(1,1,2))
+        self.assertIn('summary_retention_waiting_for_capacity',report['warnings'])
+        self.assertIn('1 comparisons waiting for storage',render(report))
+        self.assertNotIn('PRIVATE_',json.dumps(report))
+        self.assertEqual(before,self.contents())
         self.assertEqual(self.contents(),before)
 
     def test_status_of_missing_state_does_not_create_it(self):

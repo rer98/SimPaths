@@ -31,6 +31,10 @@ GATE_FORMAT = 'simpaths.multirun.restore.v1'
 EXCLUDE = (LOCK,GATE,'execution/download-cache','execution/visualiser-cache')
 EXCLUDE += ('.backup-files.lock',)
 LIVE_FORMAT = 'simpaths.multirun.backup.v2'
+RETAINED_FORMAT = 'simpaths.multirun.backup.v3'
+RETAINED_LIVE_FORMAT = 'simpaths.multirun.backup.v4'
+LIVE_FORMATS = (LIVE_FORMAT,RETAINED_LIVE_FORMAT)
+RETAINED_FORMATS = (RETAINED_FORMAT,RETAINED_LIVE_FORMAT)
 
 
 def utc():
@@ -70,7 +74,7 @@ def processor_guards(state, stack):
     """Catch surviving local processors and older dispatcher processes too."""
     import fcntl
     for key in ('execution/dispatcher.lock','execution/download-cache/builder.lock',
-                'execution/visualiser-cache/processor.lock'):
+                'execution/visualiser-cache/processor.lock','execution/visualiser-cache/processor-1.lock'):
         path=state/key
         if not path.exists() and not path.is_symlink(): continue
         stream=stack.enter_context(open_file(state,key))
@@ -162,6 +166,9 @@ def create(queue, state, destination, tools):
                 database=table_inventory(c,queue)
                 tools.dump(staging/'database.dump',schema=queue.schema,snapshot=snapshot)
                 state_tree,_=copy_tree(state,staging/'state',exclude=EXCLUDE)
+                from .backup_visualiser import capture,inventory as visualiser_inventory
+                visualiser=capture(state,staging/'state',c,queue)
+                state_tree=visualiser_inventory(staging/'state')
                 (staging/'prepared').mkdir(mode=0o700)
                 for root in roots:
                     root['tree'],_=copy_tree(Path(root['source']),staging/root['directory'])
@@ -171,11 +178,11 @@ def create(queue, state, destination, tools):
                 images={r['image'] for r in releases.values()}
                 images.update(r['model_digest'] for r in c.execute(sql.SQL('SELECT model_digest FROM {}').format(
                     sql.Identifier(queue.schema,'prepared_locations'))).fetchall())
-                manifest=dict(format=FORMAT,id=uuid4().hex,created_at=utc(),pool_id=queue.pool_id,
+                manifest=dict(format=RETAINED_FORMAT,id=uuid4().hex,created_at=utc(),pool_id=queue.pool_id,
                     schema=queue.schema,postgres_major=version,state_source=str(state),state_tree=state_tree,
                     prepared=roots,database=database,dump=file_hash(staging,'database.dump'),
                     images=sorted(images),default_release=next(iter(releases)),
-                    release_ids=list(releases),omitted_caches=['download-cache','visualiser-cache'])
+                    release_ids=list(releases),omitted_caches=['download-cache','visualiser-working-files'],visualiser=visualiser)
                 training_imports(staging,manifest,state)
                 write_attribution(staging); (staging/'COPYRIGHT.md').chmod(0o600)
                 manifest['attribution']=file_hash(staging,'COPYRIGHT.md')
@@ -193,9 +200,11 @@ def load_manifest(backup):
     value=read_metadata(backup/'manifest.json')
     fields={'format','id','created_at','pool_id','schema','postgres_major','state_source','state_tree',
         'prepared','database','dump','images','default_release','release_ids','omitted_caches','attribution'}
-    if isinstance(value,dict) and value.get('format')==LIVE_FORMAT:
+    if isinstance(value,dict) and value.get('format') in LIVE_FORMATS:
         fields |= {'recovery','vm'}
-    if (type(value) is not dict or set(value)!=fields or value['format'] not in (FORMAT,LIVE_FORMAT) or
+    if isinstance(value,dict) and value.get('format') in RETAINED_FORMATS:
+        fields.add('visualiser')
+    if (type(value) is not dict or set(value)!=fields or value['format'] not in (FORMAT,LIVE_FORMAT,*RETAINED_FORMATS) or
             not re.fullmatch('[a-f0-9]{32}',str(value['id'])) or
             not re.fullmatch('[a-z][a-z0-9_]{0,62}',str(value['schema'])) or
             not re.fullmatch('[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}',str(value['pool_id'])) or
@@ -204,9 +213,10 @@ def load_manifest(backup):
             len(value['prepared'])>10000 or type(value['images']) is not list or not value['images'] or
             len(set(value['images']))!=len(value['images']) or
             any(not re.fullmatch('sha256:[a-f0-9]{64}',str(p)) for p in value['images']) or
-            value['omitted_caches']!=['download-cache','visualiser-cache']):
+            value['omitted_caches']!=(['download-cache','visualiser-working-files'] if value['format'] in RETAINED_FORMATS
+                                     else ['download-cache','visualiser-cache'])):
         raise ArtifactError('Invalid or incompatible backup manifest')
-    if value['format']==LIVE_FORMAT:
+    if value['format'] in LIVE_FORMATS:
         from .backup_single import validate_manifest
         validate_manifest(value)
     absolute(value['state_source'])
@@ -241,6 +251,9 @@ def verify(backup):
             file_hash(backup,'COPYRIGHT.md')!=manifest['attribution']):
         raise ArtifactError('Backup dump or attribution checksum differs')
     check_tree(backup/'state',manifest['state_tree'])
+    if manifest['format'] in RETAINED_FORMATS:
+        from .backup_visualiser import verify as verify_visualiser
+        verify_visualiser(backup/'state',manifest['visualiser'])
     existing_directory(backup/'prepared')
     if sorted(p.name for p in (backup/'prepared').iterdir())!=[f'{i:04d}' for i in range(len(manifest['prepared']))]:
         raise ArtifactError('Prepared backup inventory differs')
@@ -298,7 +311,7 @@ def restored_database(c, queue, manifest, target):
     from jasmine_web.batch.backup import check_schema, require_idle, table_inventory
     from psycopg import sql
     check_schema(c,queue)
-    live=manifest['format']==LIVE_FORMAT
+    live=manifest['format'] in LIVE_FORMATS
     if not live: require_idle(c,queue)
     rows=c.execute(sql.SQL('SELECT location FROM {}').format(sql.Identifier(queue.schema,'prepared_locations'))).fetchall()
     mapping=[(new,old) for old,new in mappings(manifest,target)]
@@ -401,7 +414,7 @@ def restore(queue, backup, target, tools, *, resume=False, after_database=None):
             # its commit, accept only the exact snapshot or its verified relocation.
             before=table_inventory(c,queue)
             if before==manifest['database']:
-                live=manifest['format']==LIVE_FORMAT
+                live=manifest['format'] in LIVE_FORMATS
                 if live:
                     from types import SimpleNamespace
                     from .backup_live import recovery_inventory, recover_database
@@ -460,7 +473,7 @@ def activate(queue, backup, target, *, image_check=installed_image, source_isola
     from jasmine_web.batch.backup import frozen_database
     target=existing_directory(target); backup=existing_directory(backup)
     manifest=verify(backup)
-    live=manifest['format']==LIVE_FORMAT
+    live=manifest['format'] in LIVE_FORMATS
     if live and not source_isolated:
         raise ArtifactError('Confirm source isolation with --source-isolated before activating an online recovery point')
     with ExitStack() as stack:

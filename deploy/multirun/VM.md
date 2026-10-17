@@ -141,7 +141,8 @@ requires acceptance. Polling alone is not a substitute.
 PostgreSQL's named volume and Docker image/log storage are on Docker's
 data filesystem, so monitor and budget that filesystem separately. Keep backups on
 separate protected storage. A storage outage must leave queue/history intact and
-send shared-service alerts only to the configured administrator.
+send prompt shared-service alerts to the configured administrator. Optional
+storage-delay emails can also keep affected users informed as described below.
 
 ## 3. Persistent PostgreSQL
 
@@ -226,6 +227,12 @@ settings fail startup. Choose them during isolated staging; later changes need a
 reviewed pool transition that preserves accepted jobs/history.
 
 ### Automatic resource recovery
+
+The testing policy retains 25% storage steps and a 2-times-original ceiling.
+The multiplier also accepts finite decimals in 1–4, for example 1.3. Existing
+integer submissions keep their original frozen limits. See
+[performance review](PERFORMANCE_REVIEW.md) for measurement, administrator alerts
+and live controls before revising those defaults.
 
 This is an operator opt-in for **newly reviewed simulation configurations**:
 set `[recovery] enabled = true` in the TOML configuration, or append
@@ -853,7 +860,43 @@ defaults disabled and requires notification delivery to be enabled. Configure an
 administrator recipient when enabling job notices. See [LOCAL_WEB.md](LOCAL_WEB.md)
 for notification routing/deduplication and retention behaviour.
 
-The warning interval starts when the service records the current warning, not
+For optional owner storage updates, set the following in `[notifications]`:
+
+```toml
+enabled = true
+admin_email = "REPLACE_WITH_PROJECT_OPERATOR_ADDRESS"
+storage_wait_emails = true
+storage_wait_hours = 6
+```
+
+Apply the reviewed batch migration **026** with the service stopped before
+restarting this application version. The new option is off in installation
+examples until real mail is configured. The administrator still receives the
+existing shared-storage alert after five minutes. Owners receive one warning
+after six continuous hours blocked by disk space, and a confirmed-start update
+only if that warning was delivered. The delay is configurable in whole hours
+(1–720); it is independent of retention deadlines and ordinary queue age. A
+seven-day retention policy can explain a long wait, but does not establish when
+this particular job can start. Retention cleanup and SMTP must be checked on the
+host; neither is enabled by setting the user warning threshold.
+
+Delivery rechecks access and current job state. Unsent obsolete warnings are
+suppressed, and starts during SMTP delivery still produce a follow-up once the
+warning is acknowledged. Start updates include the recorded start and latest
+status, so short jobs may already show completed. The feature uses captured
+senders in tests; real SMTP acceptance and inbox delivery remain host checks.
+See `JAS-mine-web/docs/batch-queue.md`, **Optional storage-delay and start emails**,
+for retry, restart and delivery-race limitations.
+
+The 17 October local configuration/browser-model checks passed all 31 cases,
+including legacy defaults, opt-in and threshold validation. The accompanying
+native PostgreSQL proof passed all 78 focused storage, notification, completion
+and queue/migration checks, with cleanup confirmed:
+[/tmp-codex/storage-delay-notifications-20261017-101657/report.json](/tmp-codex/storage-delay-notifications-20261017-101657/report.json).
+These tests use captured senders and fictional work; they do not certify real
+mail delivery or current hosted capacity.
+
+The retention-warning interval starts when the service records the current warning, not
 when SMTP accepts it or the recipient reads it. Failed delivery is retried with
 bounded backoff and does not extend deletion deadlines. Monitor the outboxes and
 SMTP failures; an outage does not indefinitely retain users' files. Interrupted
@@ -1160,6 +1203,12 @@ update and rollback drain the public processes before their executors. The local
 offline checks and seven native stages passed; installed-host acceptance remains
 separate as described below.
 
+That success applies to the pinned 14 October pair. Later schema and format
+changes require a new reviewed pair before repeating the rehearsal against the
+current candidate. See the current task in the
+[deployment checklist](../DEPLOYMENT_CHECKLIST.md); do not bypass the rollback
+compatibility gate when adding migrations 026–029.
+
 The proof kills only its own frontend main processes and checks automatic restart,
 unchanged ownership cookies/credentials/settings, adoption of the same running
 Docker attempt, unchanged deadline/seeds/inputs/policy and retained shared
@@ -1394,9 +1443,12 @@ record how expired/deleted private data ages out of backups.
 Use the automated [backup and restore runbook](BACKUP.md). The offline command
 locks the state and complete queue schema, rejects active/unreleased work, takes
 a native PostgreSQL snapshot and copies verified private files and all registered
-prepared inputs. It never copies live PGDATA. Download/Visualiser caches are
-regenerable and omitted; deployment configuration, Visualiser builds and required
-Docker images must be retained separately.
+prepared inputs. It never copies live PGDATA. New backups also retain committed
+Visualiser summaries and ready publications/indexed charts, including their
+independent expiry and source provenance. Download ZIPs and unfinished Visualiser
+work are omitted. See [retained aggregate recovery](VISUALISER_RETENTION.md).
+Deployment configuration, Visualiser builds and required Docker images must be
+retained separately.
 
 For routine capture while models continue, `create --online` adds matching
 immutable files and a repeatable-read SQL snapshot, including shared SingleRun

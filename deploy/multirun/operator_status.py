@@ -93,6 +93,13 @@ def collect(queue, state, *, limit=20, read_database=True):
     if result['summary_cache_usage']['recorded'] and not result['summary_cache_usage']['available']:
         result['complete'] = False
         result['warnings'].append('summary_cache_usage_unavailable')
+    from .visualiser_summary_holds import statistics as retention_statistics
+    result['summary_retention'] = retention_statistics(Path(state)/'execution/visualiser-cache/summaries')
+    if result['summary_retention']['recorded'] and not result['summary_retention']['available']:
+        result['complete'] = False
+        result['warnings'].append('summary_retention_unavailable')
+    elif result['summary_retention'].get('deferred_comparisons') or result['summary_retention'].get('deferred_configurations'):
+        result['warnings'].append('summary_retention_waiting_for_capacity')
     try:
         result['models'] = release_inventory(state)
     except Exception:
@@ -203,6 +210,15 @@ def render(report):
             lines.append(f"  {usage['unfinished_raw_starts']} raw attempts have no completion record (running or interrupted)")
     else:
         lines.append('Summary cache usage: unavailable' if usage.get('recorded') else 'Summary cache usage: not recorded')
+    retained = report.get('summary_retention', {})
+    if retained.get('available'):
+        lines.append(f"Summary retention: {retained['admitted_comparisons']} pending comparisons admitted; "
+                     f"{retained['retained_seed_slots']} shared seed slots; "
+                     f"{retained['deferred_comparisons']} comparisons waiting for storage")
+        lines.append(f"  Completed configurations retained: {retained.get('admitted_configurations',0)}; "
+                     f"{retained.get('deferred_configurations',0)} waiting for retention space")
+    else:
+        lines.append('Summary retention: unavailable' if retained.get('recorded') else 'Summary retention: not recorded')
     models=report['models']
     if models:
         lines.append(f"Model releases: {len(models['releases'])} retained; selected default {models['selected_default']}")

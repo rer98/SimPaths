@@ -21,7 +21,7 @@ from .backup_files import copy_selected, copy_tree, file_hash, has_space, publis
 from .maintenance import GATE, state_guard
 from .releases import ReleaseRegistry, atomic_json, existing_directory
 
-FORMAT = 'simpaths.multirun.backup.v2'
+FORMAT = 'simpaths.multirun.backup.v4'
 
 
 def rows(c, queue, query, tables, args=()):
@@ -161,6 +161,8 @@ def create(queue, state, destination, tools, *, after_snapshot=None, single_capt
                     raise ArtifactError('Insufficient free space for the complete online backup')
                 tools.dump(staging/'database.dump',schema=[queue.schema,*vm_schemas],snapshot=snapshot)
                 tree=copy_selected(state,staging/'state',keys)
+                from .backup_visualiser import capture as capture_visualiser,inventory as visualiser_inventory
+                visualiser=capture_visualiser(state,staging/'state',c,queue)
                 for key in ('uploads','artifacts','execution'):
                     (staging/'state'/key).mkdir(mode=0o700,exist_ok=True)
                     if key not in tree['directories']: tree['directories'].append(key)
@@ -174,13 +176,12 @@ def create(queue, state, destination, tools, *, after_snapshot=None, single_capt
                     images.update(vm[schema]['images'])
                 # SingleRun exports are new backup-owned files, so inventory them
                 # after capture without following unselected live container paths.
-                if vm_schemas:
-                    tree=dict(directories=sorted(k for k,v in scan(staging/'state').items() if stat.S_ISDIR(v[2])),
-                              files={k:file_hash(staging/'state',k) for k,v in scan(staging/'state').items() if stat.S_ISREG(v[2])})
+                tree=visualiser_inventory(staging/'state')
                 manifest=dict(format=FORMAT,id=uuid4().hex,created_at=backup.utc(),pool_id=queue.pool_id,
                     schema=queue.schema,postgres_major=version,state_source=str(state),state_tree=tree,
                     prepared=roots,database=database,dump=file_hash(staging,'database.dump'),images=sorted(images),
-                    default_release=next(iter(releases)),release_ids=list(releases),omitted_caches=['download-cache','visualiser-cache'],
+                    default_release=next(iter(releases)),release_ids=list(releases),
+                    omitted_caches=['download-cache','visualiser-working-files'],visualiser=visualiser,
                     recovery=dict(captured_at=captured,interrupted_attempts=[r['id'] for r in active],
                                   receiving_uploads=[r['id'] for r in receiving]),vm=vm)
                 backup.training_imports(staging,manifest,state)

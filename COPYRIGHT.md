@@ -7,6 +7,34 @@ Attribution scope and non-commentable/generated artifacts.
 
 # Attribution
 
+The retained Visualiser backup selector, native restore proof, test requirements,
+regression checks and retention/recovery guide carry inline notices. Generated
+backup manifests, checksum receipts and fictional proof reports are
+(C) Copyright 2026, by Ross Richardson; @author ross richardson. Their attribution
+does not claim ownership of scientific rows or copied third-party components.
+
+The iterative-experiment retention guide, completed-scenario summary holds,
+configuration changes and regression checks carry inline notices. Generated
+fictional iteration/retention test evidence is (C) Copyright 2026, by Ross
+Richardson; @author ross richardson. Existing model/input data and third-party
+components retain their original ownership and licences.
+
+The live performance-review operator controls, allowlisted workload summaries,
+decimal recovery settings and their documentation/tests carry inline notices.
+Generated numeric review/test evidence is (C) Copyright 2026, by Ross Richardson;
+@author ross richardson. Model data and third-party components retain their
+original ownership and licences.
+
+The configurable storage-delay/start email integration and its launcher checks
+carry inline notices. Generated fictional notification test evidence is
+(C) Copyright 2026, by Ross Richardson; @author ross richardson. User addresses,
+scientific outputs and third-party components retain their original provenance.
+
+The bounded private summary-dependency store, cache/backend integration and
+retention regression checks carry inline notices. Generated private dependency
+JSON and numeric status/test evidence are (C) Copyright 2026, by Ross Richardson;
+@author ross richardson. The records do not confer access to scientific results.
+
 The portable comparison reader, UI integration and tiny package/round-trip tests
 carry inline notices. Generated comparison-package test manifests and numeric
 validation evidence are (C) Copyright 2026, by Ross Richardson; @author ross
@@ -246,3 +274,11 @@ checksum/comparison receipts are (C) Copyright 2026, by Ross Richardson;
 Copied scientific summaries, pinned calculations and runtime components retain
 their existing attribution and licences. Synthetic seed labels used for capacity
 testing do not create new scientific repetitions or change source ownership.
+
+The retained-summary repetition benchmark in
+`deploy/multirun/visualiser_repetition_trials.py`, its worker, tests and
+`VISUALISER_REPETITION_TRIALS.md` carry attribution in their headers. Generated
+stage reports, samples, labelled HTML/CSV tables and synthetic fixture metadata
+are (C) Copyright 2026, by Ross Richardson; @author ross richardson. Their evidence
+directories include `COPYRIGHT.md`. Copied source summaries, calculations and
+runtime images retain their existing notices and licences.

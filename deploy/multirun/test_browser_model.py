@@ -249,6 +249,15 @@ class BrowserModelTests(unittest.TestCase):
         self.assertTrue(parse_args(['serve','--console-codes','--retention-cleanup','--notification-emails']).retention_cleanup)
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             parse_args(['serve','--console-codes','--retention-cleanup'])
+        args=parse_args(['serve','--console-codes'])
+        self.assertFalse(args.storage_wait_emails)
+        self.assertEqual(args.storage_wait_hours,6)
+        self.assertTrue(parse_args(['serve','--console-codes','--notification-emails',
+                                   '--storage-wait-emails','--storage-wait-hours','24']).storage_wait_emails)
+        for flags in (['--storage-wait-emails'],['--storage-wait-hours','0'],
+                      ['--storage-wait-hours','721'],['--storage-wait-hours','1.5']):
+            with self.subTest(flags=flags),redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):
+                parse_args(['serve','--console-codes',*flags])
         for limit in (1,4,MAX_UPLOAD_ALLOWANCE_GIB):
             self.assertEqual(parse_args(['serve','--console-codes','--upload-allowance-gib',str(limit)]).upload_allowance_gib,limit)
         for value in ('0','-1','1.5','many',str(MAX_UPLOAD_ALLOWANCE_GIB+1)):

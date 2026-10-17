@@ -4,7 +4,7 @@ Private-file backup safety and disposable native PostgreSQL restore acceptance.
 Uses fictional inputs/CSVs; scientific models and real mail are never launched.
 @author ross richardson
 """
-from contextlib import redirect_stderr
+from contextlib import ExitStack, redirect_stderr
 from copy import deepcopy
 import asyncio
 import io
@@ -154,6 +154,20 @@ class BackupFileTests(unittest.TestCase):
         self.assertFalse((output/'state/execution/visualiser-cache').exists())
         self.assertTrue((output/'state/execution/batch-test/work/output/run_1/csv/Person.csv').exists())
         self.assertEqual((output/'state/session-secret').read_bytes(),b's'*64)
+
+    def test_legacy_online_manifest_remains_readable_without_visualiser_inventory(self):
+        output,value=self.build_backup()
+        value.update(format=backup.LIVE_FORMAT,vm={},recovery=dict(captured_at=backup.utc(),
+            interrupted_attempts=[],receiving_uploads=[]))
+        atomic_json(output/'manifest.json',value)
+        self.assertEqual(backup.verify(output)['format'],backup.LIVE_FORMAT)
+
+    def test_offline_guard_rejects_a_surviving_second_visualiser_processor(self):
+        from jasmine_web.batch.downloads import lock
+        path=self.state/'execution/visualiser-cache';path.mkdir(mode=0o700,parents=True)
+        with lock(path/'processor-1.lock'),ExitStack() as stack:
+            with self.assertRaisesRegex(ArtifactError,'still owns'):
+                backup.processor_guards(self.state,stack)
 
     def test_source_mapping_is_explicit_deduplicated_and_never_rewrites_arbitrary_text(self):
         prepared=self.root/'prepared'; prepared.mkdir(mode=0o700)

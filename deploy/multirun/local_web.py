@@ -153,6 +153,10 @@ def parse_args(argv=None):
     parser.add_argument('--notification-emails',action='store_true',help='Opt in to real completion, problem and expiry emails using platform SMTP settings')
     parser.add_argument('--retention-cleanup',action='store_true',help='Enable automatic expiry deletion; requires --notification-emails. Default: dates and notices only')
     parser.add_argument('--admin-email',help='Operator recipient for shared service problems; required with --notification-emails')
+    parser.add_argument('--storage-wait-emails',action='store_true',
+                        help='Opt in to one user storage-delay warning and confirmed-start follow-up; requires --notification-emails')
+    parser.add_argument('--storage-wait-hours',type=int,default=6,
+                        help='Continuous storage-wait hours before the optional user warning (1–720; default: %(default)s)')
     parser.add_argument('--console-codes',action='store_true',help='Required local test mode; codes printed in this terminal')
     parser.add_argument('--visualiser-build',type=Path,help='Pinned local Visualiser build directory')
     parser.add_argument('--visualiser-preview',action='store_true',
@@ -161,6 +165,10 @@ def parse_args(argv=None):
                         help='Shared processing reservation; Node heap uses 256 MiB less (512–4096 MiB)')
     parser.add_argument('--visualiser-timeout-seconds',type=int,default=600,
                         help='Maximum time to process one selected visualisation (60–3600 seconds)')
+    parser.add_argument('--visualiser-cache-hours',type=int,default=168,
+                        help='Finished chart lifetime in hours (1–8760); current permissions still apply')
+    parser.add_argument('--visualiser-summary-hours',type=int,default=168,
+                        help='Completed per-seed summary retention hours when summary reuse is enabled (1–8760)')
     args=parser.parse_args(argv)
     try:
         deployment_repetition_limit(args.max_repetitions)
@@ -178,10 +186,16 @@ def parse_args(argv=None):
         parser.error('Download limits must be 1–1048576 MiB, 1–1024 GiB and 1–168 hours respectively')
     if args.retention_cleanup and not args.notification_emails:
         parser.error('--retention-cleanup requires --notification-emails so expiry warnings can be delivered')
+    if not 1 <= args.storage_wait_hours <= 720:
+        parser.error('--storage-wait-hours must be between 1 and 720')
+    if args.storage_wait_emails and not args.notification_emails:
+        parser.error('--storage-wait-emails requires --notification-emails')
     if bool(args.visualiser_build)!=args.visualiser_preview:
         parser.error('Development visualiser requires both --visualiser-build and --visualiser-preview')
     if not 512<=args.visualiser_memory_mib<=4096 or not 60<=args.visualiser_timeout_seconds<=3600:
         parser.error('Visualiser limits must be 512–4096 MiB and 60–3600 seconds')
+    if not 1<=args.visualiser_cache_hours<=8760 or not 1<=args.visualiser_summary_hours<=8760:
+        parser.error('Visualiser chart and summary periods must each be 1–8760 hours')
     if args.command=='serve' and (not args.console_codes or not 1024<=args.port<=65535):
         parser.error('This local preview requires --console-codes and an unprivileged port')
     try:

@@ -18,8 +18,8 @@ Choose the appropriate mode:
 
 | Mode | Source during capture | Recovery coverage |
 | --- | --- | --- |
-| Default offline (`v1`) | Maintenance window; no active or unreleased work | Exact MultiRun state/files, with approved path relocation |
-| `create --online` (`v2`) | Simulations and ordinary PostgreSQL writers continue | Immutable MultiRun inputs/settled output, interrupted-attempt records, and shared SingleRun registries/saved exports |
+| Default offline (`v3`) | Maintenance window; no active or unreleased work | Exact MultiRun state/files and committed Visualiser results, with approved path relocation |
+| `create --online` (`v4`) | Simulations and ordinary PostgreSQL writers continue | Immutable MultiRun inputs/settled output, committed Visualiser results, interrupted-attempt records, and shared SingleRun registries/saved exports |
 
 Both require one queue schema containing one resource pool. Online capture includes
 SingleRun schemas in the **same PostgreSQL database** durably bound to that pool.
@@ -54,10 +54,14 @@ The backup contains:
 - A private manifest recording source locations, required immutable Docker image
   IDs, PostgreSQL major version, file checksums and hashes/counts of all table rows.
 
-Regenerable download ZIP and Visualiser caches are omitted. Their SQL history is
-preserved; normal application recovery can rebuild eligible cache entries from
-retained outputs without rerunning simulations. Maintenance locks and an inactive
-restore marker are not source payload.
+Committed per-seed Visualiser summaries and ready publications/indexed chart
+sections are included with their checksums, provenance and fixed expiry records.
+Only data matching the captured database snapshot is selected; busy unfinished
+publications, scratch and transient locks are omitted. See
+[Visualiser retention and recovery](VISUALISER_RETENTION.md). Regenerable download
+ZIPs are omitted. Maintenance locks and an inactive restore marker are not source
+payload. The updated tool still reads old offline `v1`/online `v2` backups, which
+do not contain a retained Visualiser payload; schema compatibility still applies.
 
 **Keep deployment artifacts separately:** the installed hosting checkouts/venv,
 VM TOML, PostgreSQL connection files, SMTP configuration, Visualiser build, proxy
@@ -150,7 +154,8 @@ connections require native clients. Passwords are supplied through the existing
 private connection file/environment, not command arguments or printed reports.
 
 All commands accept `--json`, returning counts, operation and success/failure in
-`simpaths.multirun.backup.v1` or `v2`. Exit status is 0 for success and 2 for failure.
+`simpaths.multirun.backup.v3` or `v4` for new backups (legacy `v1`/`v2` remain
+readable). Exit status is 0 for success and 2 for failure.
 The manifest itself contains private paths and filenames; it is not a public
 operator-status report.
 
@@ -232,7 +237,7 @@ Use the same isolated-target commands below. Online restoration additionally:
   already have expired saved exports when restored. A download accepted before
   expiry retains the verified file until its transfer ends; later requests fail.
 
-Activation of `v2` requires **`--source-isolated`**, confirming that the original
+Activation of online `v2`/`v4` requires **`--source-isolated`**, confirming that the original
 services and models cannot execute concurrently with the target. It also checks
 the original state's maintenance lock when that directory still exists locally.
 The flag cannot stop another host: isolate it operationally first. Restore gates

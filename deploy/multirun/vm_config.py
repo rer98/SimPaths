@@ -34,12 +34,14 @@ DEFAULTS = {
                'runtime_setup_minutes': 15, 'runtime_per_repetition_minutes': 60,
                'runtime_budget_multiplier': 3, 'upload_allowance_gib': 4},
     'downloads': {'threshold_mib': 512, 'cache_gib': 10, 'cache_hours': 24},
-    'notifications': {'enabled': False, 'retention_cleanup': False, 'admin_email': ''},
+    'notifications': {'enabled': False, 'retention_cleanup': False, 'admin_email': '',
+                      'storage_wait_emails': False, 'storage_wait_hours': 6},
     'visualiser': {'build': '', 'preview': False, 'memory_mib': 1024, 'timeout_seconds': 600,
                   'automatic': False, 'max_workers': 1, 'cpu_millis': 1000, 'storage_mib': 512,
                   'protected': False, 'hard_limits': False, 'bounded_comparisons': False,
                   'summaries': False, 'summary_cache_mib': 2048, 'cache_mib': 256,
-                  'cache_hours': 24, 'max_entries': 512, 'per_owner_entries': 256,
+                  'retain_completed_summaries': True, 'summary_hours': 168,
+                  'cache_hours': 168, 'max_entries': 512, 'per_owner_entries': 256,
                   'artifact_mib': 16, 'comparison_mib': 64,
                   'rows_per_series': 50000, 'comparison_rows': 200000},
     'workspaces': {'quota_socket': '/run/jasmine-workspace-quotas/broker.sock',
@@ -78,7 +80,8 @@ def load_config(path):
         for key, default in DEFAULTS[name].items():
             if default is None and not values[key]:
                 raise ValueError(f'{name}.{key} is required')
-            if default is not None and type(values[key]) is not type(default):
+            decimal_multiplier=name=='recovery' and key=='storage_multiplier' and type(values[key]) in (int,float)
+            if default is not None and type(values[key]) is not type(default) and not decimal_multiplier:
                 raise ValueError(f'Invalid type for {name}.{key}')
     service, paths = sections['service'], sections['paths']
     origin = service['origin']
@@ -147,6 +150,9 @@ def load_config(path):
         raise ValueError('Automatic expiry requires notification delivery')
     if notifications['enabled'] and not notifications['admin_email']:
         raise ValueError('Notification delivery requires an administrator recipient')
+    number(notifications['storage_wait_hours'], 'notifications.storage_wait_hours', 1, 720)
+    if notifications['storage_wait_emails'] and not notifications['enabled']:
+        raise ValueError('Storage-wait emails require notification delivery')
     visualiser = sections['visualiser']
     scheduling = sections['scheduling']
     number(scheduling['cpu_cooldown_seconds'], 'scheduling.cpu_cooldown_seconds', 5, 300)
@@ -164,7 +170,7 @@ def load_config(path):
     number(visualiser['timeout_seconds'], 'visualiser.timeout_seconds', 60, 3600)
     for key, low, high in (('max_workers',1,2), ('cpu_millis',1000,2000),
             ('storage_mib',512,16384), ('summary_cache_mib',1,65536), ('cache_mib',48,131072),
-            ('cache_hours',1,168), ('max_entries',1,4096), ('per_owner_entries',1,4096),
+            ('cache_hours',1,8760), ('summary_hours',1,8760), ('max_entries',1,4096), ('per_owner_entries',1,4096),
             ('artifact_mib',1,128), ('comparison_mib',1,256),
             ('rows_per_series',1,200000), ('comparison_rows',1,400000)):
         number(visualiser[key], 'visualiser.'+key, low, high)
@@ -216,6 +222,7 @@ def load_config(path):
         download_threshold_mib=downloads['threshold_mib'], download_cache_gib=downloads['cache_gib'],
         download_cache_hours=downloads['cache_hours'], notification_emails=notifications['enabled'],
         retention_cleanup=notifications['retention_cleanup'], admin_email=notifications['admin_email'] or None,
+        storage_wait_emails=notifications['storage_wait_emails'], storage_wait_hours=notifications['storage_wait_hours'],
         visualiser_build=visualiser['build'] or None, visualiser_preview=visualiser['preview'],
         visualiser_memory_mib=visualiser['memory_mib'], visualiser_timeout_seconds=visualiser['timeout_seconds'],
         **{'visualiser_'+key:visualiser[key] for key in visualiser if key not in ('build','preview','memory_mib','timeout_seconds')},

@@ -72,6 +72,9 @@ check_seconds = 10
 enabled = false
 retention_cleanup = false
 admin_email = ""
+# Enable alongside real notification delivery once the project mailbox is set.
+storage_wait_emails = false
+storage_wait_hours = 6
 
 [visualiser]
 # A NEW reviewed build must contain role-independent summary support.
@@ -89,9 +92,11 @@ storage_mib = 2048
 timeout_seconds = 3600
 # Start with one worker. Test the optional second worker for disk contention.
 max_workers = 1
-summary_cache_mib = 2048
-cache_mib = 8192
-cache_hours = 24
+retain_completed_summaries = true
+summary_hours = 168
+summary_cache_mib = 8192
+cache_mib = 16384
+cache_hours = 168
 max_entries = 512
 per_owner_entries = 256
 artifact_mib = 96

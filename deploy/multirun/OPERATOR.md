@@ -59,6 +59,15 @@ Use the actual installed config path if it differs from the example.
 
 ## Output
 
+### Live performance review
+
+The separate [performance review](PERFORMANCE_REVIEW.md) records absolute sampled
+RAM/workspace peaks, growth between samples and workload/timing metadata. Once
+the updated collector and migration 027 are installed, operators can enable,
+disable or change its interval without restarting the service or its models.
+Its default is 15 seconds; use five seconds initially to investigate storage
+bursts. Baseline operational history below retains its existing configuration.
+
 ### Operational history
 
 Enable the optional collector on the next laptop launch with
@@ -116,6 +125,17 @@ records. Older application code cannot open the newer schema; follow the existin
 verified restore procedure when rolling back to code that lacks this migration.
 
 ### Visualiser summary-cache reprocessing
+
+The [iterative-experiment candidate](EXPERIMENT_ITERATION.md) retains completed
+scenarios' summaries as well as pending-pair dependencies. `summary_retention`
+separates their admitted/deferred configuration counts from pending-comparison
+counts. Its candidate periods are seven days for summaries and seven days for
+finished charts, with an 8-GiB summary allowance inside a 16-GiB total Visualiser
+allowance. These settings are independent of simulation CPU/RAM and require
+enough actual disk capacity. Routine raw expiry preserves independently retained
+aggregates; current permissions and explicit deletion still apply. New backups
+include committed summaries and ready charts. See
+[retention and recovery](VISUALISER_RETENTION.md) before adopting these settings.
 
 When the updated private summary cache is used, the same read-only status command
 includes `summary_cache_usage` in JSON and a short text summary. This is bounded

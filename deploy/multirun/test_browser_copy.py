@@ -5,8 +5,10 @@ Recover submitted experiment forms without touching inputs or changing execution
 @author ross richardson
 """
 from copy import deepcopy
+from contextlib import contextmanager
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from . import test_browser_model
 from .configuration import normalise
@@ -54,6 +56,30 @@ class BrowserCopyTests(unittest.TestCase):
         self.assertEqual(self.model.browser_configuration(result['dataset'],copied),
                          self.model.browser_configuration(self.dataset,self.form))
         copied['run_sets'][0]['model_args']['savingRate']=.9
+        self.assertEqual(spec,before)
+
+    def test_extension_draft_preserves_large_seed_strings_and_effective_scenario_settings(self):
+        from jasmine_web.batch.experiment_extensions import draft
+        spec=self.specification();before=deepcopy(spec)
+        identifier='8bd1b6fa-7209-4656-ae1f-af8c0c884def'
+        root=dict(id=identifier,specification=spec)
+        connection=Mock()
+        connection.execute.return_value.fetchall.return_value=[dict(configuration_id=r['id'],
+            execution_run=None,auto_retry=False) for r in spec['run_sets']]
+        @contextmanager
+        def transaction():yield connection,{},None
+        service=SimpleNamespace(queue=SimpleNamespace(_transaction=transaction),model=self.model,
+            access=SimpleNamespace(owner=Mock(return_value='alice')),_yaml_datasets=Mock(return_value=[]))
+        with patch('jasmine_web.batch.experiment_extensions.view',return_value=(root,{identifier:root})):
+            added=draft(service,'token','csrf',identifier)
+        request=self.model.browser_configuration(added['dataset'],added['form'])
+        canonical=normalise(request['configuration']).as_dict()
+        old=normalise(spec['run_sets'][-1]['parameters']).as_dict()
+        self.assertEqual(canonical['seed_plan']['seeds'],spec['seeds'])
+        self.assertEqual(added['form']['first_seed'],'9007199254740993')
+        self.assertEqual(canonical['run_sets'][0]['model_args'],old['run_sets'][0]['model_args'])
+        self.assertNotEqual(canonical['run_sets'][0]['id'],old['run_sets'][0]['id'])
+        self.assertIsNone(request['baseline'])
         self.assertEqual(spec,before)
 
     def test_legacy_reconstruction_preserves_every_native_configuration(self):
@@ -140,7 +166,7 @@ class BrowserCopyTests(unittest.TestCase):
         self.assertEqual(len(copied['form']['run_sets']),100)
         self.assertIn('current limit of 10',copied['notes'][0])
         self.assertEqual(spec,before)
-        with self.assertRaisesRegex(ValueError,'1–10 configurations'):
+        with self.assertRaisesRegex(ValueError,'at most 10 configurations'):
             self.model.browser_configuration(copied['dataset'],copied['form'])
 
     def test_copy_preserves_edited_sweep_origin_through_yaml(self):

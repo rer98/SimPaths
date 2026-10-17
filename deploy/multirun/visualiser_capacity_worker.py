@@ -262,7 +262,8 @@ def validate_rows(paths,manifest):
                 annual_years=manifest['annual_years'],seed_labels=manifest['seeds'])
 
 
-def run_pipeline(args,manifest,built,work,sampler,record):
+def run_pipeline(args,manifest,built,work,sampler,record,*,summary_restore=None):
+    pipeline_started=time.monotonic()
     sys.path.insert(0,str(args.frontend))
     from jasmine_web.batch.aggregate_io import invoke
     from jasmine_web.batch.aggregate_limits import AggregateLimits
@@ -304,8 +305,9 @@ def run_pipeline(args,manifest,built,work,sampler,record):
         def node_run(script,request):
             write_json(work/'request.json',request)
             execute([node,'--max-old-space-size='+str(heap),script,work/'request.json'])
-        with stage('replay' if replay else 'parse'):
-            if replay:node_run(Path(__file__).parent/'visualiser'/'capacity_replay.cjs',dict(runs=replay))
+        with stage('summary_restore' if summary_restore is not None else 'replay' if replay else 'parse'):
+            if summary_restore is not None:summary_restore(metrics)
+            elif replay:node_run(Path(__file__).parent/'visualiser'/'capacity_replay.cjs',dict(runs=replay))
             else:
                 position=0
                 for configuration in manifest['configurations']:
@@ -324,7 +326,13 @@ def run_pipeline(args,manifest,built,work,sampler,record):
                                     raise ValueError('Raw source changed during parsing')
                         position+=1
         with stage('aggregate'):
-            node_run(args.build/'runner.cjs',dict(operation='aggregate',metrics=metrics,outputs=outputs))
+            aggregate_metrics=metrics
+            if summary_restore is not None:
+                # Retained summaries are role independent; use the same explicit
+                # role/seed references as production comparison preparation.
+                aggregate_metrics=[dict(path=path,canonical=True,seed=run['seed'],role=config['role'])
+                    for path,(config,run) in zip(metrics,[(c,r) for c in manifest['configurations'] for r in c['runs']])]
+            node_run(args.build/'runner.cjs',dict(operation='aggregate',metrics=aggregate_metrics,outputs=outputs))
         public=dict(format='simpaths.visualiser.v2',backend=manifest['backend'],
             experiment='Private capacity fixture' if replay else 'Retained native capacity measurement',
             configurations=[dict(id=c['id'],name=c['name'],role='Baseline' if i==0 else 'Scenario',
@@ -362,6 +370,8 @@ def run_pipeline(args,manifest,built,work,sampler,record):
                     catalogue=decode(body)
                     if catalogue['seeds']!=manifest['seeds']:raise ValueError('Catalogue seed metadata differs')
                     record['catalogue']=dict(bytes=len(body),sha256=hashlib.sha256(body).hexdigest());del body
+                if summary_restore is not None:
+                    record['ready_pipeline_seconds']=time.monotonic()-pipeline_started
                 with stage('view'):
                     selection=dict(variable='Highest Level of Education',stratifier='Overall',kind='levels',
                         configurations=[c['id'] for c in manifest['configurations']])

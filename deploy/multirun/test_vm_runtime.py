@@ -452,6 +452,28 @@ class VMRuntimeTests(unittest.TestCase):
         for secret in (self.q.dsn,'alice@example.org',str(self.state)):
             self.assertNotIn(secret,path.read_text())
 
+    def test_hot_performance_review_runs_with_baseline_monitoring_disabled_and_joins(self):
+        import asyncio
+        from jasmine_web.batch.performance_review import set_control, read_status
+        bundle=self.app(private_service=True)
+        self.assertFalse(hasattr(bundle.service,'monitor'))
+        reviewer=bundle.service.performance_review
+        with patch.object(reviewer,'reader',return_value={}):
+            async def exercise():
+                async with bundle.lifespan(None):
+                    enabled=set_control(self.state,True,sample_seconds=5)
+                    for _ in range(200):
+                        if reviewer.control['generation']==enabled['generation']:break
+                        await asyncio.sleep(.05)
+                    self.assertTrue(reviewer.settings.enabled)
+                    disabled=set_control(self.state,False)
+                    for _ in range(200):
+                        if read_status(self.state).get('generation')==disabled['generation']:break
+                        await asyncio.sleep(.05)
+                    self.assertFalse(reviewer.settings.enabled)
+            asyncio.run(exercise())
+        self.assertFalse(reviewer.thread.is_alive())
+
     def test_database_migrations_and_registry_work_without_cluster_superuser_privileges(self):
         import psycopg
         from psycopg import sql

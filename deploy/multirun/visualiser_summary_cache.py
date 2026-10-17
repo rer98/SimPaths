@@ -1,7 +1,8 @@
 """(C) Copyright 2026, by Ross Richardson
 
 Private bounded per-seed summaries, with immutable publication and process locks.
-Callers retain source/output locks and verify raw descriptors before every lookup.
+Callers verify source authority; raw descriptors are checked before reuse unless
+recorded routine expiry explicitly permits retained-summary-only processing.
 @author ross richardson
 """
 from contextlib import contextmanager
@@ -18,8 +19,10 @@ import time
 
 if __package__:
     from .visualiser_cache_usage import CacheUsage, statistics
+    from .visualiser_summary_holds import SummaryHolds, SummaryCapacityError
 else:
     from visualiser_cache_usage import CacheUsage, statistics
+    from visualiser_summary_holds import SummaryHolds, SummaryCapacityError
 
 
 MIB = 1024 ** 2
@@ -57,10 +60,22 @@ class SummaryCache:
         self.maximum_bytes, self.maximum_entries = maximum_bytes, maximum_entries
         self.entry_bytes = entry_bytes
         self.usage = CacheUsage(self.root)
+        self.holds = SummaryHolds(self)
 
     def statistics(self):
         """Read cumulative numeric usage; the operator needs no raw-file access."""
         return statistics(self.root)
+
+    def preflight_entry(self, identity):
+        """Apply dependency backpressure before expensive raw-source hash reads."""
+        with self._lock('.cache.lock'):
+            records = self.holds.load()
+            if not records:
+                return
+            self.holds.require_admitted(identity, records)
+            key = hashlib.sha256(canonical(identity)).hexdigest()
+            if not any(entry[1] == key for entry in self._entries()):
+                self.holds.before_raw(identity, records)
 
     @contextmanager
     def _lock(self, name):
@@ -128,7 +143,7 @@ class SummaryCache:
         entries = []
         rejected = []
         for path in self.root.iterdir():
-            if path.name.startswith('.pending-'):
+            if path.name.startswith(('.pending-', '.holds-')):
                 # Publication holds the global lock while creating pending files,
                 # so any pending directory found under this lock is abandoned.
                 self._remove(path)
@@ -143,41 +158,67 @@ class SummaryCache:
             self.usage.update(dict(rejections=len(rejected)), markers=rejected)
         return sorted(entries)
 
-    def _evict(self, entries, needed_bytes=0, needed_entries=0):
-        total = sum(entry[2] for entry in entries)
+    def _evict(self, entries, needed_bytes=0, needed_entries=0, *, holds=None, incoming=None):
+        holds = self.holds.load() if holds is None else holds
+        retained = list(entries)
+        def occupancy():
+            total, count, protected = self.holds.occupancy(holds, retained,
+                incoming=incoming, incoming_bytes=needed_bytes)
+            if incoming is None:
+                total += needed_bytes
+                count += needed_entries
+            return total, count, protected
         evicted = []
         removed_bytes = 0
-        while entries and (total + needed_bytes > self.maximum_bytes
-                          or len(entries) + needed_entries > self.maximum_entries):
-            _, key, size, receipt = entries.pop(0)
+        while True:
+            total, count, protected = occupancy()
+            if total <= self.maximum_bytes and count <= self.maximum_entries:
+                break
+            candidate = next((entry for entry in retained if entry[1] not in protected), None)
+            if candidate is None:
+                raise SummaryCapacityError('Summary storage is reserved for pending comparisons')
+            retained.remove(candidate)
+            evicted.append(candidate)
+        for _, key, size, receipt in evicted:
             self._remove(self.root / key)
-            evicted.append((key, receipt['identity'], 'evicted'))
             removed_bytes += size
-            total -= size
         if evicted:
-            self.usage.update(dict(evictions=len(evicted), evicted_bytes=removed_bytes), markers=evicted)
-        return dict(entries=len(entries), bytes=total)
+            self.usage.update(dict(evictions=len(evicted), evicted_bytes=removed_bytes),
+                markers=[(key, receipt['identity'], 'evicted') for _, key, _, receipt in evicted])
+        return dict(entries=len(retained), bytes=sum(entry[2] for entry in retained))
 
-    def prune(self, *, owner=None, configuration=None):
+    def prune(self, *, owner=None, configuration=None, job=None, attempt=None, unless_held=False):
         """Enforce budgets, or explicitly invalidate an owner's/config's entries."""
         if configuration is not None and owner is None:
             raise ValueError('Configuration invalidation requires an owner')
+        scoped = job is not None or attempt is not None
+        if scoped and (not owner or not configuration or not isinstance(job,str) or not job
+                       or not isinstance(attempt,str) or not attempt):
+            raise ValueError('Source invalidation requires owner, configuration, job and attempt')
         with self._lock('.cache.lock'):
             entries = self._entries()
+            holds = self.holds.load()
             if owner is not None:
+                if not unless_held:
+                    holds = self.holds.invalidate(holds, owner, configuration, job=job, attempt=attempt)
+                    self.holds.save(holds)
+                protected = self.holds.occupancy(holds, entries)[2] if unless_held else set()
                 retained = []
                 invalidated = []
                 for entry in entries:
                     identity = entry[3]['identity']
-                    if identity['owner'] == owner and (configuration is None or identity['configuration'] == configuration):
+                    execution = identity.get('execution', {})
+                    if (identity['owner'] == owner and (configuration is None or identity['configuration'] == configuration)
+                            and (not scoped or execution.get('job') == job and execution.get('attempt') == attempt)
+                            and entry[1] not in protected):
                         self._remove(self.root / entry[1])
                         invalidated.append((entry[1], identity, 'invalidated'))
                     else:
                         retained.append(entry)
                 entries = retained
                 self.usage.update(dict(invalidations=len(invalidated)), markers=invalidated,
-                                  invalidate=(owner, configuration))
-            return self._evict(entries)
+                                  invalidate=(owner, configuration) if not unless_held and not scoped else None)
+            return self._evict(entries, holds=holds)
 
 
 class SummaryEntry:
@@ -197,6 +238,7 @@ class SummaryEntry:
             raise ValueError('Invalid raw summary input size')
         prefixes = ['raw_'] + (['eviction_raw_'] if self.miss_reason == 'evicted' else [])
         with self.cache._lock('.cache.lock'):
+            self.cache.holds.before_raw(self.identity)
             self.cache.usage.update({prefix + suffix: amount for prefix in prefixes
                                      for suffix, amount in (('started', 1), ('input_bytes', input_bytes))})
         started = time.monotonic_ns()
@@ -268,7 +310,7 @@ class SummaryEntry:
                 entries = cache._entries()
                 if (cache.root / self.key).exists():
                     return False
-                cache._evict(entries, size + len(receipt), 1)
+                cache._evict(entries, size + len(receipt), 1, incoming=self.identity)
                 temporary = Path(tempfile.mkdtemp(prefix='.pending-', dir=cache.root))
                 try:
                     data.seek(0)

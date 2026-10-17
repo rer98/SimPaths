@@ -88,6 +88,10 @@ check_seconds = 10
 enabled = false
 retention_cleanup = false
 admin_email = ""
+# Optional user warning after six continuous hours waiting for disk, followed
+# by a confirmed-start update. Requires enabled=true; no repeated reminders.
+storage_wait_emails = false
+storage_wait_hours = 6
 
 [visualiser]
 # Optional pinned development build, for own inputs/public training only.
@@ -95,3 +99,7 @@ build = ""
 preview = false
 memory_mib = 1024
 timeout_seconds = 600
+# Independent chart and per-seed-summary periods, capped by source access.
+cache_hours = 168
+retain_completed_summaries = true
+summary_hours = 168

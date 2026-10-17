@@ -73,6 +73,10 @@ class VisualiserBackend:
             from .visualiser_summary_cache import SummaryCache
             self.summary_cache=SummaryCache(summary_cache_root, maximum_bytes=summary_cache_bytes,
                                             maximum_entries=summary_cache_entries)
+        from .visualiser_summary_holds import SummaryCapacityError
+        self.supports_summary_retention=self.summary_cache is not None
+        self.summary_retention_seconds=7*86400
+        self.capacity_errors=(SummaryCapacityError,)
         self.paired=manifest['mode']=='development-paired'
         # Advertise a set only when the verified application bundle includes
         # its v2 reader. Older pinned builds still support the original pair.
@@ -82,10 +86,48 @@ class VisualiserBackend:
         self.identity=dict(build=manifest,publication='own-and-public-preview-v1',
                            public_datasets=sorted(self.public_datasets),node=version,memory_mib=memory_mib)
 
-    def prune_summaries(self, *, owner=None, configuration=None):
+    def prune_summaries(self, *, owner=None, configuration=None, unless_held=False):
         if self.summary_cache is None:
             return dict(entries=0,bytes=0)
-        return self.summary_cache.prune(owner=owner,configuration=configuration)
+        return self.summary_cache.prune(owner=owner,configuration=configuration,unless_held=unless_held)
+
+    def prune_source_summaries(self, *, owner, configuration, job, attempt, unless_held=False):
+        """Retire one source without discarding another experiment's baseline."""
+        if self.summary_cache is None:
+            return dict(entries=0,bytes=0)
+        return self.summary_cache.prune(owner=owner,configuration=configuration,job=job,
+                                       attempt=attempt,unless_held=unless_held)
+
+    def retain_summaries(self, owner, experiment, comparisons, *, owner_entries):
+        """Retain authorised dependency plans, independently of worker resources."""
+        from .visualiser_summary_holds import scope
+        if self.summary_cache is None:
+            return dict(admitted=0,deferred=0)
+        return self.summary_cache.holds.replace(owner,experiment,comparisons,
+            calculation=scope(dict(calculation={key:self.manifest['files'][key]
+                for key in ('runner.cjs','calculation.cjs')},node=self.identity['node'])),
+            owner_entries=min(owner_entries,self.summary_cache.maximum_entries))
+
+    def summary_retention_experiments(self):
+        if self.summary_cache is None:
+            return []
+        with self.summary_cache._lock('.cache.lock'):
+            records=self.summary_cache.holds.load()
+        return sorted({(r['owner'],r['experiment']) for r in records.values()})
+
+    def check_summary_dependencies(self, selection):
+        """Reject deferred comparisons before catalogue/source hash passes."""
+        if self.summary_cache is None:
+            return
+        with self.summary_cache._lock('.cache.lock'):
+            records=self.summary_cache.holds.load()
+            for job in selection['jobs']:
+                for repetition in job['repetitions']:
+                    identity=dict(owner=selection['owner'],configuration=job['configuration'],
+                        seed=str(repetition['seed']),execution={k:job[k] for k in ('job','attempt')},
+                        calculation={k:self.manifest['files'][k] for k in ('runner.cjs','calculation.cjs')},
+                        node=self.identity['node'])
+                    self.summary_cache.holds.require_admitted(identity,records)
 
     def _summary_identity(self, source, run, inputs):
         """Selection role and display names never identify scientific summaries."""
@@ -191,14 +233,26 @@ class VisualiserBackend:
                         raise ValueError('Need one person and benefit file per run')
                     return files[0]
                 inputs=[one('person'),one('benefit')]
+                identity=self._summary_identity(configuration,run,inputs) if self.summary_cache is not None else None
+                if self.summary_cache is not None:
+                    self.summary_cache.preflight_entry(identity)
                 output=work/('configuration-'+str(configuration_index)+'-run-'+str(index)+'.json')
                 with ExitStack() as stack:
-                    descriptors=[stack.enter_context(self._verified_source(item)) for item in inputs]
+                    retained=configuration.get('retained_only',False)
+                    if retained:
+                        from datetime import datetime
+                        import time
+                        if (self.summary_cache is None or
+                                datetime.fromisoformat(config['completed_at']).timestamp()+self.summary_retention_seconds<=time.time()):
+                            raise ValueError('Retained intermediate summaries have expired')
+                    descriptors=[] if retained else [stack.enter_context(self._verified_source(item)) for item in inputs]
                     before=[os.fstat(f.fileno()) for f in descriptors]
-                    cached=(self.summary_cache.entry(self._summary_identity(configuration,run,inputs))
+                    cached=(self.summary_cache.entry(identity)
                             if self.summary_cache is not None else nullcontext(None))
                     with cached as entry:
                         if entry is None or not entry.restore(output):
+                            if retained:
+                                raise ValueError('Retained summaries are unavailable; expired raw output cannot be reparsed')
                             atomic_json(work/'request.json',dict(operation='run',
                                 person_fd=descriptors[0].fileno(),benefit_fd=descriptors[1].fileno(),
                                 role='baseline' if entry is not None else role,run=run['seed'],output=str(output)))

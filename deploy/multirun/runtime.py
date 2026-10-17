@@ -236,6 +236,7 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                     yield
     @asynccontextmanager
     async def running(app):
+        service.performance_review.start()
         if hasattr(service,'monitor'):
             service.monitor.start()
         thread=threading.Thread(target=dispatch,name='multirun-dispatcher',daemon=True)
@@ -270,6 +271,7 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                 await asyncio.to_thread(notifications.join)
                 if hasattr(service,'monitor'):
                     await asyncio.to_thread(service.monitor.close)
+                await asyncio.to_thread(service.performance_review.close)
             await finish_before_cancelling(asyncio.create_task(shutdown()))
             print(('Executor' if private_service else 'Frontend')+' stopped. Submitted jobs remain recorded; restart the service to resume dispatch.',flush=True)
     # Explicit, reviewed local recovery from laptop suspension/reconciliation
@@ -289,6 +291,9 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                         adaptive_cpu=adaptive)
     print('Automatic resource recovery: '+('enabled for new reviews; frozen ceilings and original retry/time budgets apply'
                                           if recovery else 'disabled'),flush=True)
+    from jasmine_web.batch.performance_review import PerformanceReview
+    from jasmine_web.batch.observability import model_reader
+    service.performance_review=PerformanceReview(q,state,model_reader(q,executor))
     if getattr(args,'operational_metrics',False):
         from jasmine_web.batch.observability import OperationalMonitor, Settings, model_reader
         service.monitor=OperationalMonitor(q,state,settings=Settings(
@@ -322,6 +327,7 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
         backend=VisualiserBackend(args.visualiser_build,execution,public_datasets=keys,
             memory_mib=max(256,args.visualiser_memory_mib-768) if scoped else args.visualiser_memory_mib,
             **backend_options)
+        backend.summary_retention_seconds=getattr(args,'visualiser_summary_hours',168)*3600
         from jasmine_web.batch.aggregate_limits import AggregateLimits
         limits=AggregateLimits(getattr(args,'visualiser_artifact_mib',16)*1024**2,
             getattr(args,'visualiser_comparison_mib',64)*1024**2,
@@ -332,8 +338,9 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
             runtime=args.visualiser_timeout_seconds,automatic=automatic,max_workers=workers,
             resource_scope=scopes,bounded_comparisons=getattr(args,'visualiser_bounded_comparisons',False),
             capacity=getattr(args,'visualiser_cache_mib',256)*1024**2,
-            lifetime=getattr(args,'visualiser_cache_hours',24)*3600,
+            lifetime=getattr(args,'visualiser_cache_hours',168)*3600,
             max_entries=getattr(args,'visualiser_max_entries',64),
+            retain_completed_summaries=getattr(args,'visualiser_retain_completed_summaries',True),
             per_owner_entries=getattr(args,'visualiser_per_owner_entries',256) if automatic else 10,
             publication_limits=limits)
         if automatic:
@@ -348,7 +355,9 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                                            failed_preparation=adapter.preparation.retire_failed)
     service.storage=Storage(service,execution)
     service.notifications=Notifications(service,admin_email=args.admin_email,
-        sender=smtp_sender(os.environ['SMTP_FROM_EMAIL']) if args.notification_emails else None)
+        sender=smtp_sender(os.environ['SMTP_FROM_EMAIL']) if args.notification_emails else None,
+        storage_wait_emails=getattr(args,'storage_wait_emails',False),
+        storage_wait_hours=getattr(args,'storage_wait_hours',6))
     service.retention=Retention(service,origin=origin,cleanup_enabled=args.retention_cleanup,
         sender=smtp_sender(os.environ['SMTP_FROM_EMAIL']) if args.notification_emails else None)
     service.completions=CompletionNotifications(service,origin=origin,

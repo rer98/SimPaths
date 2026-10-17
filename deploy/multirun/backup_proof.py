@@ -12,7 +12,7 @@ import unittest
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]))
 
 
-def main():
+def main(*,names=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--execute-proof',action='store_true')
     parser.add_argument('--output',type=Path,required=True)
@@ -25,7 +25,8 @@ def main():
     write_attribution(args.output)
     from deploy._workflow import frontend_path
     sys.path.insert(0,str(frontend_path()/'tests'))
-    names=['deploy.multirun.test_backup','deploy.multirun.test_backup_live','deploy.multirun.test_backup_single',
+    names=names or ['deploy.multirun.test_backup','deploy.multirun.test_backup_live','deploy.multirun.test_backup_single',
+        'deploy.multirun.test_backup_visualiser',
         'deploy.multirun.test_backup_transport','deploy.multirun.test_backup_schedule',
         'deploy.multirun.test_releases','deploy.multirun.test_vm_runtime','test_backup_guard',
         'test_vm_state','test_shared_vm_pool']

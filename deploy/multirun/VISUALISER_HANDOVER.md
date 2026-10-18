@@ -178,9 +178,13 @@ Evidence:
 [`visualiser-handover-native-20261018-200716/report.json`](/tmp-codex/visualiser-handover-native-20261018-200716/report.json)
 and
 [`model-proof/report.json`](/tmp-codex/visualiser-handover-native-20261018-200716/model-proof/report.json).
-The backup checks establish database fences and snapshot compatibility; they
-do not constitute a new full encrypted backup/restore rehearsal with a pending
-transfer. Hosted performance remains a separate acceptance step.
+The backup checks establish database fences and snapshot compatibility. A
+separate [encrypted handover recovery rehearsal](HANDOVER_RECOVERY.md) now covers
+pending and adopted transfers, real encryption, retained summaries/charts and
+recovered admission. All 30 checks passed on 18 October 2026 with no skips,
+failures or errors, and disposable database cleanup was confirmed. Evidence and
+repeat commands are recorded in that guide. Hosted performance remains a
+separate acceptance step.
 
 To repeat the native handover/migration/worker/backup proof from the operator's terminal:
 It uses fictional inputs and tiny supervised helpers, with no scientific models

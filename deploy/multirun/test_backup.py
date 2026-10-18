@@ -306,7 +306,8 @@ class BackupRestoreTests(unittest.TestCase):
         lease=self.q.claim('fictional-writer'); self.assertIsNotNone(lease); self.q.started(lease)
         work=self.executor.workspace(lease)/'work'; work.mkdir(mode=0o700,parents=True)
         atomic_json(work.parent/'identity.json',self.executor._identity(lease))
-        run=lease.specification['run_sets'][0]; config=normalise(run['parameters'])
+        run=next(r for r in lease.specification['run_sets'] if r['id']==lease.configuration_id)
+        config=normalise(run['parameters'])
         native=config.native_configuration(run['id'])
         fields=dict(country='UK',startYear=2019,endYear=2020,popSize=2000,randomSeedIfFixed='606',**native['model_args'])
         fields={k:v for k,v in fields.items() if k not in OPTIONS_NOT_EXPORTED}

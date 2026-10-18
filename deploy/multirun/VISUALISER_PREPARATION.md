@@ -835,6 +835,10 @@ or hosted concurrency from the existing single-seed comparison proof.
   checks: 123 suite and 21 runtime/shutdown checks passed with no skips and
   disposable database cleanup confirmed. Evidence and repeatable commands are
   in [VISUALISER_HANDOVER.md](VISUALISER_HANDOVER.md).
+- [x] Complete the combined encrypted backup/restore rehearsal with pending and
+  adopted preparation transfers. All 30 checks passed: restored admission,
+  startup rediscovery, retained summary/chart access and permissions, without
+  repeating completed models. See [HANDOVER_RECOVERY.md](HANDOVER_RECOVERY.md).
 - [x] Retain per-seed summaries needed by pending comparisons through bounded
   dependency-aware holds; test budget pressure, expiry, restart, invalidation
   and avoidance of repeated raw parsing. Local tests and tiny real calculations

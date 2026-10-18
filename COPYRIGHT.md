@@ -324,3 +324,12 @@ proof carry attribution in their headers. Generated parallel-helper receipts,
 group-limit evidence and test reports are (C) Copyright 2026, by Ross Richardson;
 @author ross richardson. Their accompanying evidence `COPYRIGHT.md` records the
 same notice without modifying scientific JSON or upstream calculation code.
+
+The encrypted handover recovery proof, fictional recovery fixtures and
+`deploy/multirun/HANDOVER_RECOVERY.md` carry attribution in their headers.
+Generated verification reports and fictional recovery metadata are
+(C) Copyright 2026, by Ross Richardson; @author ross richardson. Their evidence
+directory includes `COPYRIGHT.md`; generated JSON is left valid. Ephemeral test
+keys and temporary plaintext fixtures are removed after the rehearsal. Existing
+scientific data, cryptographic tools and third-party software retain their own
+attribution and licences.

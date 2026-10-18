@@ -7,6 +7,12 @@ Attribution scope and non-commentable/generated artifacts.
 
 # Attribution
 
+The Visualiser storage policy guide, private live-approval utility, adapter and
+backup changes carry inline attribution. Generated numeric storage controls,
+fictional proof evidence and v2 retained-backup metadata are
+(C) Copyright 2026, by Ross Richardson; @author ross richardson. Scientific model
+outputs and third-party components retain their original ownership and licences.
+
 The direct simulation-to-preparation handover guide, operator configuration,
 source-readiness integration and regression checks carry inline attribution.
 Generated fictional handover verification reports and private status metadata are

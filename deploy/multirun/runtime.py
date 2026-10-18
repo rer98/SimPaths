@@ -335,6 +335,15 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
         limits=AggregateLimits(getattr(args,'visualiser_artifact_mib',16)*1024**2,
             getattr(args,'visualiser_comparison_mib',64)*1024**2,
             getattr(args,'visualiser_rows_per_series',50000),getattr(args,'visualiser_comparison_rows',200000))
+        storage_policy=None
+        if getattr(args,'visualiser_storage_pressure',False):
+            from jasmine_web.batch.visualiser_storage import DiskHeadroom
+            storage_policy=dict(enabled=True,
+                maximum_bytes=(getattr(args,'visualiser_cache_max_mib',0) or args.visualiser_cache_mib)*1024**2,
+                summary_maximum_bytes=(getattr(args,'visualiser_summary_cache_max_mib',0) or args.visualiser_summary_cache_mib)*1024**2,
+                idle_seconds=getattr(args,'visualiser_idle_hours',72)*3600,
+                warning_seconds=getattr(args,'visualiser_warning_seconds',300),
+                physical=DiskHeadroom(q,executor,reserve_bytes=getattr(args,'visualiser_filesystem_headroom_mib',16384)*1024**2))
         service.visualiser=Visualiser(service.results,backend,
             resources=Resources(getattr(args,'visualiser_cpu_millis',1000),args.visualiser_memory_mib,
                                 getattr(args,'visualiser_storage_mib',512)),
@@ -347,7 +356,7 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
             max_entries=getattr(args,'visualiser_max_entries',64),
             retain_completed_summaries=getattr(args,'visualiser_retain_completed_summaries',True),
             per_owner_entries=getattr(args,'visualiser_per_owner_entries',256) if automatic else 10,
-            publication_limits=limits)
+            publication_limits=limits,storage_policy=storage_policy)
         if automatic:
             from jasmine_web.batch.preparation_scheduler import PreparationScheduler
             service.preparation_scheduler=PreparationScheduler(q,service.visualiser,

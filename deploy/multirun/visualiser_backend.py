@@ -118,6 +118,20 @@ class VisualiserBackend:
             records=self.summary_cache.holds.load()
         return sorted({(r['owner'],r['experiment']) for r in records.values()})
 
+    def storage_snapshot(self):
+        """Bounded numeric occupancy and missing-summary promises, without paths."""
+        cache=self.summary_cache
+        if cache is None:
+            return dict(bytes=0,entries=0,maximum_bytes=0,maximum_entries=1,
+                        promised_bytes=0,promised_entries=0,deferred=0)
+        with cache._lock('.cache.lock'):
+            entries=cache._entries();holds=cache.holds.load()
+            promised,count,_=cache.holds.occupancy(holds,entries)
+            return dict(bytes=sum(e[2] for e in entries),entries=len(entries),
+                maximum_bytes=cache.maximum_bytes,maximum_entries=cache.maximum_entries,
+                promised_bytes=promised,promised_entries=count,
+                deferred=sum(not record['admitted'] for record in holds.values()))
+
     def check_summary_dependencies(self, selection):
         """Reject deferred comparisons before catalogue/source hash passes."""
         if self.summary_cache is None:

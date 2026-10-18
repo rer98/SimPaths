@@ -14,6 +14,7 @@ from pathlib import Path
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 from uuid import uuid4
@@ -109,6 +110,28 @@ class VisualiserBackupFilesTests(unittest.TestCase):
         metrics.symlink_to(self.root/'summary.json')
         with self.assertRaises((ArtifactError,OSError)):self.capture()
 
+    def test_eviction_markers_budget_controls_and_user_access_survive_capture(self):
+        from jasmine_web.batch.visualiser_storage import BUDGET,FORMAT,budget
+        self.record.update(state='evicted',evicted_at=time.time())
+        atomic_json(self.cache/self.key/'status.json',self.record)
+        # Also exercise recovery of marker-first eviction interrupted before
+        # deletion: the stale finished payload must not enter a new backup.
+        atomic_json(self.cache/self.key/'access.json',dict(at=time.time()-4*86400))
+        control=dict(format=FORMAT,initial_bytes=64*1024**2,capacity_bytes=80*1024**2,
+            maximum_bytes=128*1024**2,summary_bytes=2*1024**2,summary_maximum_bytes=4*1024**2,growths=1)
+        atomic_json(self.cache/BUDGET,control)
+        record=self.capture();archive.verify(self.target,record)
+        self.assertEqual((record['publications'],record['evictions'],record['summaries']),(0,1,1))
+        restored=self.target/archive.ROOT
+        self.assertEqual(budget(restored),control)
+        self.assertEqual(json.loads((restored/self.key/'status.json').read_text())['state'],'evicted')
+        self.assertTrue((restored/self.key/'access.json').exists())
+        self.assertFalse((restored/self.key/'published.json').exists())
+
+    def test_existing_v1_retained_backup_inventory_still_verifies(self):
+        record=self.capture();record.pop('evictions');record['format']=archive.LEGACY_FORMAT
+        archive.verify(self.target,record)
+
 
 @unittest.skipUnless(DSN,'Use the disposable native PostgreSQL proof')
 class NativeVisualiserRestoreTests(unittest.TestCase):
@@ -123,6 +146,7 @@ class NativeVisualiserRestoreTests(unittest.TestCase):
         from jasmine_web.batch.results import Results
         from jasmine_web.batch.submission_service import Submissions
         from jasmine_web.batch.visualiser import Visualiser
+        from jasmine_web.batch.policy import Resources
         from .browser_model import BrowserModel
         from .queue_adapter import result_catalogue,result_name
         from .releases import ReleaseRegistry
@@ -133,10 +157,11 @@ class NativeVisualiserRestoreTests(unittest.TestCase):
                             BrowserModel(ReleaseRegistry(state).inventory()))
         service.results=Results(service,executor,result_catalogue,name=result_name)
         backend=Backend();backend.root=executor.root;backend.supports_selective_views=True
-        service.visualiser=Visualiser(service.results,backend)
+        service.visualiser=Visualiser(service.results,backend,resources=Resources(1000,1024,16),storage_policy=dict(enabled=True,
+            physical=lambda:dict(free_bytes=10**12,committed_bytes=0,growth_committed_bytes=0,reserve_bytes=1)))
         return service
 
-    def check_roundtrip(self,online):
+    def check_roundtrip(self,online,*,evicted=False):
         from jasmine_web.batch.policy import NotFound
         source=self.service(self.f.q,self.f.state)
         challenge=asyncio.run(source.access.issue('alice@example.org','fictional-client'))['challenge']
@@ -161,19 +186,31 @@ class NativeVisualiserRestoreTests(unittest.TestCase):
                  json.dumps(self.f.executor._identity(self.f.completed)),now,now))
         shutil.rmtree(self.f.executor.workspace(self.f.completed)/'work/output')
         self.assertEqual(v.data_bytes(auth['token'],key),original)
+        from jasmine_web.batch.visualiser_storage import approve,budget
+        approved=approve(v.root,maximum_bytes=512*1024**2)
+        if evicted:
+            record=v._record(key);record.update(state='evicted',evicted_at=time.time())
+            atomic_json(v._path(key)/'status.json',record)
+            (v._path(key)/'published.json').unlink();shutil.rmtree(v._path(key)/'views')
         with redirect_stderr(io.StringIO()):
             if online:backup_live.create(q,self.f.state,self.f.backup,self.f.tools)
             else:self.f.save()
         manifest=backup.verify(self.f.backup)
         self.assertEqual(manifest['visualiser']['summaries'],1)
-        self.assertEqual(manifest['visualiser']['publications'],1)
+        self.assertEqual(manifest['visualiser']['publications'],0 if evicted else 1)
+        self.assertEqual(manifest['visualiser']['evictions'],1 if evicted else 0)
         backup.restore(self.f.target_q,self.f.backup,self.f.target,self.f.target_tools)
         backup.activate(self.f.target_q,self.f.backup,self.f.target,image_check=lambda _:None,source_isolated=online)
         restored=self.service(self.f.target_q,self.f.target)
+        self.assertEqual(budget(restored.visualiser.root),approved)
         with patch.object(restored.visualiser.backend,'process',side_effect=AssertionError('Restore must not recalculate')):
-            self.assertEqual(restored.visualiser.data_bytes(auth['token'],key),original)
-            catalogue=json.loads(restored.visualiser.catalogue_bytes(auth['token'],key))
-            self.assertEqual(catalogue['seeds'],['606'])
+            if evicted:
+                self.assertEqual(restored.visualiser.status(auth['token'],key)['state'],'evicted')
+                self.assertEqual(restored.visualiser._enqueue(restored.visualiser._record(key)['selection'])['state'],'evicted')
+            else:
+                self.assertEqual(restored.visualiser.data_bytes(auth['token'],key),original)
+                catalogue=json.loads(restored.visualiser.catalogue_bytes(auth['token'],key))
+                self.assertEqual(catalogue['seeds'],['606'])
         restored_cache=SummaryCache(restored.visualiser.root/'summaries')
         with restored_cache.entry(identity) as entry:self.assertTrue(entry.restore(self.f.root/'restored-summary.json'))
         self.assertEqual((self.f.root/'restored-summary.json').read_bytes(),summary.read_bytes())
@@ -189,6 +226,12 @@ class NativeVisualiserRestoreTests(unittest.TestCase):
 
     def test_online_restore_preserves_summaries_charts_expiry_and_revocation_after_raw_expiry(self):
         self.check_roundtrip(True)
+
+    def test_offline_restore_keeps_eviction_suppression_and_live_approval(self):
+        self.check_roundtrip(False,evicted=True)
+
+    def test_online_restore_keeps_eviction_suppression_and_live_approval(self):
+        self.check_roundtrip(True,evicted=True)
 
 
 if __name__=='__main__':unittest.main()

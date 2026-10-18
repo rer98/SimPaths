@@ -42,6 +42,8 @@ DEFAULTS = {
                   'protected': False, 'hard_limits': False, 'bounded_comparisons': False,
                   'summaries': False, 'summary_cache_mib': 2048, 'cache_mib': 256,
                   'retain_completed_summaries': True, 'summary_hours': 168,
+                  'storage_pressure': False, 'cache_max_mib': 0, 'summary_cache_max_mib': 0,
+                  'idle_hours': 72, 'warning_seconds': 300, 'filesystem_headroom_mib': 16384,
                   'cache_hours': 168, 'max_entries': 512, 'per_owner_entries': 256,
                   'artifact_mib': 16, 'comparison_mib': 64,
                   'rows_per_series': 50000, 'comparison_rows': 200000},
@@ -172,6 +174,8 @@ def load_config(path):
     for key, low, high in (('max_workers',1,2), ('seed_workers',1,2), ('cpu_millis',1000,2000),
             ('storage_mib',512,16384), ('summary_cache_mib',1,65536), ('cache_mib',48,131072),
             ('cache_hours',1,8760), ('summary_hours',1,8760), ('max_entries',1,4096), ('per_owner_entries',1,4096),
+            ('cache_max_mib',0,131072), ('summary_cache_max_mib',0,65536),
+            ('idle_hours',1,8760), ('warning_seconds',1,3600), ('filesystem_headroom_mib',1024,131072),
             ('artifact_mib',1,128), ('comparison_mib',1,256),
             ('rows_per_series',1,200000), ('comparison_rows',1,400000)):
         number(visualiser[key], 'visualiser.'+key, low, high)
@@ -181,7 +185,7 @@ def load_config(path):
             visualiser['comparison_rows'] < visualiser['rows_per_series'] or
             visualiser['cache_mib'] < 3*visualiser['artifact_mib']):
         raise ValueError('Inconsistent bounded Visualiser budgets')
-    enhanced=any(visualiser[key] for key in ('automatic','protected','hard_limits','bounded_comparisons','summaries'))
+    enhanced=any(visualiser[key] for key in ('automatic','protected','hard_limits','bounded_comparisons','summaries','storage_pressure'))
     if enhanced and not visualiser['preview']:
         raise ValueError('Preparation options require an explicitly enabled Visualiser build')
     if visualiser['automatic'] and not all(visualiser[key] for key in
@@ -193,6 +197,15 @@ def load_config(path):
         raise ValueError('Parallel seeds require bounded automatic preparation with reusable summaries')
     if visualiser['handover'] and not all(visualiser[k] for k in ('automatic','hard_limits','summaries')):
         raise ValueError('Resource handover requires bounded automatic preparation with reusable summaries')
+    if visualiser['storage_pressure']:
+        maximum=visualiser['cache_max_mib'] or visualiser['cache_mib']
+        summary_maximum=visualiser['summary_cache_max_mib'] or visualiser['summary_cache_mib']
+        if (not visualiser['hard_limits'] or not visualiser['summaries'] or
+                maximum<visualiser['cache_mib'] or
+                not visualiser['summary_cache_mib']<=summary_maximum<=min(maximum,65536) or
+                visualiser['cache_mib']<max(visualiser['summary_cache_mib'],3*visualiser['artifact_mib'])+
+                    visualiser['max_workers']*(visualiser['storage_mib']+2*visualiser['comparison_mib'])):
+            raise ValueError('Storage pressure management needs bounded summaries and consistent approved ceilings')
     if visualiser['seed_workers']>1 and (pool['cpu_millis']-pool['hold_cpu_millis']<2000 or
             pool['memory_mib']-pool['hold_memory_mib']-pool['growth_memory_mib']<5120):
         raise ValueError('Parallel seed processing needs an admissible 5 GiB / 2-vCPU group')

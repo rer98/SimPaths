@@ -15,9 +15,10 @@ and raw parsing separately, without final comparison or chart generation.
 The [preparation scaling benchmark](VISUALISER_SCALING_TRIALS.md) adds parallel
 repetitions within one configuration under the same total 5 GiB/2-vCPU budget,
 and one/two/four workers across two configurations through finished chart reads.
-The agreed pressure-eviction, warning and bounded-expansion follow-up is recorded
-in [EXPERIMENT_ITERATION.md](EXPERIMENT_ITERATION.md); those actions remain to
-implement and are not enabled by running the benchmark.
+Pressure eviction, warnings and bounded live expansion are implemented behind
+`visualiser.storage_pressure`; see [VISUALISER_STORAGE.md](VISUALISER_STORAGE.md)
+for policy, approval commands and verification status. The throughput candidate
+enables the policy; running a benchmark does not change an installed service.
 
 **Decision record: 15 October 2026; follow-up decisions and resource evidence updated 18 October 2026. Opt-in implementation; verification evidence and outstanding capacity/host acceptance are recorded below.**
 
@@ -813,6 +814,13 @@ or hosted concurrency from the existing single-seed comparison proof.
 - [x] Support shorter or longer finished-result retention independently of raw
   output; implement provenance, permission/revocation, browser invalidation and
   backup/restore checks before allowing chart access after automatic raw expiry.
+- [x] Implement pressure-driven eviction of finished charts unused for 72 hours,
+  durable suppression of automatic recreation, protected reads/downloads and
+  independent summary retention. Add private live approval of bounded storage
+  growth and administrator warning thresholds. Local policy/adapter/browser
+  checks, 90 native queue/HTTP checks and 54 recovery/configuration/runtime checks
+  passed with no test skips. Evidence is recorded in the storage guide; hosted
+  sizing and mixed-load checks remain separate.
 - [ ] Conditional follow-up: evaluate revocable loans from unused model-growth
   headroom to a disposable second aggregation worker, subject to the performance
   and recall-safety gates above. Keep disabled until both are demonstrated.

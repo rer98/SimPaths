@@ -6,6 +6,7 @@ scratch and live processors. Immutable receipts survive inactive restoration.
 """
 from contextlib import ExitStack
 import json
+import math
 from pathlib import Path
 import re
 import stat
@@ -13,7 +14,8 @@ import stat
 from .artifacts import ArtifactError
 from .backup_files import copy_selected,file_hash,read_metadata,scan
 
-FORMAT='simpaths.visualiser.retained-backup.v1'
+FORMAT='simpaths.visualiser.retained-backup.v2'
+LEGACY_FORMAT='simpaths.visualiser.retained-backup.v1'
 ROOT='execution/visualiser-cache'
 HEX=re.compile('[a-f0-9]{64}')
 
@@ -30,10 +32,22 @@ def checked_hash(root,name,expected):
 
 
 def publication(root,key,record):
-    if (record.get('state')!='ready' or not isinstance(record.get('selection'),dict)
+    if (record.get('state') not in ('ready','evicted') or not isinstance(record.get('selection'),dict)
             or not isinstance(record.get('backend'),dict)):
         raise ArtifactError('Invalid ready Visualiser provenance')
     keys={key+'/status.json'}
+    access=Path(root)/key/'access.json'
+    if access.exists():
+        value=read_metadata(access)
+        if (set(value)!={'at'} or type(value['at']) not in (int,float) or
+                not math.isfinite(value['at']) or value['at']<0):
+            raise ArtifactError('Invalid Visualiser user access timestamp')
+        keys.add(key+'/access.json')
+    if record['state']=='evicted':
+        at=record.get('evicted_at')
+        if record.get('components') or type(at) not in (int,float) or not math.isfinite(at) or at<=0:
+            raise ArtifactError('Invalid Visualiser eviction marker')
+        return keys
     if record.get('components'):
         if (not isinstance(record['components'],list) or not record['components']
                 or any(not isinstance(k,str) or not HEX.fullmatch(k) for k in record['components'])):
@@ -83,7 +97,7 @@ def known_source(c,queue,owner,attempt,identity=None):
 def capture(state,destination,c=None,queue=None):
     from jasmine_web.batch.downloads import lock
     root=Path(state)/ROOT
-    result=dict(format=FORMAT,publications=0,summaries=0)
+    result=dict(format=FORMAT,publications=0,summaries=0,evictions=0)
     if not root.exists():return result
     if root.is_symlink():raise ArtifactError('Linked Visualiser storage')
     with ExitStack() as guards:
@@ -96,7 +110,7 @@ def capture(state,destination,c=None,queue=None):
             try:guards.enter_context(lock(path/'job.lock',shared=True))
             except BlockingIOError:continue  # Never capture a partial live calculation.
             record=read_metadata(path/'status.json')
-            if record.get('state')!='ready':continue
+            if record.get('state') not in ('ready','evicted'):continue
             selected=record.get('selection',{})
             if not isinstance(selected.get('jobs'),list) or not selected['jobs']:
                 raise ArtifactError('Missing retained publication source identities')
@@ -108,7 +122,11 @@ def capture(state,destination,c=None,queue=None):
         for key,record in list(records.items()):
             if any(k not in records for k in record.get('components',[])):records.pop(key)
         for key,record in records.items():
-            keys.update(publication(root,key,record));result['publications']+=1
+            keys.update(publication(root,key,record))
+            result['evictions' if record['state']=='evicted' else 'publications']+=1
+        from jasmine_web.batch.visualiser_storage import BUDGET,budget
+        if (root/BUDGET).exists():
+            budget(root);keys.add(BUDGET)
         summaries=root/'summaries'
         if summaries.exists():
             if summaries.is_symlink():raise ArtifactError('Linked summary storage')
@@ -130,20 +148,28 @@ def capture(state,destination,c=None,queue=None):
 
 
 def verify(state,expected):
-    if (not isinstance(expected,dict) or set(expected)!={'format','publications','summaries'}
-            or expected['format']!=FORMAT or any(type(expected[k]) is not int or not 0<=expected[k]<=10000
-                                                for k in ('publications','summaries'))):
+    fields={'format','publications','summaries'}
+    if isinstance(expected,dict) and expected.get('format')==FORMAT:fields.add('evictions')
+    if (not isinstance(expected,dict) or set(expected)!=fields
+            or expected['format'] not in (FORMAT,LEGACY_FORMAT) or any(type(expected[k]) is not int or not 0<=expected[k]<=10000
+                                                for k in fields-{'format'})):
         raise ArtifactError('Invalid Visualiser backup inventory')
     root=Path(state)/ROOT
     if not root.exists():
-        if expected['publications'] or expected['summaries']:raise ArtifactError('Missing retained Visualiser files')
+        if any(expected[k] for k in fields-{'format'}):raise ArtifactError('Missing retained Visualiser files')
         return
-    keys=set();counts=dict(publications=0,summaries=0);records={}
+    keys=set();counts={k:0 for k in fields-{'format'}};records={}
+    from jasmine_web.batch.visualiser_storage import BUDGET,budget
     for path in root.iterdir():
         if path.name=='summaries':continue
+        if path.name==BUDGET and expected['format']==FORMAT:
+            budget(root);keys.add(BUDGET);continue
         if not HEX.fullmatch(path.name):raise ArtifactError('Unexpected Visualiser backup entry')
         record=read_metadata(path/'status.json');records[path.name]=record
-        keys.update(publication(root,path.name,record));counts['publications']+=1
+        if record['state']=='evicted' and expected['format']!=FORMAT:
+            raise ArtifactError('Legacy backup cannot contain Visualiser eviction markers')
+        keys.update(publication(root,path.name,record))
+        counts['evictions' if record['state']=='evicted' else 'publications']+=1
     for record in records.values():
         if any(k not in records for k in record.get('components',[])):
             raise ArtifactError('Missing retained composite component')

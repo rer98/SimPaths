@@ -87,7 +87,9 @@ from pending-comparison holds and reports deferred storage requests.
 Finished chart files are retained for the independently configured `cache_hours`
 period, beginning when their publication becomes ready. Reads do not renew it.
 The Results page shows the chart expiry. Ready results are not evicted to admit
-new ones; byte and entry limits can defer new preparation. No unlimited retention
+new ones under the legacy fixed-budget policy. The throughput candidate enables
+the pressure policy below, which can reclaim eligible idle finished files early.
+Byte and entry limits can still defer new preparation. No unlimited retention
 or instant preparation is promised when those limits are exhausted. The larger
 candidate budget is a planning allowance, not a measured production requirement.
 
@@ -100,9 +102,12 @@ ten-seed regeneration times.
 
 ## Current boundaries and follow-up
 
-### Agreed storage-pressure policy — awaiting implementation
+### Storage-pressure policy — implemented behind an opt-in setting
 
-The agreed extension to the current fixed budgets should:
+The private executor implements the following policy, with legacy defaults off.
+The throughput candidate enables it. Full behaviour, private live-approval
+commands and native verification status are in
+[VISUALISER_STORAGE.md](VISUALISER_STORAGE.md):
 
 - Make finished publications/chart files eligible for pressure-driven eviction
   after 72 hours without authorised user use, measured from publication when
@@ -112,8 +117,8 @@ The agreed extension to the current fixed budgets should:
   not immediately regenerate an evicted publication. An authorised user request
   can regenerate it; genuinely new completed work remains eligible for automatic
   preparation. Missing summaries or invalid/deleted sources prevent a promise of
-  fast regeneration. Update the displayed retention wording before enabling this
-  policy; its present fixed expiry alone does not describe pressure eviction.
+  fast regeneration. Results cards explain conditional early reclamation when
+  the policy is enabled, alongside the independent expiry deadline.
 - Notify administrators at 50%, 70% and 85% occupancy, with an immediate blocked
   preparation incident. Monitor summary and total byte/entry limits as well as
   actual filesystem space. Deduplicate notices, filter short temporary spikes
@@ -128,10 +133,10 @@ The agreed extension to the current fixed budgets should:
   headroom. There is no required 50:50 summary/publication split. The current
   summary limit is a ceiling inside the total, not a preallocated partition.
 
-None of these new storage-pressure actions is enabled by the repetition-speed
-benchmark. See [VISUALISER_REPETITION_TRIALS.md](VISUALISER_REPETITION_TRIALS.md)
-for that local benchmark and the separate future storage-policy correctness
-checks. Current retention behaviour remains as described above.
+The repetition-speed benchmark does not enable these actions. Correctness checks
+use controlled clocks, tiny fictional files and captured senders; no 72-hour wait
+or scientific simulations are needed. The storage guide records the separate
+native HTTP/backup acceptance command and the remaining hosted sizing checks.
 
 ### Other boundaries
 

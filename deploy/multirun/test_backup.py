@@ -310,7 +310,12 @@ class BackupRestoreTests(unittest.TestCase):
         native=config.native_configuration(run['id'])
         fields=dict(country='UK',startYear=2019,endYear=2020,popSize=2000,randomSeedIfFixed='606',**native['model_args'])
         fields={k:v for k,v in fields.items() if k not in OPTIONS_NOT_EXPORTED}
-        directory=work/'output/run_1'; (directory/'input').mkdir(mode=0o700,parents=True); (directory/'csv').mkdir(mode=0o700)
+        directory=work/'output/run_1'
+        # Match the container's private umask explicitly, including intermediate
+        # directories: mkdir(parents=True) otherwise uses the caller's umask for
+        # output/run_1, which the live-backup ownership guard must reject.
+        for folder in (work/'output',directory,directory/'input',directory/'csv'):
+            folder.mkdir(mode=0o700)
         (directory/'input/options.txt').write_text('\n'.join(f'{k}: {str(v).lower() if isinstance(v,bool) else v}' for k,v in fields.items()))
         for name in ('Person.csv','BenefitUnit.csv'):
             (directory/'csv'/name).write_text('run,time,id,value\nrun-606,2019,1,2\nrun-606,2020,1,3\n')

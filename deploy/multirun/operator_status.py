@@ -101,6 +101,13 @@ def collect(queue, state, *, limit=20, read_database=True):
     elif result['summary_retention'].get('deferred_comparisons') or result['summary_retention'].get('deferred_configurations'):
         result['warnings'].append('summary_retention_waiting_for_capacity')
     try:
+        from jasmine_web.batch.visualiser_storage import read_status
+        result['visualiser_storage']=read_status(Path(state)/'execution/visualiser-cache')
+    except (OSError,ValueError,KeyError,TypeError):
+        result['visualiser_storage']=dict(recorded=True,available=False)
+        result['warnings'].append('visualiser_storage_control_unavailable')
+        result['complete']=False
+    try:
         result['models'] = release_inventory(state)
     except Exception:
         result.update(models=None,complete=False)

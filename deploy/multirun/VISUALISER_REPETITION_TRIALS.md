@@ -143,9 +143,10 @@ checks establish correctness, not native full-size resource measurements.
 
 The agreed storage-pressure policy is recorded in `EXPERIMENT_ITERATION.md`.
 The benchmark above does not enable eviction, automatic allowance expansion or
-capacity-warning emails. Once those behaviours are implemented, their regression
-proof should use tiny fictional files, a controlled clock and captured email
-senders. It should cover active reads/downloads, persistent eviction markers,
-authorised on-demand regeneration, notification deduplication, competing capacity
-requests and disk space already promised to other service work. No 72-hour wait
-or scientific simulations are needed for those correctness checks.
+capacity-warning emails. Those behaviours are now implemented behind an explicit
+operator setting; see [Visualiser storage management](VISUALISER_STORAGE.md).
+Their separate correctness checks use tiny fictional files, a controlled clock
+and captured email senders. They cover active reads/downloads, persistent
+eviction markers, authorised on-demand regeneration, notification deduplication,
+competing capacity requests and disk space already promised to other service
+work. No 72-hour wait or scientific simulations are needed for those checks.

@@ -75,6 +75,8 @@ class VMConfigTests(unittest.TestCase):
         self.assertEqual(options.visualiser_max_workers,2)
         self.assertEqual(options.visualiser_seed_workers,2)
         self.assertTrue(options.visualiser_handover)
+        self.assertTrue(options.visualiser_storage_pressure)
+        self.assertEqual(options.visualiser_cache_max_mib,16384)
         self.assertEqual(options.visualiser_memory_mib,2560)
         self.assertEqual(options.runtime_per_repetition_minutes,240)
         self.assertEqual(options.capacity['cpu_millis']-options.holdback['cpu_millis']-
@@ -94,6 +96,20 @@ class VMConfigTests(unittest.TestCase):
         self.assertFalse(legacy.visualiser_automatic)
         self.assertEqual(legacy.visualiser_seed_workers,1)
         self.assertFalse(legacy.visualiser_handover)
+        self.assertFalse(legacy.visualiser_storage_pressure)
+
+    def test_storage_pressure_requires_consistent_approved_budgets(self):
+        text=(TEMPLATE.parent/'throughput.toml.example').read_text().replace(
+            'sha256:REPLACE_WITH_64_HEXADECIMAL_DIGITS','sha256:'+'a'*64)
+        for old,new in (('cache_max_mib = 16384','cache_max_mib = 8192'),
+                        ('cache_mib = 16384','cache_mib = 13000'),
+                        ('summary_cache_max_mib = 12288','summary_cache_max_mib = 65536'),
+                        ('summary_cache_max_mib = 12288','summary_cache_max_mib = 4096'),
+                        ('storage_pressure = true','storage_pressure = 1'),
+                        ('idle_hours = 72','idle_hours = 0'),
+                        ('warning_seconds = 300','warning_seconds = 0'),
+                        ('filesystem_headroom_mib = 16384','filesystem_headroom_mib = 0')):
+            with self.subTest(new=new),self.assertRaises(ValueError):self.config(text.replace(old,new))
 
     def test_handover_requires_bounded_automatic_preparation(self):
         text=(TEMPLATE.parent/'throughput.toml.example').read_text().replace(

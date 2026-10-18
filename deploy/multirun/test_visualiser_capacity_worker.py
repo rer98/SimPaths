@@ -83,6 +83,33 @@ class CapacityWorkerTests(unittest.TestCase):
         worker.write_json(fixture/'manifest.json',manifest);(build/'runner.cjs').write_text('// changed')
         with self.assertRaisesRegex(ValueError,'Build checksum'):worker.load_fixture(fixture,build,self.root)
 
+    def test_background_sampler_failure_retains_the_exact_counter_error_and_still_fails(self):
+        root=self.cgroup();sampler=worker.Sampler(self.root/'samples.jsonl',root,interval=.001).start()
+        try:
+            (root/'memory.stat').write_text('inactive_file not-a-number\n')
+            self.assertTrue(sampler.event.wait(2),'The failing sampler did not stop')
+            saved=json.loads((self.root/'samples-errors.json').read_text())
+            self.assertEqual(saved['errors'][0]['error_type'],'ValueError')
+            self.assertIn('memory.stat',saved['errors'][0]['message'])
+            self.assertIn('not-a-number',saved['errors'][0]['message'])
+            self.assertEqual(saved['errors'][0]['stage'],'verification')
+            # Recovering access permits a final diagnostic counter snapshot;
+            # the lost interval must still invalidate the benchmark.
+            (root/'memory.stat').write_text('inactive_file 262144\n')
+            with self.assertRaisesRegex(RuntimeError,'not-a-number'):sampler.stop()
+            self.assertIsNotNone(sampler.final_metrics)
+            self.assertTrue(sampler.target.closed)
+            with self.assertRaisesRegex(RuntimeError,'not-a-number'):sampler.stop()
+        finally:
+            if not sampler.stopped:
+                try:sampler.stop()
+                except RuntimeError:pass
+
+    def test_successful_sampler_stop_is_idempotent_without_a_second_capture(self):
+        root=self.cgroup();sampler=worker.Sampler(self.root/'samples.jsonl',root,interval=60).start()
+        final=sampler.stop();count=sampler.samples
+        self.assertEqual(sampler.stop(),final);self.assertEqual(sampler.samples,count)
+
     def test_path_traversal_symlinks_and_shared_hardlinks_are_rejected(self):
         (self.root/'good').write_text('private');(self.root/'link').symlink_to('good')
         for path in ('../good','/good','./good','one//good','link'):

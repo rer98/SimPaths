@@ -50,9 +50,11 @@ def selected_fixture(manifest, count):
 
 
 def summary_key(record, configuration, run):
-    return dict(owner='repetition-performance-fixture', configuration=configuration['id'],
+    result=dict(owner='repetition-performance-fixture', configuration=configuration['id'],
                 fixture=record['fixture_manifest'], seed=run['seed'],
                 source_summary=run['summary'], source_seed=run['source_seed'], backend=record['backend'])
+    if 'summary_namespace' in record:result['experiment']=record['summary_namespace']
+    return result
 
 
 def prime(args, selected, work, cache, record):
@@ -98,6 +100,51 @@ def restore_summaries(cache, manifest, record, paths):
                 raise ValueError('Retained summary unavailable; no raw parsing was attempted')
 
 
+def run_trial(args, manifest, built, work, sampler, record, cache, round_number, count, number, *, task=None):
+    """One genuine regeneration pipeline, shared by repetition and resource trials."""
+    selected = selected_fixture(manifest, count)
+    folder = work/('trial-'+str(number)); folder.mkdir(mode=0o700)
+    identity = f'round-{round_number}-{count}-repetitions'+('' if task is None else '-task-'+str(task))
+    evidence = args.output/identity; evidence.mkdir(mode=0o700)
+    case = dict(round=round_number, repetitions=count, passed=False, cleanup=False, stages={}, synthetic=True)
+    if task is not None:case['task']=task
+    record['cases'].append(case)
+    class TrialSampler:
+        @property
+        def stage(self):return sampler.stage.removeprefix(identity+'/')
+        @stage.setter
+        def stage(self, value):sampler.stage = identity+'/'+value
+        @property
+        def peaks(self):
+            return {k.removeprefix(identity+'/'):v for k,v in sampler.peaks.items() if k.startswith(identity+'/')}
+        def capture(self):return sampler.capture()
+    settings = argparse.Namespace(**vars(args)); settings.output = evidence
+    started = time.monotonic()
+    try:
+        case['started_monotonic_ns']=time.monotonic_ns()
+        api.run_pipeline(settings, selected, built, folder, TrialSampler(), case,
+            summary_restore=lambda paths: restore_summaries(cache, selected, record, paths))
+        if set(case['stages']) != set(STAGES) or not all(s['passed'] for s in case['stages'].values()):
+            raise ValueError('Incomplete regeneration stages')
+        case['regeneration_seconds'] = case['ready_pipeline_seconds']
+        case['stage_total_seconds'] = sum(case['stages'][s]['elapsed_seconds'] for s in STAGES if s != 'view')
+        case['measured_pipeline_seconds'] = time.monotonic()-started
+        case['summary_count'] = 2*count
+        case['summary_bytes_restored'] = sum(path.stat().st_size for path in folder.glob('metrics-*.json'))
+        case['result_identity'] = {k:case[k] for k in ('publication','index','catalogue','view','validation')}
+        case['passed'] = True
+    except BaseException as error:
+        case['error_type'] = type(error).__name__
+        raise
+    finally:
+        try:shutil.rmtree(folder); case['cleanup'] = True
+        except BaseException as error:case.update(passed=False, cleanup_error=type(error).__name__)
+        api.write_json(evidence/'report.json', case)
+        api.write_json(args.output/'report.json', record)
+    if not case['cleanup']:raise RuntimeError('Trial scratch cleanup was not confirmed')
+    return case
+
+
 def run_trials(args, manifest, built, work, sampler, record):
     order = trial_order(args.repetitions, args.rounds)
     largest = selected_fixture(manifest, max(args.repetitions))
@@ -109,55 +156,7 @@ def run_trials(args, manifest, built, work, sampler, record):
     record['trial_order'] = [dict(round=r, repetitions=n) for r,n in order]
     record['cases'] = []
     for number, (round_number, count) in enumerate(order, 1):
-        selected = selected_fixture(manifest, count)
-        folder = work/('trial-'+str(number)); folder.mkdir(mode=0o700)
-        evidence = args.output/f'round-{round_number}-{count}-repetitions'
-        evidence.mkdir(mode=0o700)
-        case = dict(round=round_number, repetitions=count, passed=False, cleanup=False,
-                    stages={}, synthetic=True)
-        record['cases'].append(case)
-        identity = f'round-{round_number}-{count}-repetitions'
-        # Prefix sampler stage names so sampled memory peaks are per trial.
-        class TrialSampler:
-            @property
-            def stage(self):
-                return sampler.stage.removeprefix(identity+'/')
-            @stage.setter
-            def stage(self, value):
-                sampler.stage = identity+'/'+value
-            @property
-            def peaks(self):
-                return {k.removeprefix(identity+'/'):v for k,v in sampler.peaks.items()
-                        if k.startswith(identity+'/')}
-            def capture(self):
-                return sampler.capture()
-        settings = argparse.Namespace(**vars(args)); settings.output = evidence
-        started = time.monotonic()
-        try:
-            api.run_pipeline(settings, selected, built, folder, TrialSampler(), case,
-                summary_restore=lambda paths: restore_summaries(cache, selected, record, paths))
-            if set(case['stages']) != set(STAGES) or not all(s['passed'] for s in case['stages'].values()):
-                raise ValueError('Incomplete regeneration stages')
-            case['regeneration_seconds'] = case['ready_pipeline_seconds']
-            case['stage_total_seconds'] = sum(case['stages'][s]['elapsed_seconds']
-                                             for s in STAGES if s != 'view')
-            case['measured_pipeline_seconds'] = time.monotonic()-started
-            case['summary_count'] = 2*count
-            case['summary_bytes_restored'] = sum(path.stat().st_size for path in folder.glob('metrics-*.json'))
-            case['result_identity'] = {k:case[k] for k in ('publication','index','catalogue','view','validation')}
-            case['passed'] = True
-        except BaseException as error:
-            case['error_type'] = type(error).__name__
-            raise
-        finally:
-            try:
-                shutil.rmtree(folder); case['cleanup'] = True
-            except BaseException as error:
-                case.update(passed=False, cleanup_error=type(error).__name__)
-            api.write_json(evidence/'report.json', case)
-            api.write_json(args.output/'report.json', record)
-        if not case['cleanup']:
-            raise RuntimeError('Trial scratch cleanup was not confirmed')
+        case=run_trial(args,manifest,built,work,sampler,record,cache,round_number,count,number)
         print(f'PASS: {count} repetitions; round {round_number}; '
               f"{case['regeneration_seconds']:.1f} seconds", flush=True)
     record['cache_statistics'] = cache.statistics()
@@ -231,7 +230,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('frontend','fixture','build','output'):
         parser.add_argument('--'+name,type=Path,required=True)
-    parser.add_argument('--memory-mib',type=int,choices=(2048,3072,4096),default=3072)
+    parser.add_argument('--memory-mib',type=int,choices=(2048,2560,3072,4096),default=3072)
     parser.add_argument('--cpu-millis',type=int,choices=(1000,2000),default=1000)
     parser.add_argument('--repetitions',type=int,nargs='+',default=[2,5,10])
     parser.add_argument('--rounds',type=int,default=3)

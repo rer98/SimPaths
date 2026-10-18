@@ -259,7 +259,7 @@ def main(argv=None):
     parser.add_argument('--image',default='simpaths-visualiser-capacity:20261015')
     parser.add_argument('--repetitions',type=int,nargs='+',default=[2,5,10])
     parser.add_argument('--rounds',type=int,choices=range(1,6),default=3)
-    parser.add_argument('--memory-mib',type=int,choices=(2048,3072,4096),default=3072)
+    parser.add_argument('--memory-mib',type=int,choices=(2048,2560,3072,4096),default=3072)
     parser.add_argument('--cpu-millis',type=int,choices=(1000,2000),default=1000)
     parser.add_argument('--timeout-seconds',type=int,default=7200)
     args = parser.parse_args(argv)

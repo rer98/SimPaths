@@ -7,6 +7,13 @@ Attribution scope and non-commentable/generated artifacts.
 
 # Attribution
 
+The RAM/CPU/worker regeneration matrix, barrier worker, regression checks and
+resource-trial guide carry inline notices. Generated labelled HTML/CSV tables,
+numeric measurements, barrier records and test reports are
+(C) Copyright 2026, by Ross Richardson; @author ross richardson. Copied scientific
+summaries, Visualiser calculations and runtime components retain their existing
+ownership, notices and licences.
+
 The retained Visualiser backup selector, native restore proof, test requirements,
 regression checks and retention/recovery guide carry inline notices. Generated
 backup manifests, checksum receipts and fictional proof reports are
@@ -282,3 +289,11 @@ stage reports, samples, labelled HTML/CSV tables and synthetic fixture metadata
 are (C) Copyright 2026, by Ross Richardson; @author ross richardson. Their evidence
 directories include `COPYRIGHT.md`. Copied source summaries, calculations and
 runtime images retain their existing notices and licences.
+
+The raw-summary resource benchmark in `deploy/multirun/visualiser_summary_trials.py`,
+its worker, tests and `VISUALISER_SUMMARY_TRIALS.md` carry attribution in their
+headers. Generated two-repetition fixture provenance, source/runtime snapshots,
+stage reports, samples and labelled HTML/CSV tables are (C) Copyright 2026, by
+Ross Richardson; @author ross richardson, with `COPYRIGHT.md` in the evidence
+directory. Retained simulation CSVs, scientific calculations and copied runtime
+components keep their existing attribution and licences.

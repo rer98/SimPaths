@@ -88,7 +88,12 @@ def load_small(root,name,maximum=MIB):
     return decode(raw)
 
 
-def load_fixture(fixture,build,raw_root):
+def load_fixture(fixture,build,raw_root,*,verify_raw_hashes=True):
+    """Raw-only benchmarks may defer hashes to their timed verified-file opens.
+
+    Metadata, safe file types/paths/sizes and every build hash remain checked.
+    Summary-replay fixtures always receive the original full hash verification.
+    """
     manifest=load_small(fixture,'manifest.json')
     if manifest.get('format')!=FORMAT or manifest.get('mode') not in ('summary-replay','raw-native'):
         raise ValueError('Unknown capacity fixture')
@@ -120,9 +125,13 @@ def load_fixture(fixture,build,raw_root):
     maximum=64*MIB if mode=='summary-replay' else 8*1024*MIB
     for name,entry in files.items():
         if (not isinstance(entry,dict) or set(entry)!={'bytes','sha256'} or
-                type(entry['bytes']) is not int or entry['bytes']<1 or
-                not re.fullmatch('[a-f0-9]{64}',str(entry['sha256'])) or receipt(root,name,maximum)!=entry):
+                type(entry['bytes']) is not int or not 1<=entry['bytes']<=maximum or
+                not re.fullmatch('[a-f0-9]{64}',str(entry['sha256']))):
             raise ValueError('Source checksum differs')
+        if mode=='raw-native' and not verify_raw_hashes:
+            with safe_open(root,name) as source:
+                if os.fstat(source.fileno()).st_size!=entry['bytes']:raise ValueError('Raw source size differs')
+        elif receipt(root,name,maximum)!=entry:raise ValueError('Source checksum differs')
     built=load_small(build,'build.json')
     if built.get('format')!='simpaths.visualiser.build.v1' or built.get('mode')!='development-paired':
         raise ValueError('Need a pinned paired Visualiser build')
@@ -141,13 +150,14 @@ def counters(path):
     result={}
     for line in path.read_text().splitlines():
         fields=line.split()
-        if len(fields)!=2 or not fields[1].isdigit() or fields[0] in result:raise ValueError('Invalid cgroup counters')
+        if len(fields)!=2 or not fields[1].isdigit() or fields[0] in result:
+            raise ValueError('Invalid cgroup counters in '+path.name+': '+repr(line[:200]))
         result[fields[0]]=int(fields[1])
     return result
 
 
 def require_limits(memory_mib,root=CGROUP,*,cpu_millis=1000):
-    if memory_mib not in (2048,3072,4096):raise ValueError('Unsupported memory case')
+    if memory_mib not in (2048,2560,3072,4096):raise ValueError('Unsupported memory case')
     if cpu_millis not in (1000,2000):raise ValueError('Unsupported CPU case')
     memory=(root/'memory.max').read_text().strip();swap=(root/'memory.swap.max').read_text().strip()
     cpu=(root/'cpu.max').read_text().split()
@@ -181,7 +191,8 @@ def snapshot(root=CGROUP):
             values[fields[0]]=int(raw['total'])
         if 'some' not in values:raise ValueError('Missing pressure metrics')
         pressure[kind]=values
-    if current<0 or peak<current:raise ValueError('Invalid memory metrics')
+    if current<0 or peak<current:
+        raise ValueError(f'Invalid memory metrics: memory.current={current}, memory.peak={peak}')
     return dict(memory_current_bytes=current,memory_peak_bytes=peak,
         working_bytes=max(0,current-memory['inactive_file']),memory_events=events,cpu=cpu,io=io,pressure_usec=pressure)
 
@@ -190,6 +201,7 @@ class Sampler:
     def __init__(self,path,root=CGROUP,interval=.25):
         self.path=path;self.root=root;self.interval=interval;self.event=threading.Event()
         self.lock=threading.Lock();self.stage='verification';self.samples=0;self.errors=[];self.peaks={}
+        self.error_details=[];self.stopped=False;self.stop_error=None;self.final_metrics=None
 
     def capture(self):
         value=snapshot(self.root)
@@ -210,16 +222,34 @@ class Sampler:
         def loop():
             while not self.event.wait(self.interval):
                 try:self.capture()
-                except BaseException as error:self.errors.append(type(error).__name__);self.event.set()
+                except BaseException as error:
+                    self.errors.append(type(error).__name__)
+                    self.error_details.append(dict(error_type=type(error).__name__,message=str(error)[:1000],
+                        stage=self.stage,elapsed_seconds=time.monotonic()-self.started,wall_time_ns=time.time_ns()))
+                    try:write_json(self.path.with_name(self.path.stem+'-errors.json'),dict(errors=self.error_details))
+                    except BaseException as diagnostic_error:
+                        self.error_details[-1]['diagnostic_error']=type(diagnostic_error).__name__
+                    self.event.set()
         self.thread=threading.Thread(target=loop,daemon=True);self.thread.start();return self
 
     def stop(self):
+        if self.stopped:
+            if self.stop_error is not None:raise self.stop_error
+            return self.final_metrics
         self.event.set();self.thread.join(5)
         if self.thread.is_alive():raise RuntimeError('Sampler did not stop')
         try:
-            if self.errors:raise RuntimeError('Required metrics unavailable: '+','.join(self.errors))
-            return self.capture()
-        finally:self.target.close()
+            # A final available snapshot does not repair a missing sampling
+            # interval. Retain it for OOM/counter diagnosis, then still fail.
+            self.final_metrics=self.capture()
+            if self.errors:
+                details='; '.join(e['error_type']+': '+e['message'] for e in self.error_details)
+                raise RuntimeError('Required metrics unavailable: '+(details or ','.join(self.errors)))
+            return self.final_metrics
+        except BaseException as error:
+            self.stop_error=error
+            raise
+        finally:self.target.close();self.stopped=True
 
 
 def command(log,argv,*,pass_fds=()):
@@ -371,6 +401,7 @@ def run_pipeline(args,manifest,built,work,sampler,record,*,summary_restore=None)
                     if catalogue['seeds']!=manifest['seeds']:raise ValueError('Catalogue seed metadata differs')
                     record['catalogue']=dict(bytes=len(body),sha256=hashlib.sha256(body).hexdigest());del body
                 if summary_restore is not None:
+                    record['ready_monotonic_ns']=time.monotonic_ns()
                     record['ready_pipeline_seconds']=time.monotonic()-pipeline_started
                 with stage('view'):
                     selection=dict(variable='Highest Level of Education',stratifier='Overall',kind='levels',
@@ -460,7 +491,7 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     for name in ('fixture','build','frontend','output'):parser.add_argument('--'+name,type=Path,required=True)
     parser.add_argument('--raw-root',type=Path,default=Path('/raw'))
-    parser.add_argument('--memory-mib',type=int,choices=(2048,3072,4096),required=True)
+    parser.add_argument('--memory-mib',type=int,choices=(2048,2560,3072,4096),required=True)
     parser.add_argument('--cpu-millis',type=int,choices=(1000,2000),default=1000)
     parser.add_argument('--layout',choices=('monolithic','bounded-pairs'),default='monolithic')
     parser.add_argument('--tasks',type=int,nargs='+',default=[0])

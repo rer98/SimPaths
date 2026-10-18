@@ -8,6 +8,10 @@ Agreed automatic Visualiser preparation design and resource-validation plan.
 
 For the focused two/five/ten-repetition benchmark of regeneration from already
 retained summaries, see [VISUALISER_REPETITION_TRIALS.md](VISUALISER_REPETITION_TRIALS.md).
+The separate [raw-to-intermediate resource matrix](VISUALISER_SUMMARY_TRIALS.md)
+uses only the two genuine repetitions per configuration, testing 2/2.5/3 GiB,
+one/two vCPUs per worker and one/two workers. It measures source verification
+and raw parsing separately, without final comparison or chart generation.
 The agreed pressure-eviction, warning and bounded-expansion follow-up is recorded
 in [EXPERIMENT_ITERATION.md](EXPERIMENT_ITERATION.md); those actions remain to
 implement and are not enabled by running the benchmark.
@@ -65,6 +69,15 @@ no OOMs or cleanup failures. The detailed results below support 3 GiB as a
 starting worker allowance and show a throughput/first-result trade-off for two
 workers. They do not establish ten-repetition limits or hosted mixed-load
 responsiveness.
+
+The focused raw-to-intermediate matrix completed on 18 October with **34/36
+passing batches**. Two 3-GiB batches failed in resource sampling, rather than a
+reported scientific calculation, and remain failed in the original evidence.
+All 2/2.5-GiB batches passed. The [recorded results and focused follow-up](VISUALISER_SUMMARY_TRIALS.md#native-results--18-october-2026)
+show a throughput benefit from two workers and modest gains from extra CPU;
+the 2.5-GiB profiles offer a useful memory/time tradeoff. Sampler diagnostics
+are improved, but the exact original trigger remains unrecorded and unresolved.
+Production settings remain unchanged.
 
 ## Agreed preparation sequence
 
@@ -426,6 +439,18 @@ with their fixed deadlines and matching database provenance. Keeping one finishe
 comparison cannot recreate every future comparison.
 
 ### Measuring eviction-led raw reprocessing
+
+The [retained-summary RAM/CPU/worker matrix](VISUALISER_REGENERATION_TRIALS.md)
+separately compares 2, 2.5 and 3 GiB per worker, 1/2 vCPUs per worker and one/two
+workers for 2/5/10 repetitions. It times two independent tasks with a common
+start, reporting first-result latency and total throughput. It does not measure
+raw parsing or enable production workers/borrowing. The earlier focused
+3-GiB/1-vCPU repetition run completed all nine trials; see
+[the recorded timings](VISUALISER_REPETITION_TRIALS.md#validation-and-storage-policy-follow-up).
+The full matrix subsequently passed all 108 batches / 216 tasks with cleanup
+confirmed. The [native results and conclusions](VISUALISER_REGENERATION_TRIALS.md#completed-native-matrix--17-october-2026)
+show a throughput benefit from two workers for retained-summary regeneration;
+raw summarisation and mixed hosted contention remain separate measurements.
 
 With private summary reuse enabled, the cache now records cumulative numeric
 counts and costs in private bounded metadata. `operator_status` includes them

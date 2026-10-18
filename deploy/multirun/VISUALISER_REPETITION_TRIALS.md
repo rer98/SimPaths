@@ -119,6 +119,21 @@ requires a VPS trial.
 
 ## Validation and storage-policy follow-up
 
+The full-size local run on 17 October passed all nine trials with cleanup
+confirmed in
+[/tmp-codex/visualiser-repetitions-20261017-140408/report.json](/tmp-codex/visualiser-repetitions-20261017-140408/report.json).
+With one worker, 1 vCPU and 3 GiB, median readiness times were 31.47, 36.87 and
+46.63 seconds for 2, 5 and 10 repetitions respectively. Finished publication and
+indexed-chart storage grew only from 259.71 to 261.09 MiB across those counts;
+retained summaries grew from 125.09 to 625.44 MiB for the whole pair. These are
+synthetic repetitions and warm filesystem measurements, not new model runs or
+hosted sizing acceptance.
+
+The next [RAM/CPU/worker matrix](VISUALISER_REGENERATION_TRIALS.md) tests 2, 2.5
+and 3 GiB with one/two workers and 1/2 vCPUs per worker, retaining the same
+repetition counts. The original single-worker command also accepts
+`--memory-mib 2560` for an isolated 2.5-GiB run.
+
 On 17 October 2026, **73 focused harness/regression checks passed** locally,
 including the new repetition tests and existing capacity/worker/comparison
 checks. Tiny real-helper tests cover all three repetition counts, repeat-output

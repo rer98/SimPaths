@@ -72,7 +72,9 @@ class VMConfigTests(unittest.TestCase):
         options=self.config(text)
         self.assertTrue(options.adaptive_cpu)
         self.assertTrue(options.visualiser_automatic)
-        self.assertEqual(options.visualiser_max_workers,1)
+        self.assertEqual(options.visualiser_max_workers,2)
+        self.assertEqual(options.visualiser_seed_workers,2)
+        self.assertEqual(options.visualiser_memory_mib,2560)
         self.assertEqual(options.runtime_per_repetition_minutes,240)
         self.assertEqual(options.capacity['cpu_millis']-options.holdback['cpu_millis']-
                          options.visualiser_cpu_millis,8000)
@@ -82,12 +84,24 @@ class VMConfigTests(unittest.TestCase):
                         ('summaries = true','summaries = false'),
                         ('runtime_per_repetition_minutes = 240','runtime_per_repetition_minutes = 60'),
                         ('cache_mib = 16384','cache_mib = 256'),
-                        ('memory_mib = 40960','memory_mib = 10000'),
-                        ('max_workers = 1','max_workers = 3')):
+                        ('memory_mib = 40448','memory_mib = 10000'),
+                        ('max_workers = 2','max_workers = 3'),
+                        ('seed_workers = 2','seed_workers = 3')):
             with self.subTest(new=new),self.assertRaises(ValueError):self.config(text.replace(old,new))
         legacy=self.config()
         self.assertFalse(legacy.adaptive_cpu)
         self.assertFalse(legacy.visualiser_automatic)
+        self.assertEqual(legacy.visualiser_seed_workers,1)
+
+    def test_seed_parallelism_requires_scoped_automatic_reusable_summaries(self):
+        text=(TEMPLATE.parent/'throughput.toml.example').read_text().replace(
+            'sha256:REPLACE_WITH_64_HEXADECIMAL_DIGITS','sha256:'+'a'*64)
+        for old,new in (('hard_limits = true','hard_limits = false'),
+                        ('automatic = true','automatic = false'),('summaries = true','summaries = false'),
+                        ('seed_workers = 2','seed_workers = true')):
+            with self.subTest(new=new),self.assertRaises(ValueError):self.config(text.replace(old,new))
+        one=self.config(text.replace('seed_workers = 2','seed_workers = 1'))
+        self.assertEqual(one.visualiser_seed_workers,1)
 
     def test_recovery_is_operator_opt_in_and_unknown_or_invalid_settings_fail(self):
         self.assertFalse(self.config().recovery_enabled)

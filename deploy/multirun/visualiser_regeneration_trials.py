@@ -104,19 +104,20 @@ def check_batch(reports,profile,released):
             sampled_memory_peak_bytes=max(s['sampled_peaks'].get('memory_current_bytes',0) for s in c['stages'].values())) for c in cases])
 
 
-def run_batch(client,args,snapshot,directory,profile,*,deadline=None,options_factory=None,result_checker=None):
+def run_batch(client,args,snapshot,directory,profile,*,deadline=None,options_factory=None,result_checker=None,armed_checker=None):
     # Raw-summary trials share native containment/cleanup, with their own work
     # allocation and result validation. Defaults preserve regeneration trials.
     options_factory=options_factory or container_options
     result_checker=result_checker or check_batch
+    count=profile.get('containers',profile['workers'])
     directory.mkdir(mode=0o700)
     control=directory/'control';control.mkdir(mode=0o700)
     record=dict(profile,passed=False,cleanup=False,workers_evidence=[],
-        preflight=legacy.preflight_space(directory,profile['memory_mib'],profile['workers']))
+        preflight=legacy.preflight_space(directory,profile['memory_mib'],count))
     identity=uuid4().hex;owned=[];started=time.monotonic();released=None
     expiry=min(started+args.timeout_seconds,deadline) if deadline is not None else started+args.timeout_seconds
     try:
-        for i in range(profile['workers']):
+        for i in range(count):
             target=directory/('worker-'+str(i+1));target.mkdir(mode=0o700)
             container=client.containers.create(**options_factory(args,snapshot,target,control,profile,i,identity))
             owned.append((container,target));container.start()
@@ -130,7 +131,9 @@ def run_batch(client,args,snapshot,directory,profile,*,deadline=None,options_fac
             if released is None and all((p/'armed.json').is_file() for _,p in owned):
                 for i,(_,p) in enumerate(owned):
                     marker=legacy.read_json(p/'armed.json')
-                    if marker!=dict(format='simpaths.visualiser.armed.v1',repetitions=profile['repetitions'],
+                    if armed_checker is not None:
+                        armed_checker(marker,i,profile)
+                    elif marker!=dict(format='simpaths.visualiser.armed.v1',repetitions=profile['repetitions'],
                             task_start=i+1,tasks=2 if profile['workers']==1 else 1):
                         raise ValueError('Start barrier belongs to another trial')
                 released=time.monotonic_ns()

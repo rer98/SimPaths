@@ -37,7 +37,7 @@ DEFAULTS = {
     'notifications': {'enabled': False, 'retention_cleanup': False, 'admin_email': '',
                       'storage_wait_emails': False, 'storage_wait_hours': 6},
     'visualiser': {'build': '', 'preview': False, 'memory_mib': 1024, 'timeout_seconds': 600,
-                  'automatic': False, 'max_workers': 1, 'cpu_millis': 1000, 'storage_mib': 512,
+                  'automatic': False, 'max_workers': 1, 'seed_workers': 1, 'cpu_millis': 1000, 'storage_mib': 512,
                   'protected': False, 'hard_limits': False, 'bounded_comparisons': False,
                   'summaries': False, 'summary_cache_mib': 2048, 'cache_mib': 256,
                   'retain_completed_summaries': True, 'summary_hours': 168,
@@ -168,7 +168,7 @@ def load_config(path):
             raise ValueError('Install the public Visualiser build outside private storage')
     number(visualiser['memory_mib'], 'visualiser.memory_mib', 512, 4096)
     number(visualiser['timeout_seconds'], 'visualiser.timeout_seconds', 60, 3600)
-    for key, low, high in (('max_workers',1,2), ('cpu_millis',1000,2000),
+    for key, low, high in (('max_workers',1,2), ('seed_workers',1,2), ('cpu_millis',1000,2000),
             ('storage_mib',512,16384), ('summary_cache_mib',1,65536), ('cache_mib',48,131072),
             ('cache_hours',1,8760), ('summary_hours',1,8760), ('max_entries',1,4096), ('per_owner_entries',1,4096),
             ('artifact_mib',1,128), ('comparison_mib',1,256),
@@ -188,6 +188,11 @@ def load_config(path):
         raise ValueError('Automatic preparation requires protected, limited workers and bounded reusable summaries')
     if visualiser['max_workers'] > 1 and not (visualiser['automatic'] and visualiser['hard_limits']):
         raise ValueError('A second aggregate worker requires bounded automatic preparation')
+    if visualiser['seed_workers']>1 and not all(visualiser[k] for k in ('automatic','hard_limits','summaries')):
+        raise ValueError('Parallel seeds require bounded automatic preparation with reusable summaries')
+    if visualiser['seed_workers']>1 and (pool['cpu_millis']-pool['hold_cpu_millis']<2000 or
+            pool['memory_mib']-pool['hold_memory_mib']-pool['growth_memory_mib']<5120):
+        raise ValueError('Parallel seed processing needs an admissible 5 GiB / 2-vCPU group')
     if visualiser['automatic']:
         minimum_cache=visualiser['summary_cache_mib']+visualiser['max_workers']*visualiser['storage_mib']+3*visualiser['artifact_mib']
         if visualiser['cache_mib'] < minimum_cache:

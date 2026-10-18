@@ -29,12 +29,12 @@ retention_days = 30
 max_rows = 20000
 
 [pool]
-# 8 CPUs/30 GiB for models, 2 CPUs/5 GiB for SingleRun, 1 CPU/3 GiB
+# 8 CPUs/30 GiB for models, 2 CPUs/5 GiB for SingleRun, 1 CPU/2.5 GiB
 # for primary chart preparation, and 2 GiB shared model-growth headroom.
 # Reserve OS/PostgreSQL/public web resources OUTSIDE this pool.
 # 48 decimal GB is about 44.7 GiB: check actual host capacity on deployment.
 cpu_millis = 11000
-memory_mib = 40960
+memory_mib = 40448
 storage_mib = 307200
 hold_cpu_millis = 2000
 hold_memory_mib = 5120
@@ -86,12 +86,15 @@ protected = true
 hard_limits = true
 bounded_comparisons = true
 summaries = true
-memory_mib = 3072
+memory_mib = 2560
 cpu_millis = 1000
 storage_mib = 2048
 timeout_seconds = 3600
-# Start with one worker. Test the optional second worker for disk contention.
-max_workers = 1
+# Two independent preparations; each can admit up to two seed tasks within
+# one total 5 GiB/2-vCPU group. A small protected group falls back to one task.
+# Requires the executor resources drop-in with MemoryMax >= 12 GiB.
+max_workers = 2
+seed_workers = 2
 retain_completed_summaries = true
 summary_hours = 168
 summary_cache_mib = 8192

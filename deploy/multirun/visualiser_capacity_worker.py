@@ -292,7 +292,7 @@ def validate_rows(paths,manifest):
                 annual_years=manifest['annual_years'],seed_labels=manifest['seeds'])
 
 
-def run_pipeline(args,manifest,built,work,sampler,record,*,summary_restore=None):
+def run_pipeline(args,manifest,built,work,sampler,record,*,summary_restore=None,rows_validator=None,command_runner=None):
     pipeline_started=time.monotonic()
     sys.path.insert(0,str(args.frontend))
     from jasmine_web.batch.aggregate_io import invoke
@@ -331,7 +331,7 @@ def run_pipeline(args,manifest,built,work,sampler,record,*,summary_restore=None)
             write_json(args.output/'report.json',record)
 
     with (args.output/'processing.log').open('xb') as log:
-        def execute(argv,*,pass_fds=()):command(log,argv,pass_fds=pass_fds)
+        def execute(argv,*,pass_fds=()):(command_runner or command)(log,argv,pass_fds=pass_fds)
         def node_run(script,request):
             write_json(work/'request.json',request)
             execute([node,'--max-old-space-size='+str(heap),script,work/'request.json'])
@@ -363,15 +363,17 @@ def run_pipeline(args,manifest,built,work,sampler,record,*,summary_restore=None)
                 aggregate_metrics=[dict(path=path,canonical=True,seed=run['seed'],role=config['role'])
                     for path,(config,run) in zip(metrics,[(c,r) for c in manifest['configurations'] for r in c['runs']])]
             node_run(args.build/'runner.cjs',dict(operation='aggregate',metrics=aggregate_metrics,outputs=outputs))
-        public=dict(format='simpaths.visualiser.v2',backend=manifest['backend'],
+        multiple=len(manifest['configurations'])>1
+        public=dict(format='simpaths.visualiser.v2' if multiple else 'simpaths.visualiser.v1',backend=manifest['backend'],
             experiment='Private capacity fixture' if replay else 'Retained native capacity measurement',
             configurations=[dict(id=c['id'],name=c['name'],role='Baseline' if i==0 else 'Scenario',
                 dataset='capacity-fixture' if replay else 'verified-native-results',model='verified-pinned-model',
-                runs=[dict(seed=r['seed']) for r in c['runs']]) for i,c in enumerate(manifest['configurations'])],
-            comparison=dict(baseline=manifest['configurations'][0]['id'],scenarios=[c['id'] for c in manifest['configurations'][1:]]))
+                runs=[dict(seed=r['seed']) for r in c['runs']]) for i,c in enumerate(manifest['configurations'])])
+        if multiple:
+            public['comparison']=dict(baseline=manifest['configurations'][0]['id'],scenarios=[c['id'] for c in manifest['configurations'][1:]])
         paths=[Path(o['path']) for o in outputs];common=dict(memory_mib=helper,publication_limits=limits.describe())
         with stage('validate'):
-            record['validation']=validate_rows(paths,manifest)
+            record['validation']=(rows_validator or validate_rows)(paths,manifest)
         with stage('publish'):
             counts=record['validation']['rows_per_configuration']
             if any(count>limits.rows_per_series for count in counts) or sum(counts)>limits.comparison_rows:
@@ -380,7 +382,8 @@ def run_pipeline(args,manifest,built,work,sampler,record,*,summary_restore=None)
             with ExitStack() as stack:
                 sources=[stack.enter_context(path.open('rb')) for path in paths]
                 body=invoke(dict(common,operation='publish',format=public['format'],public=public,kind='rows',
-                    notice=NOTICE if replay else 'Verified native outputs; no simulations were rerun.',comparison_available=True),
+                    notice=NOTICE if replay else 'Verified native outputs; no simulations were rerun.',
+                    comparison_available=len(manifest['configurations'])>1),
                     tuple(source.fileno() for source in sources),execute)
             publication=work/'published.json';publication.write_bytes(body)
             published=dict(bytes=len(body),sha256=hashlib.sha256(body).hexdigest());del body

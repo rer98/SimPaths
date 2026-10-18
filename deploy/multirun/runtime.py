@@ -317,9 +317,11 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
             raise ValueError('Bounded automatic preparation requires the separated private executor')
         scopes=None
         workers=getattr(args,'visualiser_max_workers',1)
+        seed_workers=getattr(args,'visualiser_seed_workers',1)
         if scoped:
             from jasmine_web.batch.processing_scope import DelegatedScopes
-            scopes=DelegatedScopes(minimum_memory_mib=workers*args.visualiser_memory_mib+2048)
+            group_memory=max(args.visualiser_memory_mib,5120) if seed_workers>1 else args.visualiser_memory_mib
+            scopes=DelegatedScopes(minimum_memory_mib=workers*group_memory+2048)
         backend_options={}
         if getattr(args,'visualiser_summaries',False):
             backend_options=dict(summary_cache_root=execution/'visualiser-cache'/'summaries',
@@ -336,6 +338,7 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
             resources=Resources(getattr(args,'visualiser_cpu_millis',1000),args.visualiser_memory_mib,
                                 getattr(args,'visualiser_storage_mib',512)),
             runtime=args.visualiser_timeout_seconds,automatic=automatic,max_workers=workers,
+            seed_workers=seed_workers,
             resource_scope=scopes,bounded_comparisons=getattr(args,'visualiser_bounded_comparisons',False),
             capacity=getattr(args,'visualiser_cache_mib',256)*1024**2,
             lifetime=getattr(args,'visualiser_cache_hours',168)*3600,
@@ -373,6 +376,7 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
         retention_cleanup=args.retention_cleanup,visualiser_enabled=args.visualiser_preview,
         adaptive_cpu=adaptive is not None,visualiser_automatic=getattr(args,'visualiser_automatic',False),
         visualiser_workers=getattr(args,'visualiser_max_workers',1),
+        visualiser_seed_workers=getattr(args,'visualiser_seed_workers',1),
         growth_memory_mib=getattr(args,'growth_memory_mib',0)))
     def ready():
         result={'ready':False,'worker_status':health['message']}

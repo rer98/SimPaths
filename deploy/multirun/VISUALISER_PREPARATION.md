@@ -12,11 +12,14 @@ The separate [raw-to-intermediate resource matrix](VISUALISER_SUMMARY_TRIALS.md)
 uses only the two genuine repetitions per configuration, testing 2/2.5/3 GiB,
 one/two vCPUs per worker and one/two workers. It measures source verification
 and raw parsing separately, without final comparison or chart generation.
+The [preparation scaling benchmark](VISUALISER_SCALING_TRIALS.md) adds parallel
+repetitions within one configuration under the same total 5 GiB/2-vCPU budget,
+and one/two/four workers across two configurations through finished chart reads.
 The agreed pressure-eviction, warning and bounded-expansion follow-up is recorded
 in [EXPERIMENT_ITERATION.md](EXPERIMENT_ITERATION.md); those actions remain to
 implement and are not enabled by running the benchmark.
 
-**Decision record: 15 October 2026; follow-up decisions and resource evidence updated 17 October 2026. Opt-in implementation; verification evidence and outstanding capacity/host acceptance are recorded below.**
+**Decision record: 15 October 2026; follow-up decisions and resource evidence updated 18 October 2026. Opt-in implementation; verification evidence and outstanding capacity/host acceptance are recorded below.**
 
 Completion-triggered preparation, protected capacity and bounded summary reuse
 are implemented behind explicit operator settings. Existing deployments retain
@@ -33,9 +36,11 @@ resource and deployment acceptance.
   replacement simulations. It queues standalone results and each ready selected
   baseline/alternative pair without waiting for the whole experiment or the next
   periodic scan. The bounded 60-second scan remains a recovery mechanism.
-- Preparation processes configurations and repetitions sequentially. Heavy
-  calculations principally run in a single JavaScript thread. Increasing a
-  worker's CPU allowance alone does not establish proportional acceleration.
+- Preparation is sequential by default. The opt-in production
+  [parallel seed integration](VISUALISER_PARALLEL.md) runs two independent
+  repetitions within one admitted 5-GiB/2-vCPU group, falling back to one worker
+  when only its ordinary allowance fits. Individual JavaScript calculations
+  remain unchanged; extra CPU alone does not make one calculation parallel.
 - The server prepares aggregates and selected-chart sections. Authenticated
   catalogue/section requests and bounded browser caching avoid repeatedly
   downloading the complete publication.
@@ -78,6 +83,18 @@ show a throughput benefit from two workers and modest gains from extra CPU;
 the 2.5-GiB profiles offer a useful memory/time tradeoff. Sampler diagnostics
 are improved, but the exact original trigger remains unrecorded and unresolved.
 Production settings remain unchanged.
+
+The [18 October native scaling run](VISUALISER_SCALING_TRIALS.md#native-results--18-october-2026)
+passed **18/18 cases** with matching data, no OOM/sampler failures and confirmed
+cleanup. Two seed workers within the same total 5 GiB / 2-vCPU group made one
+configuration's charts ready in 5.74 minutes versus 7.84 serially. Across two
+configurations, four workers within 10 GiB / 4 vCPUs completed all required charts
+in 7.80 minutes versus 11.83 with two workers in 5 GiB / 2 vCPUs. First standalone
+charts arrived later with four workers (7.43 versus 5.82 minutes), and completion
+rates per allocated vCPU decreased. This supports measured parallel preparation
+for faster result readiness. Seed parallelism is now integrated behind the
+operator setting described below; explicit capacity handover and hosted
+mixed-load validation remain outstanding.
 
 ## Agreed preparation sequence
 
@@ -124,7 +141,70 @@ the model's whole 5 GiB. Reconsider CPU against current demand; the model's last
 1-to-2-vCPU allowance is not an entitlement to an additional unaccounted worker.
 Keep protected SingleRun, essential services and emergency memory outside this
 handover. Existing optional-worker borrowing is not an explicit per-configuration
-handover or parallel processing of its repetitions.
+handover. Seed-parallel execution is now integrated independently, as described
+in [VISUALISER_PARALLEL.md](VISUALISER_PARALLEL.md).
+
+### Refinement: readiness-driven continuation — 18 October 2026
+
+The following are agreed targets, separate from the current production
+reservation implementation:
+
+- Prefer admitting the selected baseline first within an experiment, subject
+  to owner fairness and feasibility. It can still finish last; simulation order
+  does not establish summary readiness.
+- Check dependencies whenever a configuration's **intermediate summaries are
+  ready**. A simulation-completion event alone cannot establish that a pair is
+  ready: configurations can take different times to summarise.
+- Before releasing a completed simulation's capacity for another model, use
+  that capacity for as much eligible experiment preparation as possible:
+  canonical per-seed summaries, standalone aggregates and indexed charts, then
+  each baseline/alternative comparison whose two summaries are ready. A pair
+  need not wait for either standalone publication to finish, or for unrelated
+  alternatives. Give newly eligible comparisons priority over further raw work
+  when a worker becomes free; do not interrupt existing calculations or models.
+- If the baseline's summaries finish last, continue every ready pair against
+  the already summarised alternatives. If an alternative's summaries finish
+  last, continue its pair and any remaining eligible experiment work. The
+  scenario which finishes preparation last therefore carries the remaining
+  work; there is no mandatory handoff to another queue. Recheck dependency and
+  authority state before releasing the final reservation.
+- Release capacity when all **currently possible** work is done. Do not hold
+  it idle for a partner still simulating or summarising. Ready pairs remain
+  viewable while other alternatives are unfinished.
+- The candidate single-task allowance is 2.5 GiB with elastic 1–2 vCPUs. Retain
+  up to the completed model's full 5 GiB when measurements justify two seed
+  tasks or a publication backlog in parallel. Account for the coordinator and
+  every child inside the total group, not just Node heaps.
+- Ready preparation precedes launching queued models. Running models continue
+  with at least 1 vCPU; reclaim only their temporary boosts when needed. Once
+  higher-priority preparation is admitted, reclaim boosts rather than leave
+  enough model RAM idle solely for lack of an additional vCPU.
+- Do not make two heavy workers a permanent server-wide ceiling. Admit a
+  measured number according to CPU, RAM, scratch and disk contention. First
+  compare one, two and four workers on the laptop; then validate concurrent
+  models and website responsiveness on the intended storage and VPS.
+
+The new benchmark prototypes the summary-completion dependency graph and
+parallel seed tasks, with real maintained calculation/publication helpers. It
+does **not** yet transfer live database reservations, change the model scheduler,
+or activate this refined admission preference. The existing 60-second fairness
+window remains unchanged. Legacy defaults remain sequential; the revised
+candidate enables two independent preparations with up to two seed tasks each,
+subject to actual shared admission. See [production integration](VISUALISER_PARALLEL.md).
+
+Idle protected aggregation CPU may eventually provide revocable model boosts,
+provided service demand and ready preparation can reclaim it promptly. Essential
+OS/PostgreSQL/web capacity is retained first. CPU quota can be reduced quickly;
+committed JVM memory is not an equivalent immediately reclaimable loan. Keep
+that distinction when deciding whether to lend unused RAM.
+
+The revised VPS-12 candidate pool is 39.5 GiB and 11 vCPUs, with a 2.5-GiB
+protected primary group. Outside that pool, a host with **48 decimal GB** has
+about **5.2 GiB** for OS/PostgreSQL/web processes; a host exposing 48 GiB instead
+has 8.5 GiB. Verify actual `/proc/meminfo` on the VM. The 0.5-GiB reduction in
+both primary and total pool allowances leaves ordinary model capacity unchanged
+and gives that headroom to general services. Existing pools require a drained
+migration or a new identity before their immutable limits change.
 
 Retain verified per-seed summaries for authorised pending comparisons: finished
 standalone averages and confidence intervals cannot replace the original
@@ -738,9 +818,28 @@ or hosted concurrency from the existing single-seed comparison proof.
 - [x] Verify pending-summary dependencies through the native PostgreSQL
   completion, Results permission and publication-retirement suites: 49 passed,
   disposable resources cleaned up; evidence recorded above.
-- [ ] Generalise heavy-worker admission beyond the current two-worker ceiling
-  if measurements justify it; separately test parallel seeds within one
-  configuration and any mixed-memory worker arrangement before enabling them.
+- [ ] Generalise independent preparation slots beyond two if further measurements
+  justify it. Each slot can now run two seed tasks, allowing up to four raw
+  parsers with full shared admission. Larger mixtures and hosted loads still
+  require measurement.
+- [x] Run the isolated native seed-parallel and one/two/four-worker scaling
+  benchmark: 18 cases passed on 18 October; see the linked results. This tests
+  fixed combined budgets, not live reservation handover or mixed hosted load.
+- [x] Integrate bounded parallel seeds into the private preparation path with
+  actual group admission, sequential fallback, independent request/log files,
+  cooperative cancellation, joined cleanup and unchanged calculation outputs.
+  The production kernel proof passed on 18 October: two production commands share
+  the enforced 5-GiB/2-vCPU group and finish cleanup before release; descendant
+  cleanup and OOM containment also passed. The first PostgreSQL run passed nine
+  parallel-service and 25 publication/access checks, then exposed a pending-partner
+  authority bug in two retention checks. The fix separates current dataset grants
+  from output readiness and passed 42 focused local checks. Native verification
+  then passed 12 automatic-preparation, nine independent-retention, eight
+  processing-capacity and 11 adaptive-CPU checks. The shared-pool fixture now uses
+  normal Visualiser initialisation; the final native run passed all 16 shared-pool
+  and 21 runtime/shutdown checks, with disposable database cleanup confirmed.
+  Evidence and repeatable acceptance commands are in the integration guide.
+  Hosted mixed-load and responsiveness acceptance remain outstanding.
 - [x] Implement durable, private, role-independent per-seed summary reuse and
   invalidation/retention rules.
 - [x] Implement selected-baseline comparisons for every ready alternative.
@@ -1216,7 +1315,7 @@ approximately **140.35 MiB** for its complete publication, **129.38 MiB** for
 404 chart sections, and **0.11 MiB** for index/catalogue, about **269.84 MiB**
 in total, excluding transient files and the separate summary cache.
 
-**Candidate direction:** retain 3 GiB/1 vCPU as the protected primary worker,
+**Historical candidate direction before the 18 October scaling tests:** retain 3 GiB/1 vCPU as the protected primary worker,
 consider a temporary 2-vCPU allowance for uncached urgent work when capacity
 permits, and evaluate a second independent 3-GiB/1-vCPU worker for a backlog.
 The additional worker needs actual spare RAM as well as CPU; reducing a
@@ -1231,9 +1330,9 @@ then use verified archive/disposal tooling to reclaim them.
 
 `vm/throughput.toml.example` records the candidate assembly; it is not an
 approved measured server profile. It leaves 8 vCPUs/30 GiB for normal MultiRun
-starts, protects 2 vCPUs/5 GiB for SingleRun and 1 vCPU/3 GiB for the primary
-aggregate worker, and withholds 2 GiB of shared model-growth headroom. Pool
-totals are therefore 11 vCPUs/40 GiB. Leave the remaining host capacity for
+starts, protects 2 vCPUs/5 GiB for SingleRun and 1 vCPU/2.5 GiB for the primary
+aggregate worker, and withholds 2 GiB of shared model-growth headroom. The revised
+pool totals are 11 vCPUs/39.5 GiB. Leave remaining host capacity for
 PostgreSQL, private orchestration, public services and the OS. Check the
 provider's actual usable RAM: 48 decimal GB is approximately 44.7 GiB.
 
@@ -1289,11 +1388,10 @@ The scheduling implementation has these explicit bounds:
   admission; a CPU reduction cannot free memory.
   Work waiting behind an already full set of aggregate workers does not idle
   otherwise available model capacity; no additional preparation can start then.
-- One primary worker is enabled in the example. The optional second worker
-  requires its full independently available RAM and scratch allowance. Set
-  `max_workers = 2` only after measuring a benefit. This runs independent
-  preparations concurrently; it does not parallelise a single JavaScript
-  calculation.
+- The revised candidate enables two independent preparation slots, each with
+  up to two seed tasks. Larger groups require their full separately admitted
+  CPU/RAM/scratch allowance; a failed larger request falls back to the ordinary
+  sequential group. Individual JavaScript calculations remain single-threaded.
 - The example allocates 2 GiB of scratch per active worker, an 8 GiB persistent
   summary allowance, and a 16 GiB total Visualiser allowance including both.
   Completed-scenario summaries and finished chart files each have a separately
@@ -1310,7 +1408,7 @@ whole-group memory, zero-swap and process limits. All Node and publication/index
 helpers enter through an inherited directory descriptor before execution.
 Scope cleanup kills surviving descendants and verifies an empty group before
 returning capacity, including after interrupted work. The drop-in's enclosing
-10 GiB service limit covers up to two 3 GiB helper groups and orchestration;
+12 GiB service limit covers up to two 5 GiB helper groups and orchestration;
 Docker model containers have their own separate enforced reservations.
 General RPC/chart-read orchestration is accounted for outside the model pool.
 

@@ -297,3 +297,18 @@ stage reports, samples and labelled HTML/CSV tables are (C) Copyright 2026, by
 Ross Richardson; @author ross richardson, with `COPYRIGHT.md` in the evidence
 directory. Retained simulation CSVs, scientific calculations and copied runtime
 components keep their existing attribution and licences.
+
+The preparation scaling driver/worker, integration tests and
+`deploy/multirun/VISUALISER_SCALING_TRIALS.md` carry attribution in their headers.
+Generated group resource samples, dependency/task reports, provenance and labelled
+HTML/CSV comparison tables are (C) Copyright 2026, by Ross Richardson;
+@author ross richardson. Their evidence directories include `COPYRIGHT.md`.
+Retained raw outputs, scientific summaries, maintained calculations and runtime
+components retain their existing attribution and licences; repeated publication
+capacity probes do not create new scientific scenarios or repetitions.
+
+The production parallel Visualiser integration guide, tests and extended kernel
+proof carry attribution in their headers. Generated parallel-helper receipts,
+group-limit evidence and test reports are (C) Copyright 2026, by Ross Richardson;
+@author ross richardson. Their accompanying evidence `COPYRIGHT.md` records the
+same notice without modifying scientific JSON or upstream calculation code.

@@ -78,26 +78,35 @@ class SummaryCache:
                 self.holds.before_raw(identity, records)
 
     @contextmanager
-    def _lock(self, name):
+    def _lock(self, name, *, check=None):
         fd = os.open(self.root / name, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         try:
             info = os.fstat(fd)
             if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
                     or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077):
                 raise ValueError('Unsafe private summary lock')
-            fcntl.flock(fd, fcntl.LOCK_EX)
+            if check is None:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+            else:
+                while True:
+                    check()
+                    try:
+                        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except BlockingIOError:
+                        time.sleep(.05)
             yield
         finally:
             os.close(fd)
 
     @contextmanager
-    def entry(self, identity):
+    def entry(self, identity, *, check=None, checkpoint=None):
         encoded = canonical(identity)
         if len(encoded) > 64 * 1024 or not identity.get('owner') or not identity.get('configuration'):
             raise ValueError('Summary identity must include its owner and configuration')
         key = hashlib.sha256(encoded).hexdigest()
-        with self._lock('.seed-' + str(int(key[:2], 16) % 64) + '.lock'):
-            yield SummaryEntry(self, key, identity)
+        with self._lock('.seed-' + str(int(key[:2], 16) % 64) + '.lock', check=check):
+            yield SummaryEntry(self, key, identity, check=check, checkpoint=checkpoint)
 
     @staticmethod
     def _open(path):
@@ -222,8 +231,10 @@ class SummaryCache:
 
 
 class SummaryEntry:
-    def __init__(self, cache, key, identity):
+    def __init__(self, cache, key, identity, *, check=None, checkpoint=None):
         self.cache, self.key, self.identity = cache, key, identity
+        self.check = checkpoint or check or (lambda: None)
+        self.wait_check = check
         self.miss_reason = 'unknown'
 
     @contextmanager
@@ -237,7 +248,7 @@ class SummaryEntry:
         if type(input_bytes) is not int or not 0 <= input_bytes < 2**63:
             raise ValueError('Invalid raw summary input size')
         prefixes = ['raw_'] + (['eviction_raw_'] if self.miss_reason == 'evicted' else [])
-        with self.cache._lock('.cache.lock'):
+        with self.cache._lock('.cache.lock', check=self.wait_check):
             self.cache.holds.before_raw(self.identity)
             self.cache.usage.update({prefix + suffix: amount for prefix in prefixes
                                      for suffix, amount in (('started', 1), ('input_bytes', input_bytes))})
@@ -255,7 +266,7 @@ class SummaryEntry:
     def restore(self, output):
         """Verify and copy one bounded summary into the current private workspace."""
         cache = self.cache
-        with cache._lock('.cache.lock'):
+        with cache._lock('.cache.lock', check=self.wait_check):
             cache._evict(cache._entries())
             directory = cache.root / self.key
             if not directory.exists():
@@ -271,6 +282,7 @@ class SummaryEntry:
                 with os.fdopen(fd, 'wb') as target, cache._open(directory / 'metrics.json') as source:
                     size = 0
                     while chunk := source.read(MIB):
+                        self.check()
                         size += len(chunk)
                         if size > receipt['bytes']:
                             raise ValueError('Private summary size changed')
@@ -301,12 +313,13 @@ class SummaryEntry:
                 raise ValueError('Private summary exceeds entry budget')
             digest = hashlib.sha256()
             while chunk := data.read(MIB):
+                self.check()
                 digest.update(chunk)
             receipt = canonical(dict(format=FORMAT, key=self.key, identity=self.identity,
                                      bytes=size, sha256=digest.hexdigest()))
             if size + len(receipt) > cache.maximum_bytes:
                 return False
-            with cache._lock('.cache.lock'):
+            with cache._lock('.cache.lock', check=self.wait_check):
                 entries = cache._entries()
                 if (cache.root / self.key).exists():
                     return False
@@ -319,6 +332,7 @@ class SummaryEntry:
                     with open(temporary / 'metrics.json', 'xb') as target:
                         os.chmod(temporary / 'metrics.json', 0o600)
                         while chunk := data.read(MIB):
+                            self.check()
                             copied += len(chunk)
                             if copied > size:
                                 raise ValueError('Summary changed during publication')

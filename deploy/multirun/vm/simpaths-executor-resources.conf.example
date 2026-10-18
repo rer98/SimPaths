@@ -5,9 +5,9 @@
 [Service]
 Delegate=cpu memory pids
 ProtectControlGroups=false
-# Two 3 GiB helper groups plus bounded private orchestration and read helpers.
+# Two 5 GiB parallel helper groups plus 2 GiB private orchestration/read helpers.
 # Docker model containers remain in their own separately accounted cgroups.
-MemoryMax=10G
+MemoryMax=12G
 MemorySwapMax=0
 CPUQuota=500%
 TasksMax=1024

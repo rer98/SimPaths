@@ -89,13 +89,14 @@ These are candidate files; writing them does not change installed services or
 an existing immutable pool. Use a new pool or the documented drained migration
 when changing protected/pool budgets.
 
-Explicit atomic simulation-to-preparation reservation handover, mid-preparation
-shrinking and lending idle protected CPU to simulations remain separate work.
-Current admission obtains available resources through the existing ledger and
-preparation scheduler; it does not claim to transfer a finished model's lease
-directly. The existing preparation-priority interval is unchanged.
+Direct atomic simulation-to-preparation transfer is now integrated behind
+`visualiser.handover`; see [the handover guide](VISUALISER_HANDOVER.md) for its
+continuation, resource and recovery rules. Mid-calculation shrinking and lending
+idle protected CPU to simulations remain separate work. The existing preference
+interval still applies to unfunded preparation admission; an adopted handover
+keeps its accounted reservation through eligible experiment work.
 
-Consequently, another admitted task may hold some of the completed model's former
+With handover disabled, another admitted task may hold some of the completed model's former
 capacity before preparation obtains its reservation. Protected capacity also
 remains unavailable for borrowing. If only the protected 2.5-GiB/1-vCPU allowance
 fits, preparation starts sequentially. This is an admission-time fallback; it

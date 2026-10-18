@@ -24,8 +24,9 @@ implement and are not enabled by running the benchmark.
 Completion-triggered preparation, protected capacity and bounded summary reuse
 are implemented behind explicit operator settings. Existing deployments retain
 their fixed allocations and on-demand preparation until enabled. Bounded retention
-for pending comparisons is implemented independently of worker resources; explicit
-simulation-to-preparation resource handover remains to implement. The checks
+for pending comparisons is implemented independently of worker resources. Direct
+[simulation-to-preparation handover](VISUALISER_HANDOVER.md) is now integrated
+behind its own operator setting, with native database acceptance passed. The checks
 distinguish local and native database verification from outstanding hosted
 resource and deployment acceptance.
 
@@ -92,9 +93,9 @@ configurations, four workers within 10 GiB / 4 vCPUs completed all required char
 in 7.80 minutes versus 11.83 with two workers in 5 GiB / 2 vCPUs. First standalone
 charts arrived later with four workers (7.43 versus 5.82 minutes), and completion
 rates per allocated vCPU decreased. This supports measured parallel preparation
-for faster result readiness. Seed parallelism is now integrated behind the
-operator setting described below; explicit capacity handover and hosted
-mixed-load validation remain outstanding.
+for faster result readiness. Seed parallelism and direct capacity handover are
+now integrated behind operator settings; native handover acceptance passed and
+hosted mixed-load validation remains outstanding.
 
 ## Agreed preparation sequence
 
@@ -132,7 +133,7 @@ release processing capacity; do not keep a worker or RAM reservation idle while
 waiting. One ready baseline/alternative pair remains usable while another
 alternative is still simulating or preparing.
 
-**Resource-handover extension, to implement and test:** prefer assigning safely
+**Resource-handover extension, implemented behind an opt-in setting:** prefer assigning safely
 released simulation capacity to eligible preparation before a replacement model,
 subject to the existing fairness/progress policy. Verify simulation exit and
 reservation ownership before reassignment, including restart/failure recovery.
@@ -140,14 +141,17 @@ Allocate the worker's measured requirements rather than automatically retaining
 the model's whole 5 GiB. Reconsider CPU against current demand; the model's last
 1-to-2-vCPU allowance is not an entitlement to an additional unaccounted worker.
 Keep protected SingleRun, essential services and emergency memory outside this
-handover. Existing optional-worker borrowing is not an explicit per-configuration
-handover. Seed-parallel execution is now integrated independently, as described
-in [VISUALISER_PARALLEL.md](VISUALISER_PARALLEL.md).
+handover. Optional-worker borrowing and direct per-configuration transfer remain
+distinct mechanisms. The [handover guide](VISUALISER_HANDOVER.md) describes atomic
+completion, pending/adopted reservations and continuation. Native acceptance
+passed 123 suite and 21 runtime checks; [seed-parallel execution](VISUALISER_PARALLEL.md)
+is verified separately.
 
 ### Refinement: readiness-driven continuation — 18 October 2026
 
-The following are agreed targets, separate from the current production
-reservation implementation:
+The following are agreed targets. Direct reservation handover and readiness-led
+continuation are now implemented; selected-baseline admission preference and
+generalising the independent worker count remain separate work:
 
 - Prefer admitting the selected baseline first within an experiment, subject
   to owner fairness and feasibility. It can still finish last; simulation order
@@ -184,13 +188,14 @@ reservation implementation:
   compare one, two and four workers on the laptop; then validate concurrent
   models and website responsiveness on the intended storage and VPS.
 
-The new benchmark prototypes the summary-completion dependency graph and
-parallel seed tasks, with real maintained calculation/publication helpers. It
-does **not** yet transfer live database reservations, change the model scheduler,
-or activate this refined admission preference. The existing 60-second fairness
-window remains unchanged. Legacy defaults remain sequential; the revised
-candidate enables two independent preparations with up to two seed tasks each,
-subject to actual shared admission. See [production integration](VISUALISER_PARALLEL.md).
+The benchmark measures the summary-completion dependency graph and parallel seed
+tasks with maintained calculation/publication helpers; it does not itself change
+live reservations. Production handover now implements the resource transfer and
+eligible continuation described in [VISUALISER_HANDOVER.md](VISUALISER_HANDOVER.md).
+The existing 60-second admission preference remains for unfunded work. Legacy
+defaults remain sequential with handover disabled; the candidate enables two
+independent preparations with up to two seed tasks each and direct transfers,
+subject to actual shared admission.
 
 Idle protected aggregation CPU may eventually provide revocable model boosts,
 provided service demand and ready preparation can reclaim it promptly. Essential
@@ -808,9 +813,14 @@ or hosted concurrency from the existing single-seed comparison proof.
 - [ ] Measure the full workload with genuine matching seeds, including several
   alternatives; explicitly separate any local capacity-fixture evidence.
 - [x] Implement automatic completion-triggered configuration preparation.
-- [ ] Implement and test explicit simulation-to-preparation capacity handover,
+- [x] Implement explicit simulation-to-preparation capacity handover,
   continuing through ready standalone/comparison publication without a mandatory
-  second queue, and releasing capacity when comparison inputs are missing.
+  second queue, and releasing capacity when comparison inputs are missing. Local
+  continuation, recovery and source-readiness checks pass.
+- [x] Complete native handover/migration/rollback/database-backup compatibility
+  checks: 123 suite and 21 runtime/shutdown checks passed with no skips and
+  disposable database cleanup confirmed. Evidence and repeatable commands are
+  in [VISUALISER_HANDOVER.md](VISUALISER_HANDOVER.md).
 - [x] Retain per-seed summaries needed by pending comparisons through bounded
   dependency-aware holds; test budget pressure, expiry, restart, invalidation
   and avoidance of repeated raw parsing. Local tests and tiny real calculations

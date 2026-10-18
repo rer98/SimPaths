@@ -196,7 +196,8 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                           before_claim=before_claim,
                           cpu_hold=scheduler.cpu_hold if scheduler else None,
                           admission_guard=(lambda:scheduler.guard) if scheduler else None,
-                          after_claim=scheduler.claimed if scheduler else None)
+                          after_claim=scheduler.claimed if scheduler else None,
+                          completion_handover=service.visualiser.completion_handover if scheduler else None)
             with worker.open():
                 while not stop.is_set():
                     try:
@@ -339,6 +340,7 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                                 getattr(args,'visualiser_storage_mib',512)),
             runtime=args.visualiser_timeout_seconds,automatic=automatic,max_workers=workers,
             seed_workers=seed_workers,
+            handover=getattr(args,'visualiser_handover',False),
             resource_scope=scopes,bounded_comparisons=getattr(args,'visualiser_bounded_comparisons',False),
             capacity=getattr(args,'visualiser_cache_mib',256)*1024**2,
             lifetime=getattr(args,'visualiser_cache_hours',168)*3600,
@@ -377,6 +379,7 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
         adaptive_cpu=adaptive is not None,visualiser_automatic=getattr(args,'visualiser_automatic',False),
         visualiser_workers=getattr(args,'visualiser_max_workers',1),
         visualiser_seed_workers=getattr(args,'visualiser_seed_workers',1),
+        visualiser_handover=getattr(args,'visualiser_handover',False),
         growth_memory_mib=getattr(args,'growth_memory_mib',0)))
     def ready():
         result={'ready':False,'worker_status':health['message']}

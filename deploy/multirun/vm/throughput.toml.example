@@ -95,6 +95,9 @@ timeout_seconds = 3600
 # Requires the executor resources drop-in with MemoryMax >= 12 GiB.
 max_workers = 2
 seed_workers = 2
+# Transfer stopped-model capacity atomically and finish ready experiment work
+# before admitting a replacement simulation. Requires queue migration 030.
+handover = true
 retain_completed_summaries = true
 summary_hours = 168
 summary_cache_mib = 8192

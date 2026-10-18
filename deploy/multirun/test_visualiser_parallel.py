@@ -35,7 +35,7 @@ class ParallelBackendTests(unittest.TestCase):
         self.backend=VisualiserBackend(fixture.BUILD,self.root,memory_mib=1792,summary_cache_root=self.root/'cache')
         self.next_work=0
 
-    def process(self,selected=None,*,workers=2,backend=None,observe=None):
+    def process(self,selected=None,*,workers=2,backend=None,observe=None,source_ready=None):
         self.next_work+=1;work=self.root/('work-'+str(self.next_work));work.mkdir(mode=0o700)
         commands=PreparationCommands(work,timeout=shutil.which('timeout'),runtime=30,
             check=lambda:None,stop=threading.Event(),workers=workers)
@@ -43,7 +43,8 @@ class ParallelBackendTests(unittest.TestCase):
         with commands:
             if observe is not None:observe(commands)
             result=(backend or self.backend).process(selected or self.selected,work,commands,progress.append,
-                comparison_set=True,seed_workers=workers,resource_budget=Resources(2000,5120,2048))
+                comparison_set=True,seed_workers=workers,resource_budget=Resources(2000,5120,2048),
+                source_ready=source_ready)
         self.assertFalse(commands.children)
         self.assertEqual(progress,list(range(1,sum(len(s['configuration']['runs']) for s in selected or self.selected)+1)))
         return result
@@ -69,6 +70,24 @@ class ParallelBackendTests(unittest.TestCase):
         swapped[0]['configuration']['role']='Baseline';swapped[1]['configuration']['role']='Scenario'
         self.process(swapped)
         self.assertEqual(self.backend.summary_cache.statistics()['counters']['raw_started'],before)
+
+    def test_readiness_notifies_once_only_after_every_seed_of_its_exact_source(self):
+        original=self.backend._seed
+        for workers in (1,2):
+            complete=set();ready=[];guard=threading.Lock()
+            def seed(source,run,*args):
+                value=original(source,run,*args)
+                with guard:complete.add((source['identity']['job'],str(run['seed'])))
+                return value
+            def notified(job):
+                source=next(s for s in self.selected if s['identity']['job']==job)
+                with guard:
+                    self.assertTrue(all((job,str(r['seed'])) in complete for r in source['configuration']['runs']))
+                ready.append(job)
+            self.backend._seed=seed
+            self.process(workers=workers,source_ready=notified)
+            self.assertCountEqual(ready,[s['identity']['job'] for s in self.selected])
+        self.backend._seed=original
 
     def test_failed_seed_stops_live_sibling_before_backend_returns(self):
         original=self.backend._seed;gate=threading.Barrier(2);pids=[]

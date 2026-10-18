@@ -6,7 +6,7 @@ restricted provider results still require approved disclosure controls.
 @author ross richardson
 """
 from contextlib import ExitStack, contextmanager, nullcontext
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 import hashlib
 import json
@@ -20,6 +20,7 @@ import threading
 
 class VisualiserBackend:
     supports_parallel_seeds=True
+    supports_source_ready=True
     # Explicit public resources from the trusted application, never a public-dir
     # glob that could also expose bundled simulation data or server calculations.
     APPLICATION_ASSETS=frozenset({'index.html','visualiser.js','visualiser.css',
@@ -203,11 +204,12 @@ class VisualiserBackend:
             if stamp()!=initial:
                 raise OutputUnavailable()
 
-    def process(self,sources,work,command,progress,*,comparison_set=False,seed_workers=1,resource_budget=None):
+    def process(self,sources,work,command,progress,*,comparison_set=False,seed_workers=1,resource_budget=None,
+                source_ready=None):
         """Dictionary compatibility for calculation tests and trusted tooling."""
         from jasmine_web.batch.visualiser import artifact
         files=self.process_files(sources,work,command,progress,comparison_set=comparison_set,
-                                 seed_workers=seed_workers,resource_budget=resource_budget)
+                                 seed_workers=seed_workers,resource_budget=resource_budget,source_ready=source_ready)
         result=dict(comparison_available=files.comparison_available,notice=files.notice)
         if comparison_set:
             result['series']=[dict(configuration=c['configuration']['id'],rows=artifact(path))
@@ -266,12 +268,17 @@ class VisualiserBackend:
             if (initial.st_size,initial.st_mtime_ns,initial.st_ctime_ns)!=(after.st_size,after.st_mtime_ns,after.st_ctime_ns):
                 raise OutputUnavailable()
 
-    def _seeds(self,tasks,command,progress,workers,heap):
+    def _seeds(self,tasks,command,progress,workers,heap,source_ready=None):
         """Bound submissions, retain run order, report completion on the caller."""
+        remaining=Counter(id(task[0]) for task in tasks)
+        def completed(index):
+            source=tasks[index][0];remaining[id(source)]-=1
+            if remaining[id(source)]==0 and source_ready is not None:
+                source_ready(str(source['identity']['job']))
         if workers==1:
             result=[]
-            for task in tasks:
-                result.append(self._seed(*task,command,heap));progress(len(result))
+            for index,task in enumerate(tasks):
+                result.append(self._seed(*task,command,heap));progress(len(result));completed(index)
             return result
         executor=ThreadPoolExecutor(max_workers=workers,thread_name_prefix='visualiser-seed')
         pending={};next_task=0;done_count=0;result=[None]*len(tasks)
@@ -283,7 +290,7 @@ class VisualiserBackend:
                 ready,_=wait(pending,timeout=.1,return_when=FIRST_COMPLETED)
                 for future in ready:
                     index=pending.pop(future);result[index]=future.result()
-                    done_count+=1;progress(done_count)
+                    done_count+=1;progress(done_count);completed(index)
             return result
         except BaseException:
             command.abort()
@@ -293,7 +300,8 @@ class VisualiserBackend:
             # cache lock. Their cooperative checks observe command.abort().
             executor.shutdown(wait=True,cancel_futures=True)
 
-    def process_files(self,sources,work,command,progress,*,comparison_set=False,seed_workers=1,resource_budget=None):
+    def process_files(self,sources,work,command,progress,*,comparison_set=False,seed_workers=1,resource_budget=None,
+                      source_ready=None):
         """Leave bounded JSON rows private for the platform's aggregate helper."""
         from jasmine_web.batch.aggregate_io import AggregateFiles
         from jasmine_web.batch.local_executor import atomic_json
@@ -318,7 +326,7 @@ class VisualiserBackend:
             for index,run in enumerate(config['runs']):
                 output=work/('configuration-'+str(configuration_index)+'-run-'+str(index)+'.json')
                 tasks.append((configuration,run,output,role))
-        prepared=self._seeds(tasks,command,progress,min(seed_workers,len(tasks)) if tasks else 1,heap)
+        prepared=self._seeds(tasks,command,progress,min(seed_workers,len(tasks)) if tasks else 1,heap,source_ready)
         offset=0
         for configuration_index,configuration in enumerate(sources):
             count=len(configuration['configuration']['runs'])

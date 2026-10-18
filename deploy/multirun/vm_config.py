@@ -37,7 +37,8 @@ DEFAULTS = {
     'notifications': {'enabled': False, 'retention_cleanup': False, 'admin_email': '',
                       'storage_wait_emails': False, 'storage_wait_hours': 6},
     'visualiser': {'build': '', 'preview': False, 'memory_mib': 1024, 'timeout_seconds': 600,
-                  'automatic': False, 'max_workers': 1, 'seed_workers': 1, 'cpu_millis': 1000, 'storage_mib': 512,
+                  'automatic': False, 'max_workers': 1, 'seed_workers': 1, 'handover': False,
+                  'cpu_millis': 1000, 'storage_mib': 512,
                   'protected': False, 'hard_limits': False, 'bounded_comparisons': False,
                   'summaries': False, 'summary_cache_mib': 2048, 'cache_mib': 256,
                   'retain_completed_summaries': True, 'summary_hours': 168,
@@ -190,6 +191,8 @@ def load_config(path):
         raise ValueError('A second aggregate worker requires bounded automatic preparation')
     if visualiser['seed_workers']>1 and not all(visualiser[k] for k in ('automatic','hard_limits','summaries')):
         raise ValueError('Parallel seeds require bounded automatic preparation with reusable summaries')
+    if visualiser['handover'] and not all(visualiser[k] for k in ('automatic','hard_limits','summaries')):
+        raise ValueError('Resource handover requires bounded automatic preparation with reusable summaries')
     if visualiser['seed_workers']>1 and (pool['cpu_millis']-pool['hold_cpu_millis']<2000 or
             pool['memory_mib']-pool['hold_memory_mib']-pool['growth_memory_mib']<5120):
         raise ValueError('Parallel seed processing needs an admissible 5 GiB / 2-vCPU group')

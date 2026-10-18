@@ -74,6 +74,7 @@ class VMConfigTests(unittest.TestCase):
         self.assertTrue(options.visualiser_automatic)
         self.assertEqual(options.visualiser_max_workers,2)
         self.assertEqual(options.visualiser_seed_workers,2)
+        self.assertTrue(options.visualiser_handover)
         self.assertEqual(options.visualiser_memory_mib,2560)
         self.assertEqual(options.runtime_per_repetition_minutes,240)
         self.assertEqual(options.capacity['cpu_millis']-options.holdback['cpu_millis']-
@@ -92,6 +93,14 @@ class VMConfigTests(unittest.TestCase):
         self.assertFalse(legacy.adaptive_cpu)
         self.assertFalse(legacy.visualiser_automatic)
         self.assertEqual(legacy.visualiser_seed_workers,1)
+        self.assertFalse(legacy.visualiser_handover)
+
+    def test_handover_requires_bounded_automatic_preparation(self):
+        text=(TEMPLATE.parent/'throughput.toml.example').read_text().replace(
+            'sha256:REPLACE_WITH_64_HEXADECIMAL_DIGITS','sha256:'+'a'*64)
+        for old,new in (('handover = true','handover = 1'),('automatic = true','automatic = false'),
+                        ('hard_limits = true','hard_limits = false'),('summaries = true','summaries = false')):
+            with self.subTest(new=new),self.assertRaises(ValueError):self.config(text.replace(old,new))
 
     def test_seed_parallelism_requires_scoped_automatic_reusable_summaries(self):
         text=(TEMPLATE.parent/'throughput.toml.example').read_text().replace(

@@ -7,6 +7,12 @@ Attribution scope and non-commentable/generated artifacts.
 
 # Attribution
 
+The direct simulation-to-preparation handover guide, operator configuration,
+source-readiness integration and regression checks carry inline attribution.
+Generated fictional handover verification reports and private status metadata are
+(C) Copyright 2026, by Ross Richardson; @author ross richardson. Scientific model
+outputs and third-party components retain their existing ownership and licences.
+
 The RAM/CPU/worker regeneration matrix, barrier worker, regression checks and
 resource-trial guide carry inline notices. Generated labelled HTML/CSV tables,
 numeric measurements, barrier records and test reports are

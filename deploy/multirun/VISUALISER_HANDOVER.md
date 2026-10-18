@@ -80,6 +80,46 @@ unchanged. Resource provenance and readiness markers are private status fields.
 Revocation, explicit deletion and independent raw/aggregate expiry retain their
 existing checks.
 
+## Baseline-first model admission
+
+For first attempts in an experiment, admission prefers the selected baseline,
+then the remaining configurations in frozen form order. Owner fairness and
+experiment age still lead this preference; retries keep their eligibility age
+and backoff. Normal claims and adaptive CPU planning share one candidate query.
+The latter can reclaim revocable boosts for a feasible baseline instead of
+making room for a smaller alternative merely because it appeared first on the
+form. Running simulations retain their CPU floors and are not stopped.
+
+This is not a dependency: a baseline waiting for input preparation, storage or
+other capacity does not block an eligible alternative. Several configurations
+can still run concurrently, and the baseline may finish last. Submitted settings,
+seeds, hashes and the displayed configuration order remain unchanged. Additions
+retain their own submission age without resubmitting the existing baseline.
+No schema migration or model-image rebuild is needed for this scheduling change.
+
+Focused regressions cover baseline-last submissions, unchanged submissions,
+older experiments and owner fairness, parallel admission, retry backoff, storage
+and memory bypass, and CPU boost reclamation. The 28 local policy, Docker-adapter
+and preparation-scheduler checks pass.
+
+Native acceptance on **18 October 2026 passed all 89 checks**, with no skips,
+failures or errors: 38 queue/migration, 13 adaptive CPU, 13 storage, nine
+experiment-extension and 16 handover/continuation checks. Disposable database
+cleanup was confirmed. Evidence:
+[`baseline-first-native-20261018-210920/report.json`](/tmp-codex/baseline-first-native-20261018-210920/report.json)
+and [`tests.log`](/tmp-codex/baseline-first-native-20261018-210920/tests.log).
+
+To repeat the focused native checks from the operator's terminal:
+
+```bash
+cd ~/git/JAS-mine/JAS-mine-web &&
+TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 \
+~/simpaths-browser-tests/venv/bin/python scripts/test_batch_queue.py \
+  --test-pattern test_postgres.py test_adaptive_cpu.py test_storage.py \
+                 test_experiment_extensions.py test_processing_handover.py \
+  --output "/tmp-codex/baseline-first-native-$(date +%Y%m%d-%H%M%S)"
+```
+
 ## Recovery and backups
 
 Migration **030_preparation_handover.sql** adds source provenance and a pending
@@ -160,6 +200,6 @@ TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 \
 
 The earlier [parallel-helper kernel proof](VISUALISER_PARALLEL.md) exercises the
 unchanged cgroup/child cleanup mechanism. Hosted mixed-load performance and
-website responsiveness remain deployment acceptance checks. Selected-baseline
-admission preference, lending idle protected aggregation CPU and changing the
-independent worker-count ceiling remain separate work.
+website responsiveness remain deployment acceptance checks. Lending idle
+protected aggregation CPU and changing the independent worker-count ceiling
+remain separate work.

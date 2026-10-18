@@ -149,13 +149,19 @@ is verified separately.
 
 ### Refinement: readiness-driven continuation — 18 October 2026
 
-The following are agreed targets. Direct reservation handover and readiness-led
-continuation are now implemented; selected-baseline admission preference and
-generalising the independent worker count remain separate work:
+The following are agreed targets. Direct reservation handover, readiness-led
+continuation and selected-baseline admission preference are now implemented.
+The baseline-first change passed 28 local checks and 89 native queue, adaptive
+CPU, storage, extension and handover checks without skips; evidence is linked in
+the [handover guide](VISUALISER_HANDOVER.md#baseline-first-model-admission).
+Generalising the independent worker count remains separate work:
 
 - Prefer admitting the selected baseline first within an experiment, subject
-  to owner fairness and feasibility. It can still finish last; simulation order
-  does not establish summary readiness.
+  to owner fairness, experiment age, retry backoff and feasibility. Normal
+  admission and adaptive CPU planning share this preference. The reviewed form
+  order remains unchanged; a waiting baseline does not block runnable
+  alternatives. It can still finish last, so simulation order does not establish
+  summary readiness.
 - Check dependencies whenever a configuration's **intermediate summaries are
   ready**. A simulation-completion event alone cannot establish that a pair is
   ready: configurations can take different times to summarise.

@@ -58,10 +58,12 @@ The pool schedules independent seed tasks, then:
   publication, selected-chart indexing, catalogue and a representative chart
   read. There is no additional preparation queue between these stages.
 
-This prototypes the agreed readiness rule; production database reservation
-handover, baseline-first model admission and CPU lending remain separate work.
-It uses the raw parser that is installed now; it is not an upstream parallel
-parser patch or a claim that all preparation code has become multithreaded.
+This prototypes the agreed readiness rule. Production reservation handover and
+baseline-first model admission are documented in the
+[handover guide](VISUALISER_HANDOVER.md); idle protected CPU lending remains
+separate work. The prototype uses the existing raw parser; it is not an upstream
+parallel parser patch or a claim that all preparation code has become
+multithreaded.
 
 ### Separate finished-publication backlog probe
 

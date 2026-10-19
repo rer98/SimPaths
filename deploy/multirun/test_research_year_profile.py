@@ -18,7 +18,7 @@ ROOT=Path(__file__).resolve().parents[2]
 MIB=1024**2
 
 
-def profile_rows(*,population=1000,end_year=2021,repetitions=2):
+def profile_rows(*,population=1000,end_year=2021,repetitions=2,heap_mib=4096,memory_mib=5120):
     """Fictional peaks deliberately fall after startup and after the first year."""
     rows=[];observed=0;counts=(-1,-1,-1);peak=0
     def add(kind,rep=0,year=0,heap=500):
@@ -27,12 +27,13 @@ def profile_rows(*,population=1000,end_year=2021,repetitions=2):
         if kind!='sample' or not year:
             observed=elapsed
             counts=(population+rep*10+(year-2019)*20,500,400) if year else (-1,-1,-1)
+        heap=heap*heap_mib//4096
         used=(heap+600)*MIB;peak=max(peak,used)
         rows.append(dict(sequence=seq,kind=kind,elapsed_ms=elapsed,repetition=rep,year=year,
             model_year=year+(kind in ('year_closed','run_finish')) if year else 0,
             person_count=counts[0],benefit_count=counts[1],household_count=counts[2],
-            population_observed_ms=observed,heap_used_bytes=heap*MIB,heap_committed_bytes=4096*MIB,
-            heap_max_bytes=4096*MIB,nonheap_used_bytes=100*MIB,container_limit_bytes=5120*MIB,
+            population_observed_ms=observed,heap_used_bytes=heap*MIB,heap_committed_bytes=heap_mib*MIB,
+            heap_max_bytes=heap_mib*MIB,nonheap_used_bytes=100*MIB,container_limit_bytes=memory_mib*MIB,
             container_used_bytes=used,inactive_file_bytes=100*MIB,working_set_bytes=used-100*MIB,
             cgroup_peak_bytes=peak,gc_ms=seq*20,process_cpu_ns=seq*1000000,
             cgroup_cpu_usage_usec=seq*1000,cgroup_throttled_usec=seq*100,
@@ -48,6 +49,8 @@ def profile_rows(*,population=1000,end_year=2021,repetitions=2):
             add('sample',rep,year,heap=3200 if year==2019 else 1200)
             add('year_closed',rep,year,heap=500)
         add('run_finish',rep,end_year,heap=500)
+    add('sample',heap=3900)
+    add('process_finish',heap=3500)
     return rows
 
 
@@ -88,8 +91,33 @@ class YearProfileTests(unittest.TestCase):
         rows=profile_rows(end_year=2070,repetitions=1)
         result=years.summarise(rows,population=1000,seeds=['606'])['repetitions'][0]
         self.assertEqual(len(result['annual']),52)
-        self.assertEqual([r['end_year'] for r in result['intervals']],[2030,2040,2050,2060,2070])
+        self.assertEqual([r['end_year'] for r in result['intervals']],[2030,2035,2040,2050,2060,2070])
         self.assertEqual(result['annual'][-1]['year'],2070)
+
+    def test_finalisation_peak_is_retained_separately_from_annual_peaks(self):
+        result=self.summary()
+        self.assertEqual(result['phases']['initialisation']['sampled_peaks']['heap_used_bytes'],3800*MIB)
+        self.assertEqual(result['phases']['finalisation']['sampled_peaks']['heap_used_bytes'],3900*MIB)
+        self.assertEqual(result['whole_process']['sampled_peaks']['heap_used_bytes'],3900*MIB)
+        self.assertEqual(result['repetitions'][-1]['intervals'][-1]['process_cumulative_peaks']['heap_used_bytes'],3800*MIB)
+        self.assertEqual(result['phases']['between_repetitions']['segments'],1)
+        rows=deepcopy(self.rows);rows.append(dict(rows[-1],sequence=len(rows)))
+        with self.assertRaises(ValueError):self.summary(rows)
+        rows=deepcopy(self.rows);rows[-1].update(repetition=2,year=2021,model_year=2021,
+            person_count=1000,benefit_count=500,household_count=400)
+        with self.assertRaises(ValueError):self.summary(rows)
+
+    def test_cpu_gc_and_throttling_ratios_use_elapsed_time_and_selected_quota(self):
+        counters=dict(gc_ms=150,process_cpu_ns=1,cgroup_cpu_usage_usec=1500000,
+            cgroup_throttled_usec=300000,cgroup_nr_periods=10,cgroup_nr_throttled=3)
+        result=years.utilisation(counters,1000,2000)
+        self.assertEqual(result,dict(average_vcpus=1.5,cpu_allowance_percent=75,
+            gc_counter_wall_percent=15,throttled_period_percent=30))
+        self.assertEqual(years.utilisation(counters,1000,1500)['cpu_allowance_percent'],100)
+        counters['cgroup_cpu_usage_usec']=None;counters['cgroup_nr_periods']=None
+        self.assertIsNone(years.utilisation(counters,1000,2000)['average_vcpus'])
+        self.assertIsNone(years.utilisation(counters,1000,2000)['throttled_period_percent'])
+        self.assertIsNone(years.utilisation(counters,0,2000)['gc_counter_wall_percent'])
 
     def test_missing_or_duplicate_sequences_changed_limits_and_reversed_counters_are_rejected(self):
         for change in (lambda r:r.pop(3),lambda r:r[3].update(sequence=2),
@@ -101,7 +129,7 @@ class YearProfileTests(unittest.TestCase):
             with self.subTest(change=change),self.assertRaises(ValueError):self.summary(rows)
 
     def test_missing_year_finish_final_close_and_repetition_are_rejected_even_if_renumbered(self):
-        for kind in ('year_start','year_finish','year_closed','run_finish'):
+        for kind in ('year_start','year_finish','year_closed','run_finish','process_finish'):
             rows=deepcopy(self.rows);rows.pop(next(i for i,r in enumerate(rows) if r['kind']==kind))
             for i,row in enumerate(rows):row['sequence']=i
             with self.subTest(kind=kind),self.assertRaises(ValueError):self.summary(rows)
@@ -220,6 +248,17 @@ class YearProfileJavaTests(unittest.TestCase):
                 public class SimPathsMultiRun {
                     public static void main(String[] args) {
                         if(args.length!=1) throw new AssertionError("Arguments not forwarded");
+                        if(args[0].equals("engine-failure")) {
+                            // A surviving non-daemon thread reproduces MultiRun's
+                            // wait after its separate engine thread has crashed.
+                            new Thread(() -> {
+                                while(true) try { Thread.sleep(1000); }
+                                    catch(InterruptedException error) { return; }
+                            }, "fictional-multirun-waiter").start();
+                            new Thread(() -> { throw new IllegalStateException("fictional engine failure"); },
+                                "fictional-engine").start();
+                            return;
+                        }
                         for(int rep=1;rep<=2;rep++) {
                             var model=new SimPathsModel(); var engine=new SimulationEngine(rep,model);
                             for(int year=2019;year<=2021;year++) {
@@ -232,6 +271,7 @@ class YearProfileJavaTests(unittest.TestCase):
                             }
                             engine.end();
                         }
+                        if(args[0].equals("fixture-exit")) System.exit(0);
                     }
                 }'''}
         paths=[]
@@ -258,6 +298,29 @@ class YearProfileJavaTests(unittest.TestCase):
             expected.append(f'DISPOSED {rep}')
         self.assertEqual(native,expected)
         self.assertFalse(any('$' in path.name for path in self.classes.glob('*Profile*.class')))
+
+    def test_shutdown_hook_captures_final_phase_when_the_native_driver_exits(self):
+        result=subprocess.run(['java','-cp',str(self.classes),'SimPathsYearProfileProbe','fixture-exit'],
+            capture_output=True,text=True,check=True,timeout=30)
+        rows=[years.decode(line[len(years.PREFIX):]) for line in result.stdout.splitlines() if line.startswith(years.PREFIX)]
+        self.assertEqual(rows[-1]['kind'],'process_finish')
+        self.assertEqual(sum(row['kind']=='process_finish' for row in rows),1)
+        result=years.summarise(rows,population=1000,seeds=['606','607'],end_year=2021,milestones=(2020,2021))
+        self.assertIn('finalisation',result['phases'])
+
+    def test_engine_thread_failure_exits_even_when_another_non_daemon_thread_survives(self):
+        for wrapper in ('SimPathsResourceProbe','SimPathsYearProfileProbe'):
+            with self.subTest(wrapper=wrapper):
+                result=subprocess.run(['java','-cp',str(self.classes),wrapper,'engine-failure'],
+                    capture_output=True,text=True,timeout=10)
+                self.assertEqual(result.returncode,1,result.stderr)
+                self.assertIn('Scientific test thread failed: fictional-engine',result.stderr)
+                self.assertIn('fictional engine failure',result.stderr)
+                if wrapper=='SimPathsYearProfileProbe':
+                    rows=[years.decode(line[len(years.PREFIX):]) for line in result.stdout.splitlines() if line.startswith(years.PREFIX)]
+                    self.assertEqual(rows[-1]['kind'],'process_finish')
+                    with self.assertRaises(ValueError):
+                        years.summarise(rows,population=1000,seeds=['606'],end_year=2021,milestones=[2021])
 
     def test_changed_native_year_protocol_fails_instead_of_reporting_mislabelled_memory(self):
         result=subprocess.run(['java','-cp',str(self.classes),'SimPathsYearProfileProbe','wrong-year'],

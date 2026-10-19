@@ -41,6 +41,14 @@ public final class SimPathsResourceProbe {
     }
 
     public static void main(String[] args) {
+        // The engine runs on another non-daemon thread. Its uncaught failure
+        // must end this isolated scientific test; otherwise MultiRun can keep
+        // waiting while telemetry threads misleadingly report a live JVM.
+        Thread.setDefaultUncaughtExceptionHandler((thread, error) -> {
+            System.err.println("Scientific test thread failed: " + thread.getName());
+            error.printStackTrace(System.err);
+            System.exit(1);
+        });
         // No forced GC, extra allocation, engine controls, JMX port or input reads.
         long interval = Long.getLong("simpaths.resource.sample.millis", 2000L);
         if (interval < 2000 || interval > 300000)

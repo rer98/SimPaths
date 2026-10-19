@@ -71,6 +71,13 @@ profiles, CSV comparisons, compact archives and retirement receipts are
 campaign's evidence attribution. Model inputs, scientific outputs and third-party
 software retain their existing notices and licences.
 
+The population/year reporting helper and its regression tests carry inline
+notices. Generated workspace histories, phase/utilisation summaries, labelled
+HTML/SVG/CSV reports and paired-horizon evidence are (C) Copyright 2026, by Ross
+Richardson; @author ross richardson, recorded in the campaign's attribution.
+This attribution does not relicense scientific inputs, model outputs or upstream
+software.
+
 The automatic Visualiser preparation backend, private summary-cache tests,
 delegated-resource proof and candidate runtime examples carry inline notices.
 Generated preparation build manifests, kernel-proof JSON and numeric test
@@ -333,3 +340,11 @@ directory includes `COPYRIGHT.md`; generated JSON is left valid. Ephemeral test
 keys and temporary plaintext fixtures are removed after the rehearsal. Existing
 scientific data, cryptographic tools and third-party software retain their own
 attribution and licences.
+
+The smaller-memory and same-JVM repetition reports, private trial extensions and
+their tests carry attribution in their source headers. Generated candidate plans,
+partial-failure archives, numeric reports and labelled HTML/CSV tables are
+(C) Copyright 2026, by Ross Richardson; @author ross richardson, with the same
+notice in each evidence directory's `COPYRIGHT.md`. Model code, source inputs,
+scientific output and runtime components retain their existing attribution and
+licences. Recording their checksums does not relicense those materials.

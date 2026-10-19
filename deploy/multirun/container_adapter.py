@@ -50,17 +50,22 @@ class SimPathsContainerAdapter(SimPathsLocalAdapter):
             required=max(required,candidate.resources['storage_mib']*1024**2)
         return required
 
-    def container_command(self, lease, request):
-        config = self._configuration(lease)
+    def _launch_requirements(self, config):
+        """Resolve release requirements before the shared staging/heap checks."""
         from .resource_policy import workload, starting_allocation
         context=workload(config.as_dict())
         starting=starting_allocation(self.resource_policy,**context)
-        run=next(r for r in lease.specification['run_sets'] if r['id']==lease.configuration_id)
-        if run.get('starting_allocation') != starting:
-            raise ArtifactError('Starting allocation differs from the verified workload profile')
         minimum = allocation(self.receipt,population=config.as_dict()['common']['population'],
                              repetitions=len(config.as_dict()['seed_plan']['seeds']),
                              resource_policy=self.resource_policy,years=context['years'],collectors=context['collectors'])
+        return starting, minimum
+
+    def container_command(self, lease, request):
+        config = self._configuration(lease)
+        starting, minimum = self._launch_requirements(config)
+        run=next(r for r in lease.specification['run_sets'] if r['id']==lease.configuration_id)
+        if run.get('starting_allocation') != starting:
+            raise ArtifactError('Starting allocation differs from the verified workload profile')
         if any(lease.resources[key] < value for key, value in minimum.items()):
             raise ArtifactError("Allocation is below the prepared example's CPU, RAM or storage requirement")
         if self.receipt["identity"]["format"] in (FORMAT, INPUT_FORMAT):

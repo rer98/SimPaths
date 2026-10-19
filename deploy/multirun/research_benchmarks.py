@@ -149,7 +149,7 @@ def validate_completed(evidence):
     if (not 1000 <= settings['population'] <= 100000 or not 2019 <= settings['end_year'] <= 2070
             or not 1000 <= cpu_millis <= 2000
             or not 1024 <= settings['heap_mib'] <= 7168
-            or not 5120 <= settings['memory_mib'] <= 8192
+            or not 2048 <= settings['memory_mib'] <= 8192
             or not 6144 <= settings['storage_mib'] <= 65536
             or not 0 <= settings['setup_seconds'] <= 3600
             or not 60 <= settings['repetition_seconds'] <= 86400):

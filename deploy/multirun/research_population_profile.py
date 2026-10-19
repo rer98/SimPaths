@@ -12,6 +12,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import sys
@@ -25,18 +26,30 @@ from deploy.multirun import research_benchmarks as bench
 from deploy.multirun import research_sequence as sequence
 from deploy.multirun import research_storage_audit as storage
 from deploy.multirun import research_year_profile as years
+from deploy.multirun import research_profile_reporting as reporting
+from deploy.multirun import research_memory_reporting as memory_reporting
 from deploy.multirun.artifacts import ArtifactError, fingerprint, inventory, write_attribution
 from deploy.multirun.prepared_dataset import verify_snapshot
 
 FORMAT='simpaths.population-resource-sequence.v1'
 MIB=1024**2
 GIB=1024**3
+MEMORY_CANDIDATES={
+    (20000,2035):(2560,3584),(20000,2070):(2560,3584),
+    (50000,2035):(3072,4096),(50000,2070):(3072,4096),
+    (100000,2035):(3072,4096),(100000,2070):(3584,4608)}
 
 
-def settings(args,population):
-    return calibration.checked_settings(dict(population=population,end_year=args.end_year,
-        repetitions=args.repetitions,cpu_millis=args.cpu_millis,heap_mib=args.heap_mib,
-        memory_mib=args.memory_mib,max_memory_mib=args.memory_mib,storage_mib=4096+4096*args.repetitions,
+def settings(args,population,end_year=None):
+    end_year=args.end_year if end_year is None else end_year
+    heap,memory=args.heap_mib,args.memory_mib
+    if getattr(args,'memory_trials',False):
+        if (population,end_year) not in MEMORY_CANDIDATES:
+            raise ArtifactError('Smaller-memory candidates cover 20,000/50,000/100,000 people ending in 2035/2070')
+        heap,memory=MEMORY_CANDIDATES[population,end_year]
+    return calibration.checked_settings(dict(population=population,end_year=end_year,
+        repetitions=args.repetitions,cpu_millis=args.cpu_millis,heap_mib=heap,
+        memory_mib=memory,max_memory_mib=memory,storage_mib=4096+4096*args.repetitions,
         setup_seconds=900,repetition_seconds=14400,max_attempts=1))
 
 
@@ -60,11 +73,18 @@ def unchanged(plan):
 
 
 def make_plan(args):
+    memory_trials=getattr(args,'memory_trials',False)
+    if memory_trials and (args.repetitions!=2 or args.heap_mib!=4096 or args.memory_mib!=5120):
+        raise ArtifactError('--memory-trials requires --repetitions 2 and selects its own heap/container sizes')
     populations=args.populations
     if (not 1<=len(populations)<=5 or len(set(populations))!=len(populations)
             or any(type(n) is not int or not 1000<=n<=100000 for n in populations)):
         raise ArtifactError('Select one to five distinct starting populations in 1000..100000')
     if not 0<=args.pause_seconds<=600:raise ArtifactError('Use a settling pause of 0..600 seconds')
+    end_years=getattr(args,'end_years',None) or [args.end_year]
+    if (not 1<=len(end_years)<=3 or len(set(end_years))!=len(end_years)
+            or any(type(y) is not int or not 2020<=y<=2070 for y in end_years)):
+        raise ArtifactError('Select one to three distinct final years in 2020..2070')
     frontend=bench.ordinary(args.frontend.expanduser().resolve(strict=True))
     output=bench.ordinary(args.output.expanduser().absolute())
     if '..' in output.parts:raise ArtifactError('Use an output path without parent traversal')
@@ -85,16 +105,19 @@ def make_plan(args):
     frozen=source_files(frontend)
     cases=[]
     for population in populations:
-        name=f'population-{population}'
-        selected=settings(args,population)
-        prepared=output/'prepared'/name
-        completed=output/'trials'/name
-        command=[sys.executable,str(ROOT/'deploy/multirun/research_calibration.py'),
-            '--frontend',str(frontend),'--prepare',str(prepared),'--image',image,
-            '--year-profile','--proof-only','--output',str(completed)]
-        for key,value in selected.items():command+=['--'+key.replace('_','-'),str(value)]
-        cases.append(dict(name=name,settings=selected,preparation=str(prepared),completed=str(completed),
-            audit=str(output/'audits'/name),archive=str(output/'archives'/name),command=command))
+        population_name=f'population-{population}'
+        for index,end_year in enumerate(end_years):
+            name=population_name+(f'-through-{end_year}' if len(end_years)>1 else '')
+            selected=settings(args,population,end_year)
+            prepared=output/'prepared'/population_name
+            completed=output/'trials'/name
+            command=[sys.executable,str(ROOT/'deploy/multirun/research_calibration.py'),
+                '--frontend',str(frontend),'--prepare',str(prepared),'--image',image,
+                '--year-profile','--proof-only','--output',str(completed)]
+            for key,value in selected.items():command+=['--'+key.replace('_','-'),str(value)]
+            cases.append(dict(name=name,settings=selected,preparation=str(prepared),completed=str(completed),
+                audit=str(output/'audits'/name),archive=str(output/'archives'/name),command=command,
+                retire_prepared=index==len(end_years)-1))
     # Calibration itself prepares then immediately launches. Separate its prepare
     # stage in this driver so a settling pause follows verified input preparation.
     for case in cases:
@@ -103,14 +126,17 @@ def make_plan(args):
     return dict(format=FORMAT,output=str(output),frontend=str(frontend),image=image,
         runtime_reference_receipt=runtime_receipt,
         runtime_note='Only the runtime image is inherited; all populations use the current frozen multirun.jar and fresh public inputs.',
-        frozen=frozen,model=frozen[str(ROOT/'multirun.jar')],cases=cases,pause_seconds=args.pause_seconds,
+        frozen=frozen,model=frozen[str(ROOT/'multirun.jar')],cases=cases,end_years=end_years,pause_seconds=args.pause_seconds,
         limits=dict(resource_growth=False,resource_retries=False,jvm_active_processor_count=2),
+        memory_trials=memory_trials,
+        repetition_note='Each case uses one JVM for all its sequential repetitions; different cases use separate JVMs.',
         production_changed=False,delete_generated_bulk_after_audit=True,
         note='Run separately from other heavy tests, with networking enabled for isolated proof dependencies.')
 
 
 def preflight(plan,*,preparing=True):
     largest=max(c['settings']['memory_mib'] for c in plan['cases'])
+    if preparing:largest=max(largest,5120)  # Preparation keeps its own existing 5 GiB envelope.
     maximum_storage=max(c['settings']['storage_mib'] for c in plan['cases'])
     required_disk=(maximum_storage+3072+4096)*MIB if preparing else (maximum_storage+3072)*MIB
     result=dict(free_disk_bytes=shutil.disk_usage(Path(plan['output']).parent).free,
@@ -158,7 +184,8 @@ def archive_profile(plan,case):
             or record['variant']!='baseline' or len(record['attempts'])!=1):
         raise ArtifactError('Completed population differs from the fixed plan')
     expected_sources={name:plan['frozen'][str(ROOT/name)] for name in (
-        'deploy/acceptance/SimPathsYearProfileProbe.java','deploy/multirun/research_year_profile.py')}
+        'deploy/acceptance/SimPathsYearProfileProbe.java','deploy/multirun/research_year_profile.py',
+        'deploy/multirun/research_profile_reporting.py')}
     if record.get('year_profile_sources')!=expected_sources:raise ArtifactError('Year observation sources differ from the frozen plan')
     attempt=record['attempts'][0]
     path=completed/'model-proof/attempts'/attempt['id']
@@ -166,12 +193,25 @@ def archive_profile(plan,case):
     if (fingerprint(path/'year-samples.jsonl')!=attempt['year_profile']['samples']
             or fingerprint(path/'year-profile.json')!=attempt['year_profile']['summary']):
         raise ArtifactError('Original year evidence changed')
-    milestones=[y for y in (2030,2040,2050,2060,2070) if y<=case['settings']['end_year']]
+    workspace_path=path/'workspace-samples.jsonl'
+    if fingerprint(workspace_path)!=attempt['year_profile']['workspace_samples']:
+        raise ArtifactError('Original workspace observations changed')
+    workspace_rows=reporting.read_workspace(workspace_path)
+    if any(row['year_sample_sequence']>=len(samples) or row['year_sample_sequence']>=0 and
+            any(row[key]!=samples[row['year_sample_sequence']][source_key] for key,source_key in (
+                ('model_elapsed_ms','elapsed_ms'),('repetition','repetition'),('year','year')))
+            for row in workspace_rows):
+        raise ArtifactError('Workspace observations refer to a different year stream')
+    milestones=[y for y in (2030,2035,2040,2050,2060,2070) if y<=case['settings']['end_year']]
     if case['settings']['end_year'] not in milestones:milestones.append(case['settings']['end_year'])
     summary=years.summarise(samples,population=case['settings']['population'],
-        seeds=config['seed_plan']['seeds'],end_year=case['settings']['end_year'],milestones=milestones)
+        seeds=config['seed_plan']['seeds'],end_year=case['settings']['end_year'],milestones=milestones,
+        cpu_millis=case['settings']['cpu_millis'])
     original_summary,_=bench.read_json(path/'year-profile.json')
     if original_summary!=summary:raise ArtifactError('Original year summary differs from its numeric samples')
+    summary['workspace']=reporting.workspace_summary(workspace_rows)
+    if plan.get('memory_trials'):
+        summary['repeat_check']=memory_reporting.repeated_check(samples,summary,attempt)
     if (samples[0]['heap_max_bytes']!=case['settings']['heap_mib']*MIB
             or samples[0]['container_limit_bytes']!=case['settings']['memory_mib']*MIB):
         raise ArtifactError('Year telemetry limits differ from the fixed launch limits')
@@ -180,16 +220,23 @@ def archive_profile(plan,case):
     for rep in summary['repetitions']:
         run=next(r for r in source['runs'] if r['seed']==rep['seed'])
         exported=source['files'][run['folder']+'/csv/Person.csv']['years']
-        for year in rep['annual']:year['exported_person_rows']=exported[str(year['year'])]['rows']
+        annual_files=[f for name,f in source['files'].items() if name.startswith(run['folder']+'/csv/') and 'years' in f]
+        cumulative=0
+        for year in rep['annual']:
+            year['exported_person_rows']=exported[str(year['year'])]['rows']
+            year['annual_csv_bytes']=sum(f['years'][str(year['year'])]['bytes'] for f in annual_files)
+            if year['year']==2019:year['annual_csv_bytes']+=sum(f['header_bytes'] for f in annual_files)
+            cumulative+=year['annual_csv_bytes'];year['cumulative_csv_bytes']=cumulative
         for interval in rep['intervals']:
             interval['max_exported_person_rows']=max(exported[str(y)]['rows']
                 for y in range(interval['start_year'],interval['end_year']+1))
     bench.archive(completed,Path(case['audit'])/'report.json',target)
     copied={}
-    for name in ('year-samples.jsonl','year-profile.json'):
+    for name in ('year-samples.jsonl','year-profile.json','workspace-samples.jsonl'):
         copied[name]=fingerprint(path/name,target/name)
     if copied!={'year-samples.jsonl':attempt['year_profile']['samples'],
-                'year-profile.json':attempt['year_profile']['summary']}:
+                'year-profile.json':attempt['year_profile']['summary'],
+                'workspace-samples.jsonl':attempt['year_profile']['workspace_samples']}:
         raise ArtifactError('Year evidence changed while being archived')
     bench.write_json(target/'population-profile.json',summary)
     evidence=dict(passed=True,format=FORMAT,archive=fingerprint(target/'archive.json'),
@@ -207,7 +254,7 @@ def verify_profile_archive(target):
     target=bench.ordinary(target)
     value,_=bench.read_json(target/'population-evidence.json')
     if (value.get('passed') is not True or value.get('format')!=FORMAT
-            or set(value.get('original_year_files',{}))!={'year-samples.jsonl','year-profile.json'}
+            or set(value.get('original_year_files',{}))!={'year-samples.jsonl','year-profile.json','workspace-samples.jsonl'}
             or fingerprint(target/'archive.json')!=value.get('archive')
             or fingerprint(target/'population-profile.json')!=value.get('population_profile')
             or any(fingerprint(target/name)!=expected for name,expected in value['original_year_files'].items())):
@@ -216,13 +263,13 @@ def verify_profile_archive(target):
     return value
 
 
-def retire_prepared(plan,case):
+def retire_prepared(plan,case,*,failed_memory_trial=False):
     """Delete only this sequence's generated, still-verified input files."""
     package=bench.ordinary(Path(case['preparation'])/'package')
-    expected=Path(plan['output'])/'prepared'/case['name']/'package'
+    expected=Path(plan['output'])/'prepared'/f"population-{case['settings']['population']}"/'package'
     if package!=expected or package.resolve()!=package:raise ArtifactError('Refuse to retire external prepared inputs')
     receipt=calibration.read_calibration(package)
-    evidence=verify_profile_archive(Path(case['archive']))
+    evidence=(verify_failed_memory_archive if failed_memory_trial else verify_profile_archive)(Path(case['archive']))
     if fingerprint(package/'receipt.json')!=evidence['prepared_receipt']:
         raise ArtifactError('Prepared receipt differs from the archived profile')
     verify_snapshot(package,receipt)
@@ -241,21 +288,88 @@ def retire_prepared(plan,case):
     return result
 
 
+def archive_memory_failure(plan,case):
+    """Only a verified, cleaned-up heap/container limit failure may be skipped."""
+    completed=bench.ordinary(Path(case['completed']));target=Path(case['archive'])
+    outer,outer_fp=bench.read_json(completed/'report.json')
+    record,record_fp=bench.read_json(completed/'model-proof/report.json')
+    failed=record.get('memory_failure',{})
+    history=record.get('history',[])
+    if (not plan.get('memory_trials') or outer.get('passed') is not False or outer.get('cleanup') is not True
+            or record.get('passed') is not False or record.get('cleanup') is not True
+            or record.get('source_unchanged') is not True or record.get('defaults_changed') is not False
+            or record.get('production_acceptance') is not False or record.get('settings')!=case['settings']
+            or record.get('model')!=plan['model'] or record.get('image')!=plan['image'] or record.get('variant')!='baseline'
+            or record.get('failure',{}).get('stage')!='full-simulation'
+            or record.get('failure',{}).get('error_type')!='AssertionError'
+            or record.get('failure',{}).get('message')!=calibration.INCOMPLETE_CALIBRATION
+            or failed.get('outcome') not in ('heap_limit','memory_limit')
+            or failed.get('reservation_released') is not True or failed.get('partial_results_published') is not False
+            or len(history)!=1 or history[0].get('phase')!='finished'
+            or history[0].get('id')!=failed.get('attempt_id') or history[0].get('outcome')!=failed['outcome']
+            or any(event.get('action')!='waiting' or event.get('attempt')!=1
+                or event.get('allocation')!={k:case['settings'][k] for k in ('cpu_millis','memory_mib','storage_mib')}
+                for event in record.get('resource_events',[]))
+            or record.get('cleanup_failures') or record.get('cleanup_failure')
+            or record.get('retained_workspace') and Path(record['retained_workspace']).exists()):
+        raise ArtifactError('Failure is not a verified, settled fixed-memory rejection; stop the campaign')
+    key=failed['attempt_id']
+    if type(key) is not str or not re.fullmatch(r'[a-f0-9-]{36}',key):
+        raise ArtifactError('Invalid original failed attempt identity')
+    proof=completed/'model-proof'
+    if (proof/'retained-output').exists():raise ArtifactError('Failed trial unexpectedly retained published output')
+    attempt_files=inventory(proof/'attempts'/key)
+    if not attempt_files or attempt_files!=failed.get('saved_files'):
+        raise ArtifactError('Partial memory-failure observations changed or are missing')
+    if 'year-samples.jsonl' in attempt_files:years.read_samples(proof/'attempts'/key/'year-samples.jsonl')
+    package=Path(case['preparation'])/'package';receipt=calibration.read_calibration(package)
+    verify_snapshot(package,receipt)
+    if record.get('prepared_sha256')!=receipt['sha256']:
+        raise ArtifactError('Failed memory trial used different prepared inputs')
+    if target.exists():raise ArtifactError('Choose a new failed-candidate archive')
+    target.mkdir(mode=0o700,parents=True);write_attribution(target)
+    files={}
+    for relative,expected in {'report.json':outer_fp,'model-proof/report.json':record_fp,
+            **{f'model-proof/attempts/{key}/{name}':fp for name,fp in attempt_files.items()}}.items():
+        destination=target/relative;destination.parent.mkdir(mode=0o700,parents=True,exist_ok=True)
+        copied=fingerprint(completed/relative,destination)
+        if copied!=expected:raise ArtifactError('Failed-candidate evidence changed during archival')
+        files[relative]=copied
+    result=dict(passed=False,expected_memory_failure=True,format='simpaths.failed-memory-candidate.v1',
+        name=case['name'],settings=case['settings'],outcome=failed['outcome'],files=files,
+        prepared_receipt=fingerprint(package/'receipt.json'),archive=str(target),
+        note='Not a passed candidate; partial numeric evidence is preserved before confirmed-cleanup input retirement.')
+    bench.write_json(target/'failed-memory-case.json',result)
+    verify_failed_memory_archive(target)
+    return result
+
+
+def verify_failed_memory_archive(target):
+    target=bench.ordinary(target)
+    value,_=bench.read_json(target/'failed-memory-case.json')
+    if (value.get('passed') is not False or value.get('expected_memory_failure') is not True
+            or value.get('format')!='simpaths.failed-memory-candidate.v1'
+            or not value.get('files')
+            or any(fingerprint(target/name)!=expected for name,expected in value['files'].items())):
+        raise ArtifactError('Failed-candidate archive changed before input retirement')
+    return value
+
+
 def controls(config):
-    return dict(common={k:v for k,v in config['common'].items() if k!='population'},
+    return dict(common={k:v for k,v in config['common'].items() if k not in ('population','end_year')},
         seed_plan=config['seed_plan'],run_sets=[{k:v for k,v in r.items()
             if k not in ('id','name','dataset_revision','common')} for r in config['run_sets']])
 
 
 def write_comparison(output,profiles):
-    fields=['population_requested','repetition','seed','start_year','end_year','max_observed_person_count',
+    fields=['population_requested','simulation_end_year','repetition','seed','start_year','end_year','max_observed_person_count',
         'max_exported_person_rows','interval_heap_gib','interval_working_gib','process_cumulative_heap_gib',
         'process_cumulative_working_gib','kernel_process_peak_gib','interval_gc_seconds','interval_seconds']
     table=[]
     for profile in profiles:
         for rep in profile['repetitions']:
             for interval in rep['intervals']:
-                table.append(dict(population_requested=profile['population_requested'],repetition=rep['repetition'],
+                table.append(dict(population_requested=profile['population_requested'],simulation_end_year=profile['end_year'],repetition=rep['repetition'],
                     seed=rep['seed'],start_year=interval['start_year'],end_year=interval['end_year'],
                     max_observed_person_count=interval['max_observed_person_count'],
                     max_exported_person_rows=interval['max_exported_person_rows'],
@@ -268,16 +382,17 @@ def write_comparison(output,profiles):
     text=io.StringIO();writer=csv.DictWriter(text,fieldnames=fields);writer.writeheader();writer.writerows(table)
     (output/'population-resources.csv').write_text(text.getvalue());os.chmod(output/'population-resources.csv',0o600)
     lines=['# Population/year resource profiles','',
-        'Same fixed allocation and scientific controls; rows describe observed demand, not approved smaller limits.','',
-        '| Initial population | Seed | Through year | Observed model persons, interval max | Cumulative heap GiB | Cumulative working GiB | Interval seconds |',
-        '| ---: | --- | ---: | ---: | ---: | ---: | ---: |']
-    for row in table:lines.append(f"| {row['population_requested']} | {row['seed']} | {row['end_year']} | "
+        'Fixed allocation within each case; rows describe observed demand, not approved deployment limits.','',
+        '| Initial population | Actual ending year | Seed | Through year | Observed model persons, interval max | Cumulative heap GiB | Cumulative working GiB | Interval seconds |',
+        '| ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |']
+    for row in table:lines.append(f"| {row['population_requested']} | {row['simulation_end_year']} | {row['seed']} | {row['end_year']} | "
         f"{row['max_observed_person_count']} | {row['process_cumulative_heap_gib']:.3f} | "
         f"{row['process_cumulative_working_gib']:.3f} | {row['interval_seconds']:.1f} |")
     lines+=['','Full annual/decade counters and exported population counts are retained in each archive.',
         'Model collection sizes include objects awaiting annual cleanup; they are not an exact intra-year live-person maximum.',
         'Heap/working peaks are sampled; kernel peak includes file cache. Long-run milestones do not replace tests of shorter stopping horizons.']
     (output/'comparison.md').write_text('\n'.join(lines)+'\n')
+    reporting.write_reports(output,profiles)
 
 
 def execute(plan,*,runner=sequence.run_command,prepare=calibration.prepare_calibration,pause=time.sleep):
@@ -292,12 +407,16 @@ def execute(plan,*,runner=sequence.run_command,prepare=calibration.prepare_calib
         output.mkdir(mode=0o700);write_attribution(output)
         for name in ('prepared','trials','audits','archives','logs'):(output/name).mkdir(mode=0o700)
         bench.write_json(output/'plan.json',plan)
-        record=dict(format=FORMAT,passed=False,steps=[],completed=[],profiles=[],production_changed=False)
+        record=dict(format=FORMAT,passed=False,steps=[],completed=[],profiles=[],rejected=[],production_changed=False,
+            started_at=bench.instant(),memory_trials=plan.get('memory_trials',False))
         original_controls=None;source_inputs=None
         env=dict(os.environ,TMPDIR=str(output/'trials'),JASMINE_WEB_REPO=str(frontend),
             PYTHONPATH=os.pathsep.join((str(ROOT),str(frontend))),PYTHONUNBUFFERED='1',PIP_NO_INPUT='1')
         env.setdefault('PIP_DEFAULT_TIMEOUT','60')
         def save():bench.write_json(output/'report.json',record,replace=True)
+        def reports():
+            write_comparison(output,record['profiles'])
+            if plan.get('memory_trials'):memory_reporting.write_report(output,record['profiles'],record['rejected'])
         def step(case,name,operation):
             unchanged(plan)
             record['steps'].append(dict(case=case['name'],stage=name,passed=False,started_at=bench.instant()));save()
@@ -308,17 +427,38 @@ def execute(plan,*,runner=sequence.run_command,prepare=calibration.prepare_calib
             return value
         try:
             for case in plan['cases']:
-                record['preflight']=preflight(plan);save()
-                prepared=step(case,'prepare',lambda:prepare(Path(case['preparation']),case['settings']['population'],image))
+                package=Path(case['preparation'])/'package'
+                reuse=package.exists()
+                record['preflight']=preflight(plan,preparing=not reuse);save()
+                def reuse_prepared():
+                    receipt=calibration.read_calibration(package);verify_snapshot(package,receipt)
+                    return package
+                prepared=step(case,'reuse-prepared' if reuse else 'prepare',reuse_prepared if reuse else
+                    lambda:prepare(Path(case['preparation']),case['settings']['population'],image))
                 receipt=calibration.read_calibration(prepared)
                 if receipt['identity']['model']!=plan['model']:raise ArtifactError('Prepared population uses a different model JAR')
                 inputs,_=bench.read_json(Path(case['preparation'])/'source-inputs.json')
                 if source_inputs is not None and inputs!=source_inputs:raise ArtifactError('Public source inputs differ between populations')
                 source_inputs=inputs
-                if plan['pause_seconds']:
+                if plan['pause_seconds'] and not reuse:
                     print(f"Settling for {plan['pause_seconds']} seconds before measured simulation.",flush=True)
                     pause(plan['pause_seconds'])
-                step(case,'run',lambda:runner(case['command'],output/'logs'/(case['name']+'-run.log'),env))
+                try:
+                    step(case,'run',lambda:runner(case['command'],output/'logs'/(case['name']+'-run.log'),env))
+                except Exception:
+                    if not plan.get('memory_trials'):raise
+                    # A candidate may legitimately exhaust its test allowance.
+                    # All other failures, absent evidence and uncertain cleanup
+                    # still stop immediately; never retry the same candidate.
+                    rejected=step(case,'archive-memory-failure',lambda:archive_memory_failure(plan,case))
+                    record['rejected'].append(rejected)
+                    if case['retire_prepared']:
+                        step(case,'retire-generated-inputs',lambda:retire_prepared(plan,case,failed_memory_trial=True))
+                    record['completed'].append(dict(population=case['settings']['population'],end_year=case['settings']['end_year'],
+                        archive=case['archive'],candidate_passed=False,outcome=rejected['outcome']))
+                    reports();save()
+                    print('Candidate rejected at its fixed memory limit; continuing with the next independent case.',flush=True)
+                    continue
                 step(case,'audit',lambda:audit(prepared,Path(case['completed']),Path(case['audit'])))
                 profile,evidence,config=step(case,'archive',lambda:archive_profile(plan,case))
                 selected=controls(config)
@@ -326,7 +466,7 @@ def execute(plan,*,runner=sequence.run_command,prepare=calibration.prepare_calib
                     raise ArtifactError('Scientific controls differ beyond starting population')
                 original_controls=selected
                 record['profiles'].append(profile)
-                write_comparison(output,record['profiles']);save()
+                reports();save()
                 def dispose_output():
                     verify_profile_archive(Path(case['archive']))
                     return bench.dispose(Path(case['archive']),Path(case['completed']))
@@ -334,14 +474,18 @@ def execute(plan,*,runner=sequence.run_command,prepare=calibration.prepare_calib
                 disposal,_=bench.read_json(Path(case['completed'])/'model-proof/benchmark-disposal.json')
                 if not disposal.get('passed') or bench.output_files(Path(case['completed'])/'model-proof/retained-output'):
                     raise ArtifactError('Bulk result disposal remains unconfirmed')
-                step(case,'retire-generated-inputs',lambda:retire_prepared(plan,case))
-                record['completed'].append(dict(population=case['settings']['population'],archive=case['archive'],evidence=evidence));save()
-            record['passed']=True;save()
+                if case['retire_prepared']:
+                    step(case,'retire-generated-inputs',lambda:retire_prepared(plan,case))
+                record['completed'].append(dict(population=case['settings']['population'],end_year=case['settings']['end_year'],
+                    archive=case['archive'],evidence=evidence));save()
+            record.update(passed=not record['rejected'],campaign_completed=True,finished_at=bench.instant());save()
         except BaseException as error:
             record['failure']=dict(error_type=type(error).__name__,message=str(error)[:1000]);save()
             raise
-    print('PASSED: '+str(output/'report.json'),flush=True)
+    print(('PASSED: ' if record['passed'] else 'COMPLETED WITH REJECTED MEMORY CANDIDATES: ')+str(output/'report.json'),flush=True)
     print('Comparison: '+str(output/'comparison.md'),flush=True)
+    print('Readable tables and plots: '+str(output/'comparison.html'),flush=True)
+    if plan.get('memory_trials'):print('Repeated-memory qualification: '+str(output/'memory-comparison.html'),flush=True)
     return record
 
 
@@ -351,8 +495,13 @@ def main(argv=None):
     parser.add_argument('--runtime-from',type=Path,help='Read only the runtime image ID from an existing calibration receipt')
     parser.add_argument('--image',help='Alternatively select an installed runtime image')
     parser.add_argument('--populations',type=int,nargs='+',default=[20000,50000,100000])
-    parser.add_argument('--end-year',type=int,choices=range(2020,2071),default=2070)
+    horizons=parser.add_mutually_exclusive_group()
+    horizons.add_argument('--end-year',type=int,choices=range(2020,2071),default=2070)
+    horizons.add_argument('--end-years',type=int,nargs='+',choices=range(2020,2071),
+        help='Separate simulations per ending horizon; reuse each population’s identical prepared inputs')
     parser.add_argument('--repetitions',type=int,choices=(1,2),default=1)
+    parser.add_argument('--memory-trials',action='store_true',
+        help='Use the six proposed smaller-memory profiles; requires two repetitions in the same JVM per case')
     parser.add_argument('--heap-mib',type=int,default=4096)
     parser.add_argument('--memory-mib',type=int,default=5120)
     parser.add_argument('--cpu-millis',type=int,choices=(1000,1500,2000),default=2000)
@@ -367,7 +516,7 @@ def main(argv=None):
         plan=make_plan(args)
         if args.dry_run:
             print(json.dumps(plan,indent=2,allow_nan=False));return 0
-        execute(plan);return 0
+        result=execute(plan);return 0 if result['passed'] else 1
     except (Exception,KeyboardInterrupt) as error:
         print('STOPPED: '+str(error),file=sys.stderr);return 1
 

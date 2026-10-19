@@ -10,7 +10,7 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from deploy.multirun import research_calibration as trial
 from deploy.multirun.artifacts import ArtifactError, digest, fingerprint, inventory, write_json
@@ -64,12 +64,13 @@ class ResearchCalibrationTests(unittest.TestCase):
         args = trial.arguments(config, self.receipt)
         spec = dict(model_digest=self.image, dataset_id=self.receipt['revision'],
             prepared_fingerprint=self.receipt['sha256'], seeds=args['seed_plan'], run_sets=args['run_sets'])
-        resources = dict(cpu_millis=cpu_millis, memory_mib=5120, storage_mib=12288)
+        resources = dict(cpu_millis=cpu_millis, memory_mib=plan['memory_mib'], storage_mib=plan['storage_mib'])
         from jasmine_web.batch.resource_recovery import RecoveryPolicy
         key = config.as_dict()['run_sets'][0]['id']
-        spec['resource_recovery'] = RecoveryPolicy(max_memory_mib=7168, max_heap_mib=6144,
-            storage_multiplier=1, check_seconds=5).describe(spec, resources, {key:4096})
-        lease = SimpleNamespace(specification=spec, configuration_id=key, resources=resources, heap_mib=4096)
+        spec['resource_recovery'] = RecoveryPolicy(max_memory_mib=plan['max_memory_mib'],
+            max_heap_mib=plan['max_memory_mib']-(plan['memory_mib']-plan['heap_mib']),
+            storage_multiplier=1, check_seconds=5).describe(spec, resources, {key:plan['heap_mib']})
+        lease = SimpleNamespace(specification=spec, configuration_id=key, resources=resources, heap_mib=plan['heap_mib'])
         return adapter, lease
 
     def test_alternative_reuses_inputs_and_seed_and_changes_only_the_declared_parameter(self):
@@ -184,6 +185,51 @@ class ResearchCalibrationTests(unittest.TestCase):
         self.assertEqual(policy['simulation']['storage'], dict(setup_mib=12288, per_repetition_mib=0))
         self.assertEqual(DEFAULT_POLICY, before)
         self.assertEqual(DEFAULT_POLICY['simulation']['storage'], dict(setup_mib=4096, per_repetition_mib=256))
+
+    def test_private_smaller_limits_stage_the_real_runner_without_relaxing_service_policy(self):
+        from .resource_policy import check_policy
+        before=deepcopy(DEFAULT_POLICY)
+        self.plan=settings(heap_mib=2560,memory_mib=3584,max_memory_mib=3584,max_attempts=1,repetitions=2)
+        adapter,lease=self.adapter_lease()
+        with patch('deploy.multirun.queue_adapter.shutil.disk_usage',return_value=SimpleNamespace(free=100*trial.GIB)):
+            command=adapter.container_command(lease,self.request)
+        self.assertEqual(command.argv,('/bin/sh','/request/run.sh','2560m'))
+        self.assertIn('-XX:ActiveProcessorCount=2',(self.request/'run.sh').read_text())
+        self.assertEqual(adapter._launch_requirements(adapter._configuration(lease))[1]['memory_mib'],3584)
+        self.assertGreaterEqual(adapter.resource_policy['simulation']['large_memory_mib'],5120)
+        low=deepcopy(DEFAULT_POLICY);low['simulation'].update(memory_mib=3584,large_memory_mib=3584)
+        with self.assertRaises(ArtifactError):check_policy(low)
+        self.assertEqual(DEFAULT_POLICY,before)
+        lease.resources['memory_mib']=3583
+        with self.assertRaises(ArtifactError):adapter._configuration(lease)
+        for changes in (dict(memory_mib=1999),dict(heap_mib=2561),dict(max_memory_mib=3583)):
+            with self.subTest(changes=changes),self.assertRaises(ArtifactError):
+                trial.checked_settings({**self.plan,**changes})
+
+    def test_only_settled_memory_outcomes_preserve_a_candidate_failure_receipt(self):
+        plan=settings(memory_mib=5120,max_memory_mib=5120,max_attempts=1)
+        key='11111111-1111-1111-1111-111111111111'
+        attempt_dir=self.root/'attempts'/key;attempt_dir.mkdir(parents=True)
+        write_json(attempt_dir/'telemetry.json',[])
+        entry=dict(retired=True,pids=[1234])
+        job=dict(history=[dict(id=key,phase='finished',outcome='heap_limit')])
+        queue=MagicMock();connection=queue._connection.return_value.__enter__.return_value
+        connection.execute.side_effect=[Mock(fetchone=lambda:dict(released_at='done')),Mock(fetchone=lambda:dict(n=0))]
+        record=dict(settings=plan)
+        trial.retain_memory_failure(queue,job,Mock(),{key:entry},record,self.root)
+        self.assertEqual(record['memory_failure']['outcome'],'heap_limit')
+        self.assertEqual(record['memory_failure']['saved_files'],inventory(attempt_dir))
+        self.assertFalse(record['memory_failure']['partial_results_published'])
+        for outcome in ('transient','storage_limit','cancelled','success'):
+            record=dict(settings=plan)
+            trial.retain_memory_failure(queue,dict(history=[dict(id=key,phase='finished',outcome=outcome)]),
+                Mock(),{key:entry},record,self.root)
+            self.assertNotIn('memory_failure',record)
+        for released,published in ((None,0),('done',1)):
+            connection.execute.side_effect=[Mock(fetchone=lambda:dict(released_at=released)),
+                Mock(fetchone=lambda:dict(n=published))]
+            with self.subTest(released=released,published=published),self.assertRaises(ArtifactError):
+                trial.retain_memory_failure(queue,job,Mock(),{key:entry},dict(settings=plan),self.root)
 
     def test_cpu_quota_selects_matching_policy_and_keeps_jvm_and_scientific_settings_fixed(self):
         before = deepcopy(DEFAULT_POLICY)

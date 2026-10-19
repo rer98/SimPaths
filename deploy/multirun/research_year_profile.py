@@ -11,10 +11,10 @@ import stat
 from pathlib import Path
 
 PREFIX = 'SIMPATHS_YEAR_RESOURCE_SAMPLE '
-FORMAT = 'simpaths.research-year-resources.v1'
+FORMAT = 'simpaths.research-year-resources.v2'
 MAX_ROWS = 100000
 MAX_BYTES = 64*1024**2
-KINDS = {'process_start','sample','year_start','year_finish','year_closed','run_finish'}
+KINDS = {'process_start','process_finish','sample','year_start','year_finish','year_closed','run_finish'}
 NUMBERS = {'sequence','elapsed_ms','repetition','year','model_year','person_count','benefit_count',
     'household_count','population_observed_ms','heap_used_bytes','heap_committed_bytes','heap_max_bytes',
     'nonheap_used_bytes','container_limit_bytes','container_used_bytes','inactive_file_bytes','working_set_bytes',
@@ -62,15 +62,15 @@ def append(existing, additions):
         if row['year']==0:
             if (row['repetition']!=0 or row['model_year']!=0
                     or any(row[k]!=-1 for k in ('person_count','benefit_count','household_count'))
-                    or row['kind'] not in ('process_start','sample')):
+                    or row['kind'] not in ('process_start','process_finish','sample')):
                 raise ValueError('Unassigned setup must not invent a year or population')
         elif (row['repetition']<1 or min(row[k] for k in ('person_count','benefit_count','household_count'))<0
-                or row['kind']=='process_start'
+                or row['kind'] in ('process_start','process_finish')
                 or row['model_year']!=row['year']+(row['kind'] in ('year_closed','run_finish'))):
             raise ValueError('Year/population observation has inconsistent model state')
         if previous is None:
             if row['sequence']!=0 or row['kind']!='process_start':raise ValueError('Initial year observation was lost')
-        elif (row['sequence']!=previous['sequence']+1 or row['elapsed_ms']<previous['elapsed_ms']
+        elif (previous['kind']=='process_finish' or row['sequence']!=previous['sequence']+1 or row['elapsed_ms']<previous['elapsed_ms']
                 or row['heap_max_bytes']!=previous['heap_max_bytes']
                 or row['container_limit_bytes']!=previous['container_limit_bytes']
                 or any(row[k]>=0 and row[k]<last_known[k] for k in cumulative)):
@@ -125,14 +125,37 @@ def deltas(first,last):
     return {key:last[key]-first[key] if min(first[key],last[key])>=0 else None for key in COUNTERS}
 
 
-def summarise(rows,*,population,seeds,end_year=2070,milestones=(2030,2040,2050,2060,2070)):
+def utilisation(counters,elapsed_ms,cpu_millis):
+    """Counter ratios, not assertions about GC pauses or hypervisor contention."""
+    cpu=counters['cgroup_cpu_usage_usec']
+    periods=counters['cgroup_nr_periods'];throttled=counters['cgroup_nr_throttled']
+    average=cpu/(elapsed_ms*1000) if cpu is not None and elapsed_ms>0 else None
+    return dict(average_vcpus=average,
+        cpu_allowance_percent=average*100000/cpu_millis if average is not None else None,
+        gc_counter_wall_percent=100*counters['gc_ms']/elapsed_ms if elapsed_ms>0 else None,
+        throttled_period_percent=100*throttled/periods if periods and throttled is not None else None)
+
+
+def phase_summary(segments,cpu_millis):
+    """Combine disjoint elapsed ranges; boundary samples can belong to both phases."""
+    samples=[row for segment in segments for row in segment]
+    elapsed=sum(segment[-1]['elapsed_ms']-segment[0]['elapsed_ms'] for segment in segments)
+    parts=[deltas(segment[0],segment[-1]) for segment in segments]
+    counters={key:sum(part[key] for part in parts) if all(part[key] is not None for part in parts) else None
+        for key in COUNTERS}
+    return dict(segments=len(segments),elapsed_ms=elapsed,sampled_peaks=peaks(samples),counters=counters,
+        utilisation=utilisation(counters,elapsed,cpu_millis))
+
+
+def summarise(rows,*,population,seeds,end_year=2070,milestones=(2030,2035,2040,2050,2060,2070),cpu_millis=2000):
     rows=append([],rows)
     if (not rows or type(population) is not int or not 1000<=population<=100000
             or type(end_year) is not int or not 2019<=end_year<=2070
             or not 1<=len(seeds)<=2 or any(type(s) is not str or not re.fullmatch('[0-9]{1,20}',s) for s in seeds)
             or len(set(seeds))!=len(seeds)
             or not milestones or list(milestones)!=sorted(set(milestones)) or milestones[-1]!=end_year
-            or any(type(y) is not int or not 2019<=y<=end_year for y in milestones)):
+            or any(type(y) is not int or not 2019<=y<=end_year for y in milestones)
+            or type(cpu_millis) is not int or not 1000<=cpu_millis<=2000):
         raise ValueError('Select bounded populations, one/two seeds and ordered year milestones')
     active=None;finished=False;closed=False;completed=0
     starts={};closes={};ends={};run_ends={}
@@ -140,6 +163,8 @@ def summarise(rows,*,population,seeds,end_year=2070,milestones=(2030,2040,2050,2
         key=(row['repetition'],row['year']);kind=row['kind']
         if kind=='process_start':
             if row['sequence']!=0:raise ValueError('Duplicate process start')
+        elif kind=='process_finish':
+            if active is not None or completed!=len(seeds):raise ValueError('Process finished before its repetitions')
         elif kind=='sample':
             expected=active if active is not None else (0,0)
             if key!=expected or active is not None and closed:
@@ -160,38 +185,51 @@ def summarise(rows,*,population,seeds,end_year=2070,milestones=(2030,2040,2050,2
         else:
             if active!=key or not closed or row['year']!=end_year:raise ValueError('Incomplete repetition finish')
             completed+=1;run_ends[completed]=row;active=None
-    if active is not None or completed!=len(seeds):raise ValueError('Missing complete year/repetition evidence')
+    if active is not None or completed!=len(seeds) or rows[-1]['kind']!='process_finish':
+        raise ValueError('Missing complete year/repetition/process evidence')
     result=dict(format=FORMAT,population_requested=population,seeds=list(seeds),end_year=end_year,
-        sample_interval_ms=2000,samples=len(rows),repetitions=[],
+        sample_interval_ms=2000,cpu_allowance_millis=cpu_millis,samples=len(rows),repetitions=[],
+        heap_limit_bytes=rows[0]['heap_max_bytes'],container_limit_bytes=rows[0]['container_limit_bytes'],
         population_measurement='Model collection sizes observed on the model thread at annual boundaries. '
             'Not an exact intra-year live-person maximum; timers retain the last boundary observation.',
         limitations=['Sampled heap/working-memory peaks can miss short spikes; no forced garbage collection.',
             'Kernel memory.peak is cumulative for the whole process and includes file cache.',
+            'GC counter/wall ratios sum collector counters; they are not stop-the-world pause percentages.',
+            'Cgroup CPU throttling describes this quota, not competition with other customers on a VM.',
+            'Phase boundaries share endpoint samples; after-year work is not exclusively disk I/O.',
             'A long run at year Y is not a verified substitute for a separate run terminating at Y.',
             'Observed demand under this heap does not certify a smaller heap or ten repetitions.'])
     prior=rows[0]
+    phase_segments={name:[] for name in ('initialisation','simulation','after_year_finish','between_repetitions','finalisation')}
+    def span(first,last):return rows[first['sequence']:last['sequence']+1]
     for rep,seed in enumerate(seeds,1):
         annual=[]
+        phase_segments['initialisation' if rep==1 else 'between_repetitions'].append(span(prior,starts[(rep,2019)]))
         for year in range(2019,end_year+1):
             key=(rep,year)
             if key not in closes or key not in ends:raise ValueError('Missing annual output boundary')
             samples=[r for r in rows[starts[key]['sequence']:closes[key]['sequence']+1]]
             observed=[r for r in samples if r['kind']!='sample']
+            counter=deltas(starts[key],closes[key]);elapsed=closes[key]['elapsed_ms']-starts[key]['elapsed_ms']
             annual.append(dict(year=year,started_ms=starts[key]['elapsed_ms'],closed_ms=closes[key]['elapsed_ms'],
                 elapsed_ms=closes[key]['elapsed_ms']-starts[key]['elapsed_ms'],samples=len(samples),
-                sampled_peaks=peaks(samples),counters=deltas(starts[key],closes[key]),
+                sampled_peaks=peaks(samples),counters=counter,utilisation=utilisation(counter,elapsed,cpu_millis),
                 max_observed_person_count=max(r['person_count'] for r in observed),
                 person_count_at_start=starts[key]['person_count'],person_count_at_finish=ends[key]['person_count'],
                 person_count_at_close=closes[key]['person_count']))
+            phase_segments['simulation'].append(span(starts[key],ends[key]))
+            phase_segments['after_year_finish'].append(span(ends[key],closes[key]))
         intervals=[];first_year=2019;first=prior
         for year in milestones:
             last=closes[(rep,year)]
             samples=rows[first['sequence']:last['sequence']+1]
             cumulative=rows[:last['sequence']+1]
             observed=[r for r in samples if r['repetition']==rep and r['year'] and r['kind']!='sample']
+            counter=deltas(first,last);elapsed=last['elapsed_ms']-first['elapsed_ms']
             intervals.append(dict(start_year=first_year,end_year=year,samples=len(samples),
                 elapsed_ms=last['elapsed_ms']-first['elapsed_ms'],sampled_peaks=peaks(samples),
-                process_cumulative_peaks=peaks(cumulative),counters=deltas(first,last),
+                process_cumulative_peaks=peaks(cumulative),counters=counter,
+                utilisation=utilisation(counter,elapsed,cpu_millis),
                 kernel_process_peak_bytes=max((r['cgroup_peak_bytes'] for r in cumulative if r['cgroup_peak_bytes']>=0),default=None),
                 max_observed_person_count=max(r['person_count'] for r in observed),
                 cumulative_elapsed_ms=last['elapsed_ms'],cumulative_gc_ms=last['gc_ms']))
@@ -200,4 +238,7 @@ def summarise(rows,*,population,seeds,end_year=2070,milestones=(2030,2040,2050,2
         result['repetitions'].append(dict(repetition=rep,seed=seed,annual=annual,intervals=intervals,
             timer_samples=len(timers),maximum_timer_gap_ms=max((b-a for a,b in zip(timers,timers[1:])),default=None)))
         prior=run_ends[rep]
+    phase_segments['finalisation'].append(span(prior,rows[-1]))
+    result['phases']={name:phase_summary(segments,cpu_millis) for name,segments in phase_segments.items() if segments}
+    result['whole_process']=phase_summary([rows],cpu_millis)
     return result

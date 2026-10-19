@@ -24,6 +24,7 @@ public final class SimPathsYearProfileProbe {
     private static final Pattern FINISH_YEAR = Pattern.compile("^Finished year ([0-9]{4}) \\(in .{1,80} seconds\\)$");
     private static PrintStream output;
     private static long sequence;
+    private static boolean stopped;
     private static SimulationEngine watched;
     private static YearProfileContext context = new YearProfileContext(0, 0, 0, -1, -1, -1, 0);
 
@@ -59,6 +60,7 @@ public final class SimPathsYearProfileProbe {
     }
 
     private static synchronized void sample(String kind) {
+        if (stopped) return;
         MemoryMonitor.Snapshot value = MONITOR.sample();
         YearProfileContext c = context;
         long gc = ManagementFactory.getGarbageCollectorMXBeans().stream()
@@ -85,6 +87,17 @@ public final class SimPathsYearProfileProbe {
             + ",\"cgroup_throttled_usec\":" + cpuCounter("throttled_usec")
             + ",\"cgroup_nr_periods\":" + cpuCounter("nr_periods")
             + ",\"cgroup_nr_throttled\":" + cpuCounter("nr_throttled") + "}");
+    }
+
+    private static synchronized void processFinished() {
+        if (stopped) return;
+        // MultiRun launches an engine thread and ultimately calls System.exit.
+        // Returning from its main method therefore does not mark completion.
+        // The shutdown hook samples after its final disposal, without changing
+        // engine scheduling or requesting garbage collection.
+        context = new YearProfileContext(0, 0, 0, -1, -1, -1, elapsed());
+        sample("process_finish");
+        stopped = true;
     }
 
     private static synchronized void finished(SimulationEngine engine) {
@@ -139,6 +152,8 @@ public final class SimPathsYearProfileProbe {
         output = System.out;
         System.setOut(new YearProfileOutput(output));
         sample("process_start");
+        Runtime.getRuntime().addShutdownHook(new Thread(SimPathsYearProfileProbe::processFinished,
+            "year-resource-profile-finish"));
         Thread sampler = new Thread(() -> {
             try {
                 while (true) { Thread.sleep(2000); sample("sample"); }

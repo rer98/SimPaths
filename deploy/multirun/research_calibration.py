@@ -50,6 +50,7 @@ FIELDS = {'population', 'end_year', 'repetitions', 'cpu_millis', 'heap_mib', 'me
 VARIANTS = ('baseline', 'lower-saving-rate')
 BUILD_TIME = re.compile(r'^Time to complete initialisation ([0-9]+(?:\.[0-9]+)?) minutes\.$')
 YEAR_PROBE = ROOT/'deploy/acceptance/SimPathsYearProfileProbe.java'
+INCOMPLETE_CALIBRATION = 'Calibration stopped before verified completion; inspect diagnostics'
 
 
 def json_record(value):
@@ -62,7 +63,7 @@ def json_record(value):
 
 def checked_settings(value):
     bounds = dict(population=(1000, 100000), end_year=(2019, 2070), repetitions=(1, 10),
-        cpu_millis=(1000, 2000), heap_mib=(1024, 7168), memory_mib=(5120, 8192), max_memory_mib=(5120, 8192),
+        cpu_millis=(1000, 2000), heap_mib=(1024, 7168), memory_mib=(2048, 8192), max_memory_mib=(2048, 8192),
         storage_mib=(6144, 65536), setup_seconds=(0, 3600),
         repetition_seconds=(60, 86400), max_attempts=(1, 3))
     # Original completed reports predate selectable CPU quotas. Interpret their
@@ -93,9 +94,12 @@ def sample_millis(settings):
 
 
 def trial_policy(settings):
+    # The read-only browser fixture uses a valid service policy. Smaller private
+    # experiments are admitted only by ResearchAdapter's frozen requirements;
+    # never relax the production policy validator to qualify a smaller profile.
     result = deepcopy(DEFAULT_POLICY)
     result['simulation'].update(cpu_millis=settings.get('cpu_millis', 2000),
-        memory_mib=settings['memory_mib'], large_memory_mib=settings['memory_mib'])
+        memory_mib=max(4096,settings['memory_mib']), large_memory_mib=max(5120,settings['memory_mib']))
     result['simulation']['storage'] = dict(setup_mib=settings['storage_mib'], per_repetition_mib=0)
     return check_policy(result)
 
@@ -248,6 +252,13 @@ class ResearchAdapter(ObservedAdapter):
             raise ArtifactError('Year profiling requires fixed memory, one attempt and one/two repetitions')
         self.year_profile = year_profile
 
+    def _launch_requirements(self, config):
+        """Explicit private limits; normal adapters still enforce release minima."""
+        if config.as_dict()!=configuration(self.receipt,self.settings,self.variant).as_dict():
+            raise ArtifactError('Private launch requirements need the original trial configuration')
+        return None, dict(cpu_millis=self.settings.get('cpu_millis',2000),
+            memory_mib=self.settings['memory_mib'],storage_mib=self.settings['storage_mib'])
+
     def _configuration(self, lease):
         spec = lease.specification
         if (spec['model_digest'] != self.image or spec['prepared_fingerprint'] != self.receipt['sha256']
@@ -356,6 +367,16 @@ def measured_times(log, container, *, builds=None):
         timing_note='Initialisation is the model\'s own timer; container lifetime also includes staging, JVM startup and simulation.')
 
 
+def latest_year_progress(entries):
+    streams=[entry['year_rows'] for entry in entries.values() if entry.get('year_rows')]
+    if not streams:return None
+    rows=streams[-1];last=rows[-1]
+    boundary=next(row for row in reversed(rows) if row['kind']!='sample')
+    return dict(repetition=last['repetition'],year=last['year'],observed_person_count=last['person_count'],
+        elapsed_ms=last['elapsed_ms'],last_boundary=boundary['kind'],last_boundary_year=boundary['year'],
+        seconds_since_boundary=round((last['elapsed_ms']-boundary['elapsed_ms'])/1000,3))
+
+
 def observe(entry, lease, executor, record):
     if entry.get('retired'):return
     path = executor.workspace(lease)
@@ -380,6 +401,13 @@ def observe(entry, lease, executor, record):
     measured = storage_proof.sample(path)
     if measured:
         record['peak_workspace_bytes'] = max(record['peak_workspace_bytes'], measured['work_and_request_bytes'])
+        if record.get('year_profile_interval_ms')==2000:
+            from deploy.multirun.research_profile_reporting import append_workspace
+            now=time.monotonic()
+            started=entry.setdefault('workspace_clock_start',now)
+            rows=entry.setdefault('workspace_rows',[])
+            append_workspace(rows,measured,round((now-started)*1000),
+                entry['year_rows'][-1] if entry.get('year_rows') else None)
 
 
 def save_attempt(executor, entry, destination):
@@ -388,6 +416,9 @@ def save_attempt(executor, entry, destination):
     if entry.get('year_rows'):
         from deploy.multirun.research_year_profile import write_samples
         write_samples(destination/'year-samples.jsonl',entry['year_rows'])
+    if entry.get('workspace_rows'):
+        from deploy.multirun.research_profile_reporting import write_workspace
+        write_workspace(destination/'workspace-samples.jsonl',entry['workspace_rows'])
     for name in ('execution.log', 'exit.json', 'container-policy.json', 'diagnostics.log'):
         source = executor.workspace(entry['lease'])/name
         if source.is_file():shutil.copyfile(source, destination/name)
@@ -417,6 +448,33 @@ def retire_failed(queue, executor, known, entries, record, output):
         if entry['container_id'] is not None and executor.docker.inspect(entry['container_id']) is not None:
             raise AssertionError('Settled failed container was not removed before retry')
         entry['retired'] = True
+
+
+def retain_memory_failure(queue, job, executor, entries, record, output):
+    """Retain a classified, settled fixed-limit failure; never infer OOM from exit 137."""
+    history=job.get('history',[])
+    settings=record['settings']
+    if (settings['max_attempts']!=1 or settings['memory_mib']!=settings['max_memory_mib']
+            or len(history)!=1 or len(entries)!=1 or history[0].get('phase')!='finished'
+            or history[0].get('outcome') not in ('heap_limit','memory_limit')):
+        return
+    attempt=history[0];key=str(attempt['id'])
+    if key not in entries:raise ArtifactError('Memory-failure evidence lost its original attempt')
+    entry=entries[key]
+    with queue._connection() as c:
+        reservation=c.execute('SELECT released_at FROM reservations WHERE attempt_id=%s',(key,)).fetchone()
+        published=c.execute('SELECT count(*) AS n FROM repetitions WHERE attempt_id=%s AND actual_seed IS NOT NULL',
+            (key,)).fetchone()['n']
+    if not reservation or reservation['released_at'] is None or published:
+        raise ArtifactError('Memory failure still holds capacity or published partial results')
+    if not entry.get('retired'):
+        observe(entry,entry['lease'],executor,record)
+        save_attempt(executor,entry,output/'attempts'/key)
+    if len(entry['pids'])>1:raise ArtifactError('Memory-failure attempt changed JVM identity')
+    record['memory_failure']=dict(attempt_id=key,outcome=attempt['outcome'],
+        reservation_released=True,partial_results_published=False,
+        observed_jvm_pids=entry['pids'],saved_files=inventory(output/'attempts'/key),
+        note='This candidate failed; partial samples do not establish a completed run or a safe memory limit.')
 
 
 def verify_completion(queue, owner, experiment, entries, adapter, executor, settings):
@@ -615,8 +673,10 @@ def execute(output):
                 subprocess.run(['javac','--release','17','-cp',os.pathsep.join((str(classes),str(prepared/'model.jar'))),
                     '-d',str(classes),str(YEAR_PROBE)],check=True,stdout=log,stderr=subprocess.STDOUT,timeout=60)
             record['year_profile_sources']={str(p.relative_to(ROOT)):fingerprint(p) for p in
-                (YEAR_PROBE,ROOT/'deploy/multirun/research_year_profile.py')}
+                (YEAR_PROBE,ROOT/'deploy/multirun/research_year_profile.py',
+                 ROOT/'deploy/multirun/research_profile_reporting.py')}
             record['year_profile_interval_ms']=2000
+            record['workspace_profile_interval_ms']=10000
         record['probe_classes'] = inventory(classes)
         queue.migrate(); migrated = True
         seconds = attempt_seconds(settings)
@@ -660,13 +720,24 @@ def execute(output):
                     next_sample = now+10
                 if job['state'] == 'succeeded':break
                 if job['state'] in ('review', 'cancelled', 'expired', 'blocked'):
-                    record.update(job_state=job['state'], history=job['history'])
-                    raise AssertionError('Calibration stopped before verified completion; inspect diagnostics')
+                    record.update(job_state=job['state'], history=job['history'],resource_events=job.get('resource_recovery',[]))
+                    if year_profile:
+                        retain_memory_failure(queue,job,executor,entries,record,output)
+                        if record.get('memory_failure'):
+                            verify_snapshot(prepared,receipt)
+                            if read_calibration(prepared)!=receipt:raise ArtifactError('Prepared memory-trial inputs changed')
+                            record['source_unchanged']=True
+                    raise AssertionError(INCOMPLETE_CALIBRATION)
                 if now-started > proof_timeout(settings)-600:raise TimeoutError('Private calibration exceeded its recorded proof deadline')
                 if now >= next_progress:
                     peak = max((r['working_set_bytes'] for e in entries.values() for r in e['rows']), default=0)
+                    year=latest_year_progress(entries) if year_profile else None
+                    if year is not None:record['year_progress']=year
+                    phase=('; year '+str(year['year'])+', observed people '+str(year['observed_person_count'])+
+                        f"; {year['seconds_since_boundary']:.0f}s since {year['last_boundary']}"
+                        if year is not None and year['year'] else '')
                     print(f"  {job['state']}; attempts {job['attempts']}; sampled working RAM {peak/GIB:.2f} GiB; "
-                        f"workspace {record['peak_workspace_bytes']/GIB:.2f} GiB", flush=True)
+                        f"workspace {record['peak_workspace_bytes']/GIB:.2f} GiB"+phase, flush=True)
                     atomic_json(output/'progress.json', json_record(record))
                     next_progress = now+30
                 page.wait_for_timeout(500)
@@ -683,6 +754,7 @@ def execute(output):
                 if len(entry['pids']) != 1:raise AssertionError('Original JVM process changed within an attempt')
                 detail = dict(id=key, outcome=entry['outcome'], heap_mib=lease.heap_mib,
                     cpu_millis=entry['cpu_millis'], jvm_active_processor_count=2,
+                    observed_jvm_pid=entry['pids'][0],single_jvm_verified=True,
                     runner_sha256=entry['runner_sha256'], **measured)
                 if entry['outcome'] == 'success':
                     detail.update(measured_times(entry['log'], entry['container'], builds=entry.get('builds')))
@@ -692,14 +764,15 @@ def execute(output):
                 save_attempt(executor, entry, directory)
                 if year_profile:
                     from deploy.multirun.research_year_profile import summarise
-                    milestones=[y for y in (2030,2040,2050,2060,2070) if y<=settings['end_year']]
+                    milestones=[y for y in (2030,2035,2040,2050,2060,2070) if y<=settings['end_year']]
                     if settings['end_year'] not in milestones:milestones.append(settings['end_year'])
                     profiled=summarise(entry.get('year_rows',[]),population=settings['population'],
-                        seeds=configuration(receipt,settings,variant).as_dict()['seed_plan']['seeds'],
+                        seeds=configuration(receipt,settings,variant).as_dict()['seed_plan']['seeds'],cpu_millis=cpu_millis,
                         end_year=settings['end_year'],milestones=milestones)
                     write_json(directory/'year-profile.json',profiled)
                     detail['year_profile']=dict(samples=fingerprint(directory/'year-samples.jsonl'),
-                        summary=fingerprint(directory/'year-profile.json'))
+                        summary=fingerprint(directory/'year-profile.json'),
+                        workspace_samples=fingerprint(directory/'workspace-samples.jsonl'))
             stage = 'settled-cleanup'
             path = executor.workspace(last)
             record['runs_before_cleanup'] = storage_proof.run_summary(path)

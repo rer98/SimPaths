@@ -20,6 +20,7 @@ from deploy.multirun import research_population_profile as campaign
 from deploy.multirun import research_calibration as calibration
 from deploy.multirun import research_benchmarks as bench
 from deploy.multirun import research_year_profile as years
+from deploy.multirun import research_profile_reporting as reporting
 from deploy.multirun import test_research_benchmarks as benchmark_fixture
 from deploy.multirun import test_research_calibration as calibration_fixture
 from deploy.multirun.test_research_year_profile import profile_rows
@@ -54,7 +55,8 @@ class PopulationProfileTests(unittest.TestCase):
             image=None,populations=[20000,50000,100000],end_year=2070,repetitions=1,
             cpu_millis=2000,heap_mib=4096,memory_mib=5120,pause_seconds=0)
         self.frozen={str(campaign.ROOT/name):fingerprint(campaign.ROOT/name) for name in (
-            'deploy/acceptance/SimPathsYearProfileProbe.java','deploy/multirun/research_year_profile.py')}
+            'deploy/acceptance/SimPathsYearProfileProbe.java','deploy/multirun/research_year_profile.py',
+            'deploy/multirun/research_profile_reporting.py')}
         self.frozen[str(campaign.ROOT/'multirun.jar')]=fingerprint(self.reference/'model.jar')
 
     def plan(self):
@@ -79,12 +81,37 @@ class PopulationProfileTests(unittest.TestCase):
             prepared_sha256=receipt['sha256'],output_location=str(completed/'model-proof/retained-output'),
             year_profile_sources={str(Path(n).relative_to(campaign.ROOT)):v for n,v in plan['frozen'].items()},
             year_profile_interval_ms=2000)
+        output=completed/'model-proof/retained-output'
+        for csv_file in output.glob('*/csv/*.csv'):
+            value=csv_file.read_text().splitlines()[1].split(',',1)[1]
+            csv_file.write_text('time,fictional_value\n'+''.join(f'{y},{value}\n' for y in range(2019,case['settings']['end_year']+1)))
+        manifest=inventory(output)
+        record['output_bytes']=sum(f['bytes'] for f in manifest.values())
+        record['annual_years']=list(range(2019,case['settings']['end_year']+1))
+        bench.write_json(completed/'model-proof/output-manifest.json',manifest,replace=True)
         attempt=record['attempts'][0];path=completed/'model-proof/attempts'/attempt['id'];path.mkdir(parents=True)
-        rows=profile_rows(population=case['settings']['population'],end_year=2020,repetitions=2)
+        attempt.update(heap_mib=case['settings']['heap_mib'],observed_jvm_pid=1234,single_jvm_verified=True,
+            cpu_millis=case['settings']['cpu_millis'],
+            observed_container_limits_bytes=[case['settings']['memory_mib']*campaign.MIB])
+        attempt['peak'].update(heap_max_bytes=case['settings']['heap_mib']*campaign.MIB)
+        rows=profile_rows(population=case['settings']['population'],end_year=case['settings']['end_year'],repetitions=2,
+            heap_mib=case['settings']['heap_mib'],memory_mib=case['settings']['memory_mib'])
+        attempt['peak']={key:max(row[key] for row in rows) for key in attempt['peak']}
         years.write_samples(path/'year-samples.jsonl',rows)
+        milestones=[y for y in (2030,2035,2040,2050,2060,2070) if y<=case['settings']['end_year']]
+        if case['settings']['end_year'] not in milestones:milestones.append(case['settings']['end_year'])
         bench.write_json(path/'year-profile.json',years.summarise(rows,population=case['settings']['population'],
-            seeds=config['seed_plan']['seeds'],end_year=2020,milestones=[2020]))
-        attempt['year_profile']=dict(samples=fingerprint(path/'year-samples.jsonl'),summary=fingerprint(path/'year-profile.json'))
+            seeds=config['seed_plan']['seeds'],end_year=case['settings']['end_year'],milestones=milestones,
+            cpu_millis=case['settings']['cpu_millis']))
+        workspace=[]
+        for index,sample in enumerate((rows[0],rows[len(rows)//2],rows[-1])):
+            measured=dict(work_bytes=(100+index*10)*campaign.MIB,input_bytes=10*campaign.MIB,
+                csv_bytes=index*10*campaign.MIB,snapshot_bytes=campaign.MIB,other_bytes=89*campaign.MIB,
+                request_bytes=campaign.MIB,work_and_request_bytes=(101+index*10)*campaign.MIB)
+            reporting.append_workspace(workspace,measured,index*10000,sample)
+        reporting.write_workspace(path/'workspace-samples.jsonl',workspace)
+        attempt['year_profile']=dict(samples=fingerprint(path/'year-samples.jsonl'),summary=fingerprint(path/'year-profile.json'),
+            workspace_samples=fingerprint(path/'workspace-samples.jsonl'))
         bench.write_json(completed/'model-proof/configuration.json',config,replace=True)
         bench.write_json(completed/'model-proof/report.json',record,replace=True)
         return path
@@ -111,6 +138,18 @@ class PopulationProfileTests(unittest.TestCase):
         self.assertEqual(plan['runtime_reference_receipt'],original)
         self.assertEqual(fingerprint(self.reference/'receipt.json'),original)
         self.assertFalse(self.args.output.exists())
+
+    def test_two_horizons_reuse_prepared_inputs_and_keep_separate_results(self):
+        self.args.end_years=[2035,2070];plan=self.plan()
+        self.assertEqual([(c['settings']['population'],c['settings']['end_year']) for c in plan['cases']],
+            [(n,y) for n in (20000,50000,100000) for y in (2035,2070)])
+        for short,long in zip(plan['cases'][::2],plan['cases'][1::2]):
+            self.assertEqual(short['preparation'],long['preparation'])
+            self.assertNotEqual(short['completed'],long['completed'])
+            self.assertFalse(short['retire_prepared']);self.assertTrue(long['retire_prepared'])
+        for values in ([2035,2035],[2019],[2071],[True],list(range(2020,2024))):
+            self.args.end_years=values
+            with self.subTest(values=values),self.assertRaises(ArtifactError):self.plan()
 
     def test_real_source_inventory_covers_helpers_model_and_public_inputs_without_preparing(self):
         sources=campaign.source_files(calibration.frontend_path())
@@ -153,6 +192,11 @@ class PopulationProfileTests(unittest.TestCase):
         first=summary['repetitions'][0]
         self.assertEqual(first['annual'][0]['exported_person_rows'],1)
         self.assertEqual(first['intervals'][0]['max_exported_person_rows'],1)
+        audited,_=bench.read_json(Path(case['audit'])/'report.json')
+        run=audited['sources'][0]['runs'][0]
+        total_csv=sum(v['bytes'] for name,v in audited['sources'][0]['files'].items()
+            if name.startswith(run['folder']+'/csv/'))
+        self.assertEqual(first['annual'][-1]['cumulative_csv_bytes'],total_csv)
         self.assertEqual(campaign.verify_profile_archive(Path(case['archive'])),evidence)
         bench.dispose(Path(case['archive']),Path(case['completed']))
         result=campaign.retire_prepared(plan,case)
@@ -177,14 +221,14 @@ class PopulationProfileTests(unittest.TestCase):
         (path/'year-samples.jsonl').unlink();years.write_samples(path/'year-samples.jsonl',rows)
         summary=years.summarise(rows,population=1000,seeds=['606','607'],end_year=2020,milestones=[2020])
         bench.write_json(path/'year-profile.json',summary,replace=True)
-        record['attempts'][0]['year_profile']=dict(samples=fingerprint(path/'year-samples.jsonl'),summary=fingerprint(path/'year-profile.json'))
+        record['attempts'][0]['year_profile'].update(samples=fingerprint(path/'year-samples.jsonl'),summary=fingerprint(path/'year-profile.json'))
         bench.write_json(report,record,replace=True)
         with self.assertRaisesRegex(ArtifactError,'telemetry limits'):campaign.archive_profile(plan,case)
 
     def test_corrupt_numeric_archive_prevents_generated_input_deletion(self):
         plan,case,prepared,_=self.ready_case();campaign.archive_profile(plan,case)
         inputs=inventory(prepared/'input')
-        for name in ('year-samples.jsonl','year-profile.json','population-profile.json','archive.json'):
+        for name in ('year-samples.jsonl','year-profile.json','workspace-samples.jsonl','population-profile.json','archive.json'):
             target=Path(case['archive'])/name;original=target.read_bytes();target.write_bytes(original+b' ')
             with self.subTest(name=name),self.assertRaises(ArtifactError):campaign.retire_prepared(plan,case)
             self.assertEqual(inventory(prepared/'input'),inputs);target.write_bytes(original)
@@ -218,8 +262,62 @@ class PopulationProfileTests(unittest.TestCase):
         self.assertEqual(inventory(self.reference),original_reference)
         self.assertTrue((self.args.output/'population-resources.csv').is_file())
         self.assertTrue((self.args.output/'comparison.md').is_file())
+        self.assertTrue((self.args.output/'comparison.html').is_file())
+        self.assertTrue((self.args.output/'population-annual.csv').is_file())
         self.assertEqual([s['stage'] for s in result['steps'][:6]],
             ['prepare','run','audit','archive','dispose-output','retire-generated-inputs'])
+
+    def test_horizons_share_identical_package_until_both_finish_then_retire(self):
+        self.args.end_years=[2020,2021]
+        plan=self.small_plan((1000,));events=[];packages=[]
+        def prepare(destination,population,image):
+            events.append(('prepare',population));p=prepared_fixture(destination,population,image);packages.append(p);return p
+        original_receipt=None
+        def run(command,log,env):
+            nonlocal original_receipt
+            case=next(c for c in plan['cases'] if c['completed']==command[command.index('--output')+1])
+            package=Path(case['preparation'])/'package'
+            checksum=fingerprint(package/'receipt.json')
+            if original_receipt is not None:self.assertEqual(checksum,original_receipt)
+            original_receipt=checksum
+            self.assertTrue((package/'input/input.mv.db').exists())
+            events.append(('run',case['settings']['end_year']))
+            self.completed_fixture(plan,case,package)
+        with patch.object(campaign,'preflight',return_value={}) as preflight,\
+                patch.object(calibration,'installed_image',return_value=self.image),redirect_stdout(io.StringIO()):
+            result=campaign.execute(plan,runner=run,prepare=prepare)
+        self.assertTrue(result['passed']);self.assertEqual(events,[('prepare',1000),('run',2020),('run',2021)])
+        self.assertEqual(len(packages),1);self.assertFalse((packages[0]/'input').exists())
+        self.assertEqual([s['stage'] for s in result['steps']].count('retire-generated-inputs'),1)
+        self.assertTrue(any(call.kwargs==dict(preparing=False) for call in preflight.call_args_list))
+
+    def test_reordered_workspace_context_or_changed_history_blocks_archival(self):
+        plan,case,_,path=self.ready_case()
+        target=path/'workspace-samples.jsonl';rows=reporting.read_workspace(target)
+        rows[1]['model_elapsed_ms']+=1;target.unlink();reporting.write_workspace(target,rows)
+        report=Path(case['completed'])/'model-proof/report.json';record,_=bench.read_json(report)
+        record['attempts'][0]['year_profile']['workspace_samples']=fingerprint(target)
+        bench.write_json(report,record,replace=True)
+        with self.assertRaisesRegex(ArtifactError,'different year stream'):campaign.archive_profile(plan,case)
+        self.assertFalse(Path(case['archive']).exists())
+
+    def test_failure_in_second_horizon_keeps_shared_inputs_and_stops_next_population(self):
+        self.args.end_years=[2020,2021];plan=self.small_plan();launched=[]
+        def run(command,log,env):
+            case=next(c for c in plan['cases'] if c['completed']==command[command.index('--output')+1])
+            launched.append(case['name'])
+            if case['settings']['end_year']==2021:raise RuntimeError('fictional second-horizon failure')
+            self.completed_fixture(plan,case,Path(case['preparation'])/'package')
+        with patch.object(campaign,'preflight',return_value={}),\
+                patch.object(calibration,'installed_image',return_value=self.image),\
+                redirect_stdout(io.StringIO()),self.assertRaisesRegex(RuntimeError,'second-horizon failure'):
+            campaign.execute(plan,runner=run,prepare=prepared_fixture)
+        package=Path(plan['cases'][0]['preparation'])/'package'
+        self.assertTrue((package/'input/input.mv.db').exists())
+        self.assertFalse(Path(plan['cases'][2]['preparation']).exists())
+        self.assertEqual(len(launched),2)
+        campaign.verify_profile_archive(Path(plan['cases'][0]['archive']))
+        self.assertFalse(bench.output_files(Path(plan['cases'][0]['completed'])/'model-proof/retained-output'))
 
     def test_failed_launch_preserves_generated_inputs_and_stops_later_cases(self):
         plan=self.small_plan();prepared=[]
@@ -280,6 +378,17 @@ class CalibrationYearOptInTests(unittest.TestCase):
         self.assertEqual(entry['year_rows'],rows)
         fresh={};calibration.collect_observations(fresh,lines(rows[:2]))
         with self.assertRaises(ValueError):calibration.collect_observations(fresh,lines(rows[3:]))
+
+    def test_live_year_progress_reports_boundary_age_and_actual_observed_population(self):
+        self.assertIsNone(calibration.latest_year_progress({}))
+        rows=profile_rows(end_year=2020,repetitions=1)
+        entry={'attempt':dict(year_rows=rows[:3])}
+        result=calibration.latest_year_progress(entry)
+        self.assertEqual((result['year'],result['observed_person_count'],result['last_boundary']),
+            (2019,1010,'year_start'))
+        self.assertEqual(result['seconds_since_boundary'],1)
+        entry['attempt']['year_rows']=rows
+        self.assertEqual(calibration.latest_year_progress(entry)['last_boundary'],'process_finish')
 
     def test_cli_forwards_explicit_mode_and_proof_only_to_the_real_disposable_driver(self):
         fixture=self.fixture

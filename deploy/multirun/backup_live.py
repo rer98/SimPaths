@@ -153,7 +153,7 @@ def create(queue, state, destination, tools, *, after_snapshot=None, single_capt
                     if (state/folder).exists():
                         keys.update(folder+'/'+k for k,v in scan(state/folder).items()
                             if stat.S_ISREG(v[2]) and not any(p.startswith('.pending-') for p in Path(k).parts))
-                for key in ('session-secret','training-imports.json'):
+                for key in ('session-secret','training-imports.json','.performance-fingerprint-key','performance-platform.json'):
                     if (state/key).exists(): keys.add(key)
                 estimate=sum((state/k).stat().st_size for k in keys)
                 estimate+=sum(v[3] for p in roots for v in scan(p['source']).values() if stat.S_ISREG(v[2]))

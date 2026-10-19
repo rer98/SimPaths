@@ -7,6 +7,13 @@ Attribution scope and non-commentable/generated artifacts.
 
 # Attribution
 
+The optional Java observer, bounded performance timelines, labelled reports,
+monitoring-cost fixture, operator controls and native recovery checks carry
+inline notices. Generated observer JARs, receipts, numeric review controls,
+workload-fingerprint keys, fictional test evidence and monitoring-cost HTML/JSON
+are (C) Copyright 2026, by Ross Richardson; @author ross richardson. This notice
+does not claim ownership of scientific data or relicense copied runtime software.
+
 The Visualiser storage policy guide, private live-approval utility, adapter and
 backup changes carry inline attribution. Generated numeric storage controls,
 fictional proof evidence and v2 retained-backup metadata are

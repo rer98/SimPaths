@@ -204,6 +204,20 @@ class SubmissionModel:
 
 
 class PreparationAdapter:
+    def configure_review(self,lease,request,command,seconds,*,state=None):
+        if state is None:return None
+        from .java_review import installed
+        observer=installed(state,request/'sources/model.jar',
+            model_hash=self.parameters(lease)['model']['release']['model']['sha256'])
+        if observer is None:return None
+        (request/'performance-observer.jar').write_bytes(observer)
+        arguments=list(command.argv)
+        index=arguments.index('-cp')
+        arguments[index+1]='/request/performance-observer.jar:'+arguments[index+1]
+        arguments.insert(index+2,'simpaths.experiment.SimPathsPerformanceRun')
+        arguments.insert(1,'-Dsimpaths.performance.seconds='+str(seconds))
+        return ContainerExecution(command.image,tuple(arguments),command.inputs)
+
     def __init__(self, datasets, releases, artifacts):
         from jasmine_web.batch.preparation import Preparations
         self.datasets, self.releases = datasets, releases
@@ -374,6 +388,11 @@ class PreparationAdapter:
 
 
 class DispatchAdapter:
+    def configure_review(self,lease,request,command,seconds,*,state=None):
+        adapter=self.adapter(lease)
+        configure=getattr(adapter,'configure_review',None)
+        return configure(lease,request,command,seconds,state=state) if configure is not None else None
+
     """Route both operation kinds through one queue/executor resource pool."""
     def __init__(self, preparation):
         self.preparation = preparation

@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import threading
+import time
 
 
 class VisualiserBackend:
@@ -250,7 +251,6 @@ class VisualiserBackend:
             retained=configuration.get('retained_only',False)
             if retained:
                 from datetime import datetime
-                import time
                 if (self.summary_cache is None or
                         datetime.fromisoformat(config['completed_at']).timestamp()+self.summary_retention_seconds<=time.time()):
                     raise ValueError('Retained intermediate summaries have expired')
@@ -259,7 +259,11 @@ class VisualiserBackend:
             cached=(self.summary_cache.entry(identity,check=check,checkpoint=getattr(command,'checkpoint',None))
                     if self.summary_cache is not None else nullcontext(None))
             with cached as entry:
-                if entry is None or not entry.restore(output):
+                cache_hit=entry is not None and entry.restore(output)
+                review=getattr(command,'performance',lambda *a,**k:None)
+                review('cache',hits=int(cache_hit),misses=int(not cache_hit),
+                    input_bytes=sum(item['bytes'] for item in inputs),job=configuration.get('identity',{}).get('job'))
+                if not cache_hit:
                     if retained:
                         raise ValueError('Retained summaries are unavailable; expired raw output cannot be reparsed')
                     request=output.with_suffix('.request.json')
@@ -267,9 +271,12 @@ class VisualiserBackend:
                         role='baseline' if entry is not None else role,run=run['seed'],output=str(output)))
                     measured=entry.raw_processing(sum(item['bytes'] for item in inputs)) if entry is not None else nullcontext()
                     with measured:
+                        measured_start=time.monotonic_ns()
                         command([self.node,'--max-old-space-size='+str(heap),str(self.build/'runner.cjs'),str(request)],
                                 pass_fds=tuple(f.fileno() for f in descriptors))
                         self._unchanged(before,descriptors)
+                        review('cache',raw_completed=1,raw_elapsed_ns=time.monotonic_ns()-measured_start,
+                            job=configuration.get('identity',{}).get('job'))
                     if entry is not None:entry.publish(output)
             self._unchanged(before,descriptors)
         return dict(path=str(output),role=role,seed=str(run['seed']),canonical=True) if self.summary_cache is not None else str(output)
@@ -341,6 +348,7 @@ class VisualiserBackend:
                 output=work/('configuration-'+str(configuration_index)+'-run-'+str(index)+'.json')
                 tasks.append((configuration,run,output,role))
         prepared=self._seeds(tasks,command,progress,min(seed_workers,len(tasks)) if tasks else 1,heap,source_ready)
+        getattr(command,'performance',lambda *a,**k:None)('comparisons',completed=len(prepared))
         offset=0
         for configuration_index,configuration in enumerate(sources):
             count=len(configuration['configuration']['runs'])

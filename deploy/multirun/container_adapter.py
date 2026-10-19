@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 import shutil
+import zipfile
 from types import SimpleNamespace
 
 from .artifacts import ArtifactError, relative_name
@@ -24,6 +25,27 @@ class ContainerExecution:
 
 
 class SimPathsContainerAdapter(SimPathsLocalAdapter):
+    def configure_review(self, lease, request, command, seconds, *, state=None):
+        """Optional launcher wrapper; old immutable releases remain usable."""
+        model_path=self.prepared/'model.jar'
+        classpath='/inputs/model.jar'
+        with zipfile.ZipFile(model_path) as model:
+            included='simpaths/experiment/SimPathsPerformanceRun.class' in model.namelist()
+        if not included:
+            if state is None:return None
+            from .java_review import installed
+            observer=installed(state,model_path,model_hash=self.receipt['identity']['model']['sha256'])
+            if observer is None:return None
+            (request/'performance-observer.jar').write_bytes(observer)
+            classpath='/request/performance-observer.jar:/inputs/model.jar'
+        runner=(request/'run.sh').read_text()
+        original='-cp /inputs/model.jar simpaths.experiment.SimPathsMultiRun'
+        if runner.count(original)!=1:return None
+        observed=runner.replace(original,'-Dsimpaths.performance.seconds='+str(seconds)+
+            ' -cp '+classpath+' simpaths.experiment.SimPathsPerformanceRun simpaths.experiment.SimPathsMultiRun')
+        (request/'run-reviewed.sh').write_text(observed)
+        return ContainerExecution(command.image,('/bin/sh','/request/run-reviewed.sh',command.argv[-1]),command.inputs)
+
     def __init__(self, prepared, image, *, resource_policy=None):
         super().__init__(prepared)
         if not re.fullmatch(r"sha256:[a-f0-9]{64}", image):

@@ -14,10 +14,21 @@ Validation on 19 October: **154 focused checks passed**, including real Java
 fixture lifecycle checks, unchanged production policy minima, smaller-container
 staging, same-JVM reporting and guarded failure/archive/input retirement. The
 six-case plan passes the current disk/RAM preflight and selects the same model JAR
-and runtime image ID as the preceding population campaign. The new scientific
-smoke and overnight cases still need the operator's terminal; Docker is not
-accessible from the coding sandbox. Local check evidence is in
+and runtime image ID as the preceding population campaign. Scientific execution
+needs the operator's terminal; Docker is not accessible from the coding sandbox.
+Local check evidence is in
 `/tmp-codex/population-memory-harness-20261019/report.json`.
+
+The native smoke passed on 19 October in approximately **15 minutes**, including
+preparation, verification and retirement. It completed both seeds (606 and 607)
+in one JVM at 2 vCPUs, a fixed 2.5 GiB heap and 3.5 GiB container, with no resource
+increases or retries. Output auditing, archive verification, capacity release and
+cleanup passed. Evidence is in
+`/tmp-codex/population-memory-smoke-20261019-100139/report.json`.
+The new per-repetition reporting code was also checked against these real archived
+observations, without more simulations or changing the original evidence; the
+derived check is in `/tmp-codex/population-memory-smoke-report-check-20261019`.
+The longer 2035/2070 candidates remain to be qualified by the overnight campaign.
 
 ## Tonight's cases
 

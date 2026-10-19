@@ -51,147 +51,248 @@ input staging and busy disk conditions. Assess whether a minimum increment or a
 write-rate-based safety margin is warranted. Changing to 10% is supported by the
 existing setting, but is not enabled by this work.
 
-## Install once, then switch the review live
+## Install once, then use two independent switches
 
-The updated service includes a separate private review collector even when
-baseline operational monitoring is disabled. It begins with review collection
-disabled. Install this application update and apply reviewed batch migration
-**027** (after 026) using the normal controlled deployment procedure. Introducing
-new code/schema still requires that deployment step; subsequent review switches
-do **not** require an application restart, cancellation or model relaunch.
+Install this application update and additive batch migration **031** using the
+normal controlled deployment procedure. Migration 027 remains unchanged. Later
+review switches require no restart, queue drain, cancellation or model relaunch.
 
-Run commands as the private service account, using its installed environment:
+| Control | Default | Effect on running work |
+| --- | --- | --- |
+| External review | Off; 15-second samples when enabled | Starts/stops readings live |
+| Detailed Java review for new launches | Off; 15-second timer when enabled | Retains the mode chosen at each process's launch |
+| Essential admission, growth, timeout and recovery checks | Existing safety policy | Independent of review |
+| Bounded lifecycle and chart/cache timings | Enabled with this code | Continues without detailed profiling |
+
+The private collector polls controls every five seconds. Slow native/database
+calls can delay acknowledgement. Each external interval change starts a new
+window; measurements never bridge disabled time. Status distinguishes requested
+controls, acknowledgement, error types and dropped/pending records.
+
+The Java switch is read at **actual process launch**, including queued jobs and
+each retry. Disabling it changes future launches; instrumented processes continue
+until completion. Processes launched with Java review off do not load its observer,
+start its thread or create detailed logs. Java could support stopping a running
+observer, but an in-process stop/restart control is not implemented in this version.
+
+### Operator commands
+
+Run in the installed SimPaths checkout/environment as the private service account:
 
 ```bash
-# Start a new window at five-second intervals for storage-burst investigation.
+# Start external readings without interrupting jobs.
 python -m deploy.multirun.performance_review \
-  --config /etc/simpaths-online/multirun.toml \
-  enable --sample-seconds 5
+  --config /etc/simpaths-online/multirun.toml enable --sample-seconds 15
 
-# Inspect requested controls, collector acknowledgement and recorded attempts.
+# Prepare once for EACH verified immutable model JAR, outside user jobs.
+# Requires a compatible JDK with javac.
 python -m deploy.multirun.performance_review \
-  --config /etc/simpaths-online/multirun.toml status
+  --config /etc/simpaths-online/multirun.toml prepare-java \
+  --model-jar /path/to/verified/model.jar
 
-# Export bounded, labelled records for analysis.
+# Include detailed Java observations in subsequently launched processes.
+python -m deploy.multirun.performance_review \
+  --config /etc/simpaths-online/multirun.toml java-enable --sample-seconds 15
+
+# Supply non-secret provider/layout context; an optional deployment SHA is supported.
+python -m deploy.multirun.performance_review \
+  --config /etc/simpaths-online/multirun.toml platform \
+  --provider Contabo --plan VPS12 --storage-kind ssd
+
 python -m deploy.multirun.performance_review \
   --config /etc/simpaths-online/multirun.toml status --json --limit 1000
+python -m deploy.multirun.performance_review \
+  --config /etc/simpaths-online/multirun.toml report --html --limit 2000 \
+  --output /path/to/private-review.html
 
-# Stop new sampling while retaining the records already collected.
+# Stop optional external sampling and omit detailed Java from future processes.
+python -m deploy.multirun.performance_review \
+  --config /etc/simpaths-online/multirun.toml java-disable
 python -m deploy.multirun.performance_review \
   --config /etc/simpaths-online/multirun.toml disable
 ```
 
 For an existing laptop service, replace `--config ...` with
 `--frontend /path/to/JAS-mine-web --state /path/to/private/multirun-state`.
-`status` can additionally use `--dsn-file`, `--pool` and `--schema` for an existing
-local database. Enable/disable commands do not contact Docker, PostgreSQL or SMTP
-and never create a missing service-state directory.
+Reports can use `--dsn-file`, `--pool` and `--schema` for an existing database.
+Controls do not contact Docker, PostgreSQL or SMTP or create missing service state.
+Sampling intervals accept 5–300 seconds. Use five seconds for a bounded burst
+investigation, then measure its cost before keeping it enabled.
 
-The default interval is **15 seconds**, configurable from 5 to 300 seconds. A
-private control-file poll runs every five seconds. Enable, disable and interval
-changes are acknowledged on that poll; native calls already in progress can
-delay acknowledgement. Repeating `enable` with different settings starts a new
-observation window, so readings cannot bridge a disabled interval or silently
-mix intervals. `status` distinguishes requested controls from their recorded
-acknowledgement. An acknowledgement is not a process-health guarantee.
+Older model releases use a separately compiled, checksum-verified small observer
+JAR. No compilation occurs during a user's launch. The scientific JAR, inputs,
+seeds, main, heap and container allowances remain unchanged. An unsupported or
+unavailable observer falls back to the ordinary command and records that mode.
+Verify actual launch mode, rather than assuming the switch proves activation.
+The detailed wrapper covers MultiRun simulation and queued input-preparation JVMs.
+Interactive SingleRun supplies external group measurements; its long-lived
+application JVM does not gain internal profiling from this change.
 
-Controls survive ordinary restarts. Re-enabling starts a fresh window; restarting
-the collector resets interval baselines rather than charging unobserved time.
-Turning review off leaves safety checks, live resource growth, normal monitoring,
-the website and simulation dispatch running. Pending captured readings can still
-flush after disable. Normal application shutdown joins the review thread before
-releasing the service's lifecycle fences.
+## Implemented improvements
 
-## What the records contain
+### 1. Resources and progress on a common timeline
 
-Each row represents an **attempt observed during one review window**, rather than
-a complete scientific benchmark. The JSON report labels the following fields:
+Recent observations retain CPU time/quota, total/working cgroup RAM, known disk
+quotas, throttling, I/O and read duration where available. Reports join the existing
+confirmed resource-change journal, split intervals by observed phase/year/repetition
+and confirmed allowance, and mark gaps, transitions and resets. They never assign
+an uncertain interval's CPU time to its final quota. Native timestamps reflect the
+actual reading; operational and review collectors share a one-second snapshot
+cache to avoid duplicate Docker/quota reads.
 
-| Field/group | Meaning |
+### 2. Optional Java memory and progress evidence
+
+Numeric records include heap used/committed/maximum, non-heap use, GC count/time,
+process CPU and setup, annual, output, between-repetition and final markers. The
+model thread reads collection size at existing annual messages. Timer samples
+reuse the last population observation and its timestamp, without traversing or
+concurrently inspecting model collections. Preparation without annual messages
+still supplies memory/CPU/GC and start/end evidence.
+
+There is no forced GC, heap dump, stack tracing or raw-output parsing. GC counter
+time is not application pause duration. Observed population and sampled peaks are
+not exact lifetime maxima. A 64-entry queue feeds two rotating files, each at most
+1 MiB; full queues drop evidence instead of waiting for space on the model thread.
+Annual MXBean snapshots still cost model-thread CPU, to be measured by cost trials.
+
+### 3. The complete path to usable results
+
+Basic events relate queue/input preparation/model timing to Visualiser task
+queueing, intermediate-summary readiness, comparisons, publication, indexing and
+ready timestamps, including cache hits/misses and raw-processing costs. They remain
+available without detailed review. Reports separate input wait from subsequent
+queue time and first observed charts from all required baseline pairs. Successful
+input preparation is not counted as a completed simulation. Chart times record
+historical generation, not current retention or access permission.
+Retry queue time begins after the preceding attempt finishes, excluding its
+execution time. Submission-to-admission elapsed time is also retained separately.
+
+External review samples scoped Visualiser groups and linked active SingleRun
+containers, verifying session/deployment labels. Available processing-group counters
+are also captured before cleanup. A short unobserved SingleRun session cannot
+acquire a retrospective peak. Existing cache eviction/reprocessing counters help
+explain expensive reconstruction; measurements do not read scientific rows.
+
+### 4. Host context and comparable workloads
+
+Readings include available CPU/steal, memory, disk-device I/O, CPU/memory/I/O
+pressure, PostgreSQL connections/lock waiters/temp-I/O counters, service cgroups
+and bounded HTTP latency histograms. Missing counters/permissions, disabled database
+I/O timing and VM host uncertainty remain limitations. An advertised virtual CPU
+name does not establish exclusive physical cores.
+
+Model/runtime, Visualiser, web-code and operator deployment fingerprints accompany
+a keyed fingerprint of immutable inputs, scientific choices and seeds. Display
+labels do not affect it. Keep provider/plan/layout descriptors accurate and compare
+matched fingerprints, output settings and complete outcomes. Exports retain numeric
+metadata and opaque references, without seeds, scientific values, person rows,
+credentials, owner addresses or private paths. They are private operator reports.
+The automatic application-code fingerprint also covers deployed SimPaths
+adapters, configuration, resource policy and runner code. Optional corrupt platform
+descriptors leave that context unknown rather than preventing service startup.
+
+### 5. Coverage, failures and bounds
+
+Recent attempts appear even when periodic sampling missed them, including failed
+work and retries. Reports include first/last observations and last-sample-to-exit
+gaps. External coverage is absent or partial; periodic readings cannot certify full
+coverage. Java coverage is complete only for an unbroken initial-to-final sequence
+with no recorded loss; that still does not imply an exact peak. Available cumulative
+Java/cgroup counters are distinguished from sampled peaks. Missing totals are unknown.
+
+| Record or buffer | Bound |
 | --- | --- |
-| `session_id`, `attempt_id`, `job_id` | Opaque observation-window and work references |
-| `kind` | MultiRun simulation or input preparation; interactive SingleRun is not included |
-| `sample_seconds`, `samples`, first/last sample times | Configured interval and actual coverage |
-| `peak_memory_bytes` | Largest sampled total cgroup memory, including accounted file cache |
-| `peak_working_memory_bytes` | Largest sampled memory after subtracting inactive file cache; includes Java and native memory |
-| `peak_storage_bytes`, `storage_samples` | Largest sampled allocated project-quota bytes and number of known storage readings |
-| `peak_net_growth_bytes` | Largest positive change between consecutive valid workspace readings |
-| `peak_net_growth_bytes_per_second` | Largest measured net-growth rate; not total write traffic or largest-file size |
-| Min/max CPU, RAM and disk limits | Observed allowances, including live changes |
-| Min/max concurrent model containers | Observed contention context within the MultiRun pool |
-| `cpu_ns`, `observed_seconds` | CPU time observed between valid readings and corresponding sampled coverage; gaps are excluded |
-| Start/finish, outcome and `elapsed_seconds` | Attempt timing from original queue records; elapsed includes setup, host contention and validation |
-| `first_observed_after_start_seconds` | How late observation began; enabling partway through a run cannot recover earlier peaks |
-| `workload` | Initial population, requested years/repetitions, allowlisted output collectors, resource profile and model identities where present |
-| `recovery_events` in each attempt | Counts of memory/storage/heap growth, waiting and retries over that attempt's retained history |
+| Recent detail | 7 days OR 50,000 rows per pool, whichever is reached first |
+| Subject / attempt-window summaries | Default 90 days / 10,000 rows per table |
+| Pending trace / write batch | 2,048 / 128 observations |
+| Active models / registered processing groups | 128 / 128 |
+| Linked active SingleRun sessions sampled per pass | 16 |
+| Private report | 2,000 rows per table; truncation labelled |
 
-Initial population is **not** the largest population reached during the model.
-Workload counts do not expose seeds, policy/input values, labels, file paths,
-person records, credentials or owner email addresses. Approved private operators
-can export these metadata; this is not a public browser endpoint.
-The report's top-level `recovery_events` totals cover the pool's retained recovery
-history. Neither these totals nor the per-attempt counts are restricted to the
-review window; use ordinary operational history for counts in a selected period.
+`enable --retention-days N --max-rows N` controls longer summaries (1–365 days,
+100–100,000 rows). Successful writes apply caps/expiry; an idle disabled collector
+does not prune continuously. Pending/basic events can flush after disable. Shutdown
+joins collection and performs a bounded drain. Outages/full buffers can lose evidence;
+status reports pending/dropped counts and error types. Writes use a separate advisory
+lock and short timeouts, without the scheduler pool-row lock. Immutable event IDs
+prevent duplicate aggregation after lost commit acknowledgements. Review never
+authorises admission, resource release, recovery or CPU/memory/disk changes.
 
-Raw counters come from the verified Docker container and XFS quota broker; the
-collector does not walk or parse large output files. Without verified quota
-accounting, storage is **unknown**, not zero. Sampled peaks can miss temporary
-spikes and end-of-run files. Failed or partial attempts must not be treated as
-proof of requirements for successful complete configurations. Compare the same
-model/input/output contract and use several successful runs plus safety headroom
-before approving a smaller production profile.
+### 6. Native proofs and measurement costs
 
-The ordinary [operational history](OPERATOR.md#operational-history) remains useful
-for host CPU steal, shared-server load and browser latency during each window.
-VPS observations describe actual service performance; they cannot reproduce the
-controlled conditions of a quiet-laptop benchmark.
+`performance_monitoring_proof.py` checks live controls, real same-container/PID Docker
+CPU changes, transition coverage, runtime shutdown and PostgreSQL backup/restore
+with fictional work. Local Java tests compare unchanged output/errors and disabled
+launches; numeric/file tests cover gaps, resets, bounded logs and private fingerprints.
+These functional checks do not establish monitoring cost on a loaded VPS.
 
-## Bounds, failures and retention
+`monitoring_cost_trials.py` counterbalances off/external/full at matched allocations
+and inputs using tiny fictional Java CPU/allocation/I/O work through the real queue
+and executor. It records container/driver time, independent reference CPU/peak
+readings, collector cost and labelled HTML/JSON. Compilation and control
+acknowledgement occur before timing. Reference readings are present in every
+fictional condition and occur just before JVM shutdown.
 
-At most 128 active attempts are sampled by one pass. Collection buffers are
-bounded; missing/dropped readings and exception **types** appear in private
-collector status. Model/native/database failures affect the review only. Storage
-growth monitoring remains a separate safety mechanism.
+```bash
+cd ~/git/SimPathsWeb/SimPaths &&
+TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 \
+~/simpaths-browser-tests/venv/bin/python deploy/multirun/monitoring_cost_trials.py \
+  --frontend "$HOME/git/JAS-mine/JAS-mine-web" \
+  --runtime-from /tmp-codex/research-prepared-100000-20261009-232734/package \
+  --sample-seconds 15 --rounds 3 \
+  --output "/tmp-codex/monitoring-cost-$(date +%Y%m%d-%H%M%S)"
+```
 
-The default metadata retention target is **90 days**, with **10,000 attempt-window
-rows**. `enable --retention-days N --max-rows N` accepts 1–365 days and 100–100,000
-rows. Successful review writes apply expiry and row caps within the selected
-pool. When review is disabled, records remain available; expiry pruning resumes
-with successful collection writes. `status --limit` is an export bound (maximum
-2,000), with an explicit truncation flag. It does not expand retention.
+Repeat separately at five seconds. Keep networking enabled for isolated dependency
+installation; the runtime is local. Do not overlap quiet scientific benchmarks.
+Default fictional trials need 1 GiB free disk. They have no XFS quota broker, so
+quota storage is unknown and broker latency is not qualified by this fixture.
 
-Writes use their own advisory lock and short timeouts, without acquiring the
-scheduler's pool-row lock. Flush receipts prevent double counting after a lost
-commit acknowledgement. Native backup/restore includes both review tables through
-the normal schema snapshot. Review controls are private local configuration;
-check/reapply them explicitly on a restored host before collecting again.
+`--scientific --end-year 2021` explicitly opts into one ordinary public simulation
+per condition/round, using the population in the calibration package. It needs
+15 GiB free disk, a quiet machine and substantially more time. It excludes old laptop
+probe wrappers and uses the production observer. Output validation is retained;
+validation alone is not proof that all numeric scientific results matched.
+
+**Host measurements still to do:** repeated quiet cost trials, representative
+public-data off/on comparisons, and VPS mixed-load tests with the real quota broker.
+Measure web/SingleRun responsiveness, chart delays, disk stalls and completion
+distributions at different host loads. No overhead percentage, automatic tuning or
+improved allocation is claimed before results. Observations inform reviewed profiles
+for new work; they do not establish causal speed differences on their own.
+
+## Backup and recovery
+
+Schema dumps include both new tables. Offline state copies retain review controls;
+online backup retains the workload-fingerprint key and platform descriptors and
+omits live controls/transient observer files. Check/reapply controls on a restored
+host and prepare the small observer again as needed. Metadata confers no access to
+raw results or retained Visualiser data.
 
 ## Administrator alerts
 
-Confirmed storage increases already produce `resource_admin` notifications and
-durable resource events. Real delivery requires the normal notification switch,
-administrator recipient and SMTP configuration. These alerts operate independently
-of review mode. The existing status history counts growth/wait/retry events for
-the chosen reporting period, and review JSON adds per-attempt counts. Frequent
-growth is a reason to inspect workload differences and revise tested profiles;
-it is not proof that all jobs need a larger starting allowance.
+Confirmed storage growth still creates durable recovery events and configured
+`resource_admin` notices independently of review. Delivery requires the normal
+notification switch, administrator recipient and SMTP settings. Frequent growth
+prompts workload/profile review; it does not prove all starting limits are too small.
 
-## Validation
+## Validation record
 
-The local tests cover decimal ceilings, unchanged integer policies, exact MiB
-rounding, private controls, dynamic intervals, unknown storage, observation gaps,
-changed resource limits, bounded commit retries and safe workload metadata.
-The disposable native proof uses fictional samples and captured email senders:
-`monitoring_proof.py` includes hot controls, database aggregation, scheduler
-isolation, runtime lifecycle and native backup/restore checks. It does not certify
-sampling overhead or burst safety on the chosen VPS; those remain host tests.
+The 17 October external-review proof passed 179 checks, followed by seven checks
+for sampling-interval metadata. Those reports predate migration031 and the observer.
+The new 19 October focused PostgreSQL proof passed **33 checks**, with cleanup:
+[/tmp-codex/performance-monitoring-native-20261019-115211/report.json](/tmp-codex/performance-monitoring-native-20261019-115211/report.json).
+The subsequent native runtime/recovery proof passed **50 checks**, without skips,
+with Docker/database cleanup confirmed:
+[/tmp-codex/performance-runtime-final-20261019-121537/model-proof/report.json](/tmp-codex/performance-runtime-final-20261019-121537/model-proof/report.json).
+It includes the longer-lived cache-reprocessing counters. Monitoring-cost results
+are recorded separately. The timing follow-up passed **28 PostgreSQL checks**:
+[/tmp-codex/performance-timing-native-20261019-122218/report.json](/tmp-codex/performance-timing-native-20261019-122218/report.json).
+This covers retry queue timing; a local slow-reader regression confirms snapshot
+reuse is timed from read completion.
 
-On 17 October, all **179 native proof checks** passed with no failures, errors or
-skips and cleanup confirmed in
-[/tmp-codex/performance-review-native-20261017-105635/report.json](/tmp-codex/performance-review-native-20261017-105635/report.json).
-The final focused local run passed **35 checks**. After adding the configured
-sampling interval to each stored window, the focused **seven-case PostgreSQL
-rerun passed**, with cleanup confirmed in
-[/tmp-codex/performance-review-final-20261017-113932/report.json](/tmp-codex/performance-review-final-20261017-113932/report.json).
-The 179-case report predates that metadata addition; the focused rerun verifies
-the final stored-window format and live controls.
+The one-round, five-second fictional cost smoke also passed, with identical
+result fingerprints in all three modes and cleanup confirmed:
+[/tmp-codex/monitoring-cost-smoke-20261019-121732/model-proof/report.json](/tmp-codex/monitoring-cost-smoke-20261019-121732/model-proof/report.json).
+It verifies the harness, not a monitoring-overhead percentage. Counterbalanced
+quiet and representative host measurements remain outstanding as described above.

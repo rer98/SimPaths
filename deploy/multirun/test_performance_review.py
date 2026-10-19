@@ -53,6 +53,16 @@ class PerformanceReviewTests(unittest.TestCase):
             self.assertEqual(main(self.args('enable','--sample-seconds','1')),2)
         self.assertFalse((self.root/'performance-review.json').exists())
 
+    def test_java_launch_switch_and_platform_descriptors_do_not_contact_services(self):
+        from jasmine_web.batch.performance_review import read_control
+        with patch('socket.socket',side_effect=AssertionError('No network')),redirect_stdout(io.StringIO()):
+            self.assertEqual(main(self.args('java-enable','--sample-seconds','30')),0)
+            self.assertTrue(read_control(self.root,java=True)['enabled'])
+            self.assertFalse(read_control(self.root)['enabled'])
+            self.assertEqual(main(self.args('java-disable')),0)
+            self.assertFalse(read_control(self.root,java=True)['enabled'])
+            self.assertEqual(main(self.args('platform','--provider','Contabo','--plan','VPS12','--storage-kind','ssd')),0)
+
     def test_vm_and_local_control_settings_cannot_be_mixed(self):
         with redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):
             main(self.args('--config','/etc/fictional.toml','enable'))

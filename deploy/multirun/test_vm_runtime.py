@@ -455,8 +455,10 @@ class VMRuntimeTests(unittest.TestCase):
     def test_hot_performance_review_runs_with_baseline_monitoring_disabled_and_joins(self):
         import asyncio
         from jasmine_web.batch.performance_review import set_control, read_status
+        from jasmine_web.batch.performance_trace import HTTPReview
         bundle=self.app(private_service=True)
-        self.assertFalse(hasattr(bundle.service,'monitor'))
+        self.assertIsInstance(bundle.service.monitor,HTTPReview)
+        self.assertFalse(bundle.service.monitor.trace.enabled)
         reviewer=bundle.service.performance_review
         with patch.object(reviewer,'reader',return_value={}):
             async def exercise():

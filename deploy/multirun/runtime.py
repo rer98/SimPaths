@@ -293,15 +293,27 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
     print('Automatic resource recovery: '+('enabled for new reviews; frozen ceilings and original retry/time budgets apply'
                                           if recovery else 'disabled'),flush=True)
     from jasmine_web.batch.performance_review import PerformanceReview
-    from jasmine_web.batch.observability import model_reader
-    service.performance_review=PerformanceReview(q,state,model_reader(q,executor))
+    from jasmine_web.batch.observability import model_reader,shared_reader
+    from jasmine_web.batch.performance_trace import ReviewTrace,interactive_reader,service_groups
+    from .performance_review import application_fingerprint
+    trace=ReviewTrace(q,state,application_code_fingerprint=application_fingerprint())
+    if getattr(executor,'docker',None) is not None:
+        trace.single_reader=interactive_reader(q,executor.docker)
+    trace.services=service_groups()
+    executor.performance=trace
+    native_reader=shared_reader(model_reader(q,executor))
+    service.performance_review=PerformanceReview(q,state,native_reader,trace=trace)
     if getattr(args,'operational_metrics',False):
         from jasmine_web.batch.observability import OperationalMonitor, Settings, model_reader
         service.monitor=OperationalMonitor(q,state,settings=Settings(
             sample_seconds=getattr(args,'metrics_sample_seconds',15),
             retention_days=getattr(args,'metrics_retention_days',30),
-            max_rows=getattr(args,'metrics_max_rows',20000)),model_reader=model_reader(q,executor))
+            max_rows=getattr(args,'metrics_max_rows',20000)),model_reader=native_reader)
+        service.monitor.performance=trace
         print('Operational metrics: background numeric summaries enabled',flush=True)
+    else:
+        from jasmine_web.batch.performance_trace import HTTPReview
+        service.monitor=HTTPReview(trace)
     from .queue_adapter import result_catalogue, result_name, result_deletion_targets, result_inputs, result_settings
     from jasmine_web.batch.output_management import OutputManagement
     service.results=Results(service,executor,result_catalogue,name=result_name,
@@ -323,6 +335,8 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
             from jasmine_web.batch.processing_scope import DelegatedScopes
             group_memory=max(args.visualiser_memory_mib,5120) if seed_workers>1 else args.visualiser_memory_mib
             scopes=DelegatedScopes(minimum_memory_mib=workers*group_memory+2048)
+            if getattr(scopes,'root',None) is not None:
+                trace.services.append(('private-manager',scopes.root/'manager'))
         backend_options={}
         if getattr(args,'visualiser_summaries',False):
             backend_options=dict(summary_cache_root=execution/'visualiser-cache'/'summaries',
@@ -331,6 +345,11 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
             memory_mib=max(256,args.visualiser_memory_mib-768) if scoped else args.visualiser_memory_mib,
             **backend_options)
         backend.summary_retention_seconds=getattr(args,'visualiser_summary_hours',168)*3600
+        if backend.summary_cache is not None:
+            from .visualiser_cache_usage import statistics
+            from jasmine_web.batch.performance_trace import NUMBERS
+            trace.cache_reader=lambda:{key:value for key,value in statistics(backend.summary_cache.root).get('counters',{}).items()
+                                       if key in NUMBERS}
         from jasmine_web.batch.aggregate_limits import AggregateLimits
         limits=AggregateLimits(getattr(args,'visualiser_artifact_mib',16)*1024**2,
             getattr(args,'visualiser_comparison_mib',64)*1024**2,
@@ -357,6 +376,7 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
             retain_completed_summaries=getattr(args,'visualiser_retain_completed_summaries',True),
             per_owner_entries=getattr(args,'visualiser_per_owner_entries',256) if automatic else 10,
             publication_limits=limits,storage_policy=storage_policy)
+        service.visualiser.performance=trace
         if automatic:
             from jasmine_web.batch.preparation_scheduler import PreparationScheduler
             service.preparation_scheduler=PreparationScheduler(q,service.visualiser,

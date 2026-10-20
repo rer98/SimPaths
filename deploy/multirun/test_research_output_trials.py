@@ -86,6 +86,89 @@ class OptionalOutputTests(unittest.TestCase):
             self.args.rounds=rounds
             with self.assertRaises(ArtifactError):self.plan()
 
+    def test_long_two_repetition_plan_is_one_gini_on_jvm_with_an_explicit_deadline(self):
+        self.args.population=50000;self.args.end_year=2070;self.args.rounds=1
+        self.args.modes=['on'];self.args.repetitions=2;self.args.repetition_seconds=28800
+        plan=self.plan()
+        self.assertEqual(len(plan['cases']),1)
+        case=plan['cases'][0];settings=case['settings'];command=case['command']
+        self.assertEqual((case['mode'],settings['population'],settings['end_year']),('on',50000,2070))
+        self.assertEqual((settings['heap_mib'],settings['memory_mib'],settings['max_memory_mib']),(3072,4096,4096))
+        self.assertEqual((settings['repetitions'],settings['max_attempts'],settings['storage_mib']),(2,1,12288))
+        self.assertEqual(calibration.attempt_seconds(settings),58500)
+        self.assertEqual(calibration.proof_timeout(settings),60300)
+        self.assertEqual(command[command.index('--repetitions')+1],'2')
+        self.assertEqual(command[command.index('--repetition-seconds')+1],'28800')
+        self.assertEqual(command.count('--variant'),1)
+        self.assertTrue(case['retire_prepared'])
+        self.assertIn('no between-run hashing',plan['note'])
+
+    def test_two_repetition_campaign_checks_both_seeds_after_one_native_launch(self):
+        self.args.rounds=1;self.args.modes=['on'];self.args.repetitions=2
+        plan=self.plan();calls=[];original=trials.gini_output
+        def run(command,log,env):
+            case=plan['cases'][0]
+            self.assertEqual(command[command.index('--repetitions')+1],'2')
+            self.completed(plan,case);calls.append('finished-jvm')
+        def check(*args,**kwargs):
+            self.assertEqual(calls,['finished-jvm'])
+            calls.append('check-completed-output');return original(*args,**kwargs)
+        with patch.object(population,'preflight',return_value={}),\
+                patch.object(calibration,'installed_image',return_value=self.fixture.image),\
+                patch.object(trials,'gini_output',side_effect=check),redirect_stdout(io.StringIO()):
+            result=trials.execute(plan,runner=run,prepare=self.prepare,pause=lambda _:None)
+        self.assertTrue(result['passed']);self.assertEqual(calls,['finished-jvm','check-completed-output'])
+        self.assertEqual(result['paired_results'],[])
+        row=result['conditions'][0]
+        self.assertEqual(row['configuration']['seed_plan']['seeds'],['606','607'])
+        self.assertEqual([r['seed'] for r in row['gini']['repetitions']],['606','607'])
+        self.assertEqual([r['seed'] for r in row['repetitions']],['606','607'])
+        self.assertEqual(row['annual_work_seconds'],sum(r['annual_work_seconds'] for r in row['repetitions']))
+        self.assertTrue(row['repeat_check']['single_jvm_verified'])
+        self.assertFalse(row['repeat_check']['forced_gc'])
+        self.assertEqual(len(row['repeat_check']['transitions']),1)
+        self.assertEqual(len(row['person_rows_by_year']),6)
+        text=(self.args.output/'comparison.html').read_text()
+        for value in ('Individual repetitions in the same JVM','Between-repetition samples','No matched on/off pair'):
+            self.assertIn(value,text)
+        self.assertEqual(len((self.args.output/'repetitions.csv').read_text().splitlines()),3)
+        self.assertEqual((self.args.output/'repetitions.csv').stat().st_mode&0o777,0o600)
+        population.verify_profile_archive(Path(plan['cases'][0]['archive']))
+
+    def test_invalid_second_repetition_gini_stops_before_archival_and_disposal(self):
+        self.args.rounds=1;self.args.modes=['on'];self.args.repetitions=2
+        plan=self.plan();case=plan['cases'][0]
+        def run(command,log,env):
+            self.completed(plan,case)
+            second=next((Path(case['completed'])/'model-proof/retained-output').glob('*_607_1/csv/WealthIncomeStatistics.csv'))
+            second.write_text('time,'+','.join(trials.GINI_FIELDS)+'\n'+''.join(f'{year},0,0\n' for year in range(2019,2022)))
+            native=Path(case['completed'])/'model-proof/report.json';record,_=bench.read_json(native)
+            manifest=inventory(second.parent.parent.parent)
+            record['output_bytes']=sum(f['bytes'] for f in manifest.values())
+            bench.write_json(native.parent/'output-manifest.json',manifest,replace=True)
+            bench.write_json(native,record,replace=True)
+        with patch.object(population,'preflight',return_value={}),\
+                patch.object(calibration,'installed_image',return_value=self.fixture.image),redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(ArtifactError,'actual Gini statistics'):
+                trials.execute(plan,runner=run,prepare=self.prepare,pause=lambda _:None)
+        self.assertFalse(Path(case['archive']).exists())
+        self.assertTrue(bench.output_files(Path(case['completed'])/'model-proof/retained-output'))
+        self.assertFalse(json.loads((self.args.output/'report.json').read_text())['passed'])
+
+    def test_selected_modes_and_runtime_bounds_fail_before_starting_any_work(self):
+        for modes in ([],['on','on'],['unknown'],True):
+            self.args.modes=modes
+            with self.subTest(modes=modes),self.assertRaises(ArtifactError):self.plan()
+        self.args.modes=['on','off'];self.args.rounds=1
+        self.assertEqual([c['mode'] for c in self.plan()['cases']],['on','off'])
+        for repetitions in (0,3,10,True):
+            self.args.repetitions=repetitions
+            with self.subTest(repetitions=repetitions),self.assertRaises(ArtifactError):self.plan()
+        self.args.repetitions=2
+        for seconds in (0,True,86400):
+            self.args.repetition_seconds=seconds
+            with self.subTest(seconds=seconds),self.assertRaises(ArtifactError):self.plan()
+
     def test_real_campaign_audits_and_archives_every_condition_before_disposal(self):
         reference=inventory(self.fixture.reference);plan=self.plan()
         result=self.execute(plan)

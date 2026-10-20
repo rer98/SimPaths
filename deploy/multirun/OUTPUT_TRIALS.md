@@ -8,8 +8,9 @@ Matched scientific screening of optional Gini calculation costs.
 Prepared on 20 October 2026. The completed smaller-memory campaign enabled all
 standard annual CSV exports, including Household and the regular statistics
 files. It disabled `calculateGiniCoefficients` and `exportToDatabase`. This small
-follow-up changes **only the Gini flag**, with a fresh reference run in every
-pair; it does not enable database output or change production resource profiles.
+follow-up changes **only the Gini flag** in paired comparisons, with a fresh
+reference in every pair. It also supports one selected mode and two sequential
+repetitions; it does not enable database output or change production profiles.
 
 Decision on 20 October: database export is excluded from the online MultiRun
 service and is fixed off in its configuration validator and browser form, including
@@ -32,6 +33,9 @@ Three paired rounds run off/on, on/off, off/on. Results show individual values,
 per-condition medians and ranges, and each paired difference. With an odd number
 of pairs the order is not perfectly balanced. These are screening observations,
 not a statistical significance test or a proof about every seed/settings choice.
+`--modes on` selects Gini-on alone; `--modes on off` specifies the order rather
+than alternating it. `--repetitions 2` runs seeds 606 and 607 in the same normal
+Java MultiRun process. Rounds are separate JVM launches; repetitions are not.
 
 **Why start at 20,000?** The current source's
 `SimPathsCollector.GiniPersonalGrossEarnings.update()` and
@@ -94,9 +98,9 @@ that deliberate screening limit; its failure remains a result, and the tool
 stops rather than quietly extending limits or retrying. Allowance plus bounded
 driver/cleanup grace is not an estimate of typical completion time. The first
 20,000-person pair completed in 21.5 minutes including preparation and verification;
-the Gini-on JVM took 4 minutes 25 seconds. Larger-population Gini times remain
-unmeasured. Review the screening deadline before that follow-up: pairwise scaling
-could make it exceed the current allowance without indicating a memory failure.
+the Gini-on JVM took 4 minutes 25 seconds. The completed 50,000-person short
+follow-up is recorded below. Review the screening deadline before any longer
+follow-up: pairwise scaling can exceed it without indicating a memory failure.
 
 Each condition's bulk output is independently audited and hash-checked, compact
 evidence is re-opened, and only then are its bulk files removed. The shared new
@@ -106,9 +110,69 @@ the campaign and preserves the relevant evidence and remaining inputs.
 
 Open `comparison.html` in the output directory for labelled tables;
 `comparison.csv` and `report.json` retain the numeric observations, paired
-differences and Gini validation. Original completion evidence and passive
+differences and Gini validation. `repetitions.csv` and the HTML's repetition and
+transition tables distinguish build/run times, peaks and GC counters within the
+same JVM. They are calculated after execution from the existing passive stream.
+Original completion evidence and passive
 year/workspace samples remain under `archives/`. Interpret only completed native
 conditions; interrupted or failed conditions retain their own diagnostics.
+**Do not rely on Ctrl+C to preserve completed repetitions within an unfinished
+condition.** Native cancellation cleanup can remove that workspace. A completed
+earlier condition already verified and archived remains preserved, but the two
+repetitions within one condition must both finish to obtain its full archive.
+
+## Two-repetition overnight laptop test
+
+The agreed next test is **50,000 people, 2019–2070, Gini on, two sequential
+repetitions in the same JVM**, fixed 2 vCPUs, 3 GiB heap and 4 GiB container.
+It uses the normal model Gini flag and MultiRun seed plan, with the existing
+passive year/resource probe. No output hashing, CSV scanning, file copying or
+forced GC is inserted between repetitions. The full output audits and Gini
+checks for **both** seeds run only after the entire model condition finishes.
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths &&
+TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 \
+~/simpaths-browser-tests/venv/bin/python deploy/multirun/research_output_trials.py \
+  --frontend "$HOME/git/JAS-mine/JAS-mine-web" \
+  --runtime-from /tmp-codex/research-prepared-100000-20261009-232734/package \
+  --population 50000 --end-year 2070 \
+  --modes on --rounds 1 --repetitions 2 \
+  --repetition-seconds 28800 \
+  --output "/tmp-codex/optional-gini-50k-2070-two-reps-$(date +%Y%m%d-%H%M%S)"
+```
+
+Budget roughly **10–12 hours**, potentially longer: extrapolating three measured
+Gini-on years gives about 5.2 hours per repetition, but changing population/yearly
+work and laptop conditions make that provisional. The explicit deadline is
+**15 setup minutes + 2 × 8 hours = 16 hours 15 minutes** for the model condition,
+plus 30 minutes of proof/cleanup allowance. This is a cumulative condition budget,
+not a separate per-repetition kill timer. The overall campaign also includes
+preparation, dependency/database/browser setup and audits outside the Java timer.
+
+The two-repetition storage allowance is 12 GiB. Initial preflight requires
+**19 GiB free disk and 7 GiB available RAM**, including preparation and test-service
+headroom, and fails before starting if unavailable. Networking must be available
+for dependency/credential setup. Use mains power, disable sleep, and avoid other
+substantial work or edits to the frozen sources/model/input files during the run.
+No image or scientific JAR rebuild is required. To inspect the plan only, append
+`--dry-run` and use a new output path.
+
+The existing two-repetition Java/memory probe and its sample cadence are unchanged.
+The ordinary coarse resource stream retains its existing duration-based sampling
+bound, so longer allowances can have coarser coarse samples; the year stream
+still samples every two seconds. These are passive **sampled** peaks, with the
+same measurement limitations as earlier trials, not zero-overhead instrumentation
+or exact live-set measurements. Comparing two seeds can expose retained demand,
+but does not prove the absence of leaks over ten repetitions.
+
+**VM follow-up to prepare separately:** Gini-on first, ten repetitions through
+2070 in one JVM. If resource failure requires different limits, restart the
+qualification at the revised fixed limits; then run Gini-off with matching
+limits/seeds/inputs/model. This laptop harness intentionally remains limited to
+one/two repetitions and the calibration's 48-hour guard. Ten long Gini repetitions
+may exceed that guard and require a separately reviewed longer-run evidence and
+runtime budget. They must not be launched by simply changing this command to ten.
 
 If Gini has substantial cost, retain separate supported output profiles or a
 larger allowance, and consider a separately reviewed model-maintenance change
@@ -164,8 +228,8 @@ On 20 October, **108 local checks passed**, covering calibration, population
 profiling, the paired Gini harness, smaller-memory guards and existing
 benchmark/storage archival. The default plan passed the current disk/RAM
 preflight and selected the same model JAR as the completed smaller-memory
-campaign. The first native scientific pair is recorded above; the three-round
-campaign and larger-population follow-up remain unmeasured.
+campaign. The first native scientific pair is recorded above. The larger short
+50,000-person pair below also passed; the long Gini sequence is still to run.
 After fixing database export off for the online service, **106 configuration,
 browser/YAML, resource-profile, calibration and paired-output checks passed**.
 
@@ -180,3 +244,25 @@ cd ~/git/SimPathsWeb/SimPaths &&
 These checks use fictional scientific launches with real small-file annual
 auditing, archive verification and guarded disposal. They do not substitute for
 the native Gini on/off comparison.
+
+The two-repetition update passed **124 local checks** across the Gini harness,
+calibration, population/year/memory reporting, benchmarks and storage audit.
+They include one native-launch request carrying two seeds, rejection of invalid
+Gini output in the second repetition before archival/disposal, explicit deadline
+bounds and the normal earlier paired defaults. Scientific launches in those
+checks are fictional. The exact 50,000/2070, two-repetition Gini-on CLI plan also
+passed the current local disk/RAM preflight (19 GiB free disk / 7 GiB available
+RAM required). The long scientific test itself remains to be run in the terminal;
+neither measurement probe nor the scientific JAR was changed by this update.
+
+## Short 50,000-person pair — 20 October 2026
+
+[`optional-gini-50k-20261020-105818/report.json`](/tmp-codex/optional-gini-50k-20261020-105818/report.json)
+passed both modes for 2019–2021, one seed 606, 2 vCPUs, fixed 3 GiB heap and 4 GiB
+container. The Java lifetime was **235.562 seconds off / 1,171.227 seconds on**;
+annual simulation/output work was **149.980 / 1,081.945 seconds**. Sampled heap
+peaks were **2.211 / 2.463 GiB** and working RAM **2.679 / 2.959 GiB**. Whole-JVM
+time increased by 397.2% (4.97 times), with 935.665 extra seconds. Gini values
+were checked for all three years; annual exported person-row counts matched.
+The complete campaign took 38 minutes 44 seconds including preparation/audits.
+This is one short matched pair, not qualification of 2070 or ten repetitions.

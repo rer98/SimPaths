@@ -8,8 +8,9 @@ Attribution scope and non-commentable/generated artifacts.
 # Attribution
 
 The optional-output Gini screening harness, regression checks and guide carry
-inline notices. Generated paired plans, labelled HTML/CSV tables, numeric Gini
-verification and compact trial evidence are (C) Copyright 2026, by Ross Richardson;
+inline notices. Generated selected/paired plans, same-JVM repetition tables,
+labelled HTML/CSV reports, numeric per-seed Gini verification and compact trial
+evidence are (C) Copyright 2026, by Ross Richardson;
 @author ross richardson. Copied scientific inputs, model outputs and runtime
 components retain their original ownership and licences.
 

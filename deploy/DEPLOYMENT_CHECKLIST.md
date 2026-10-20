@@ -381,15 +381,43 @@ seven refreshed native stages pass, with cleanup confirmed in
 `application-update-rpc-retry-20261014-230649`. See the
 [runbook](multirun/VM.md#local-application-update-and-rollback-rehearsal).
 
-**To do before the next deployed release (reviewed 19 October):** select and
-review a new compatible code-only rollback pair after the schema/protocol and
-retained-file additions. The pinned `82aad9a` frontend has 22 batch migrations;
-the current candidate frontend has **32**. Migrations 026–032 add storage notices,
+**Current update/rollback checkpoint, 20 October:** a reviewed pair with all
+**32** batch migrations is frozen at
+`/tmp-codex/application-update-plan-20261020-final/plan.json`. It uses the
+`e19212b` frontend and `86b91cb1f` hosting code before the current candidate,
+with 28 result/RPC/retained/backup contract files required to match exactly.
+Fifty-five local guards, all seven native stages and the final complete
+source/file-inventory check **pass** in
+`/tmp-codex/application-update-current-20261020-final`. Both reports confirm
+success and cleanup; `verification.json` records the checksum-linked evidence.
+Public restarts preserved private executors; update/rollback preserved running
+containers, queued work, cookies, reservations and result hashes. Recovery
+preserved retained summaries, indexed charts, approved storage limits and queued
+monitoring exports while retaining owner denials. The pair changes dependency/installation
+declarations while its public assets remain identical; the report states that
+both generations share the qualified candidate dependency environment.
+The first native attempt passed the update/rollback stages and cleaned up, then
+stopped when the recovery fixture opened a cache before verified activation.
+The restore inventory guard remains unchanged; the corrected fixture opens caches
+after activation and the first failed reports are retained.
+The retry passed all seven stages, including retained-data recovery, then failed
+the final inventory check because a helper added 17 Python bytecode files.
+Source bytes were unchanged and cleanup completed. Native code directories are
+now read-only while services run; no files are excluded from the integrity guard.
+A new plan and evidence directory preserve both earlier failed attempts.
+Installed service accounts, filesystem/boot restrictions, real HTTPS and hosted
+resource capacity remain separate VM acceptance checks. This local proof uses
+the same non-root UID and qualified candidate dependency environment throughout.
+
+The historical `82aad9a` frontend has only 22 batch migrations and is still
+refused against this candidate. Migrations 026–032 add storage notices,
 external review, experiment additions, retained provenance, preparation handover
 detailed performance history and a durable monitoring/mail archive. Retained-Visualiser storage backups also have
 a v2 format with approved limits and eviction state. Review schema, RPC, result
 and retained-file compatibility together. Do not bypass the migration guard or
-claim that the October 14 rehearsal qualifies today's pair. Keep the verified
+claim that the October 14 rehearsal qualifies today's pair. The current native
+recovery fixture now includes real retained summaries, indexed fictional charts,
+approved storage limits and queued monitoring exports. Keep the verified
 pre-migration backup/inactive-restore path for changes that cannot roll back by
 code alone. Freeze committed candidate sources before preparing another pair.
 

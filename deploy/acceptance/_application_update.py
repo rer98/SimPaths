@@ -5,6 +5,8 @@ Never writes a checkout, changes Git refs or accepts a production database.
 @author ross richardson
 """
 import ast
+from contextlib import contextmanager
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -19,13 +21,35 @@ import tempfile
 
 HISTORICAL_FRONTEND = 'e6db2a8f84b80f76f355c9b9ff15d1c69fb1507e'
 HISTORICAL_HOST = 'bc7e7c465'
-PREVIOUS_FRONTEND = '82aad9a0c33440aed2f7f7a0c27dcd65bcc64afa'
-PREVIOUS_HOST = '47dc95a9b8788a308ef3514693b8efe0c62c85ee'
+SEPARATED_FRONTEND = '82aad9a0c33440aed2f7f7a0c27dcd65bcc64afa'
+SEPARATED_HOST = '47dc95a9b8788a308ef3514693b8efe0c62c85ee'
+PREVIOUS_FRONTEND = 'e19212bd659e410894530d54ad53cfb5158a34be'
+PREVIOUS_HOST = '86b91cb1f87429c15fc579e121020b3ee34ead60'
 FIXTURES = ('_application_update.py', '_recovery_fixture.py', '_recovery_model.py',
-            '_https_fixture.py', '_supervisor.py', '_postgres_outage.py', '_single_rpc.py', '_update_rpc.py')
+            '_https_fixture.py', '_supervisor.py', '_postgres_outage.py', '_single_rpc.py', '_update_rpc.py',
+            '_update_retained.py')
 FRONTEND_FIXTURES = ('tests/browser/single_rpc_fixture.py',)
 PUBLIC_ASSETS = ('static/jasmine_main.js', 'jasmine_web/batch/browser_static/index.html',
                  'jasmine_web/batch/browser_static/batch.css')
+CONTRACT_FILES = {
+    'frontend': (
+        'jasmine_web/batch/results.py', 'jasmine_web/batch/downloads.py',
+        'jasmine_web/batch/visualiser.py', 'jasmine_web/vm_recovery.py',
+        'jasmine_web/batch/service_rpc.py', 'jasmine_web/batch/remote_service.py',
+        'jasmine_web/single_rpc.py', 'jasmine_web/single_boundary.py', 'jasmine_web/single_runtime.py',
+        'jasmine_web/batch/visualiser_sources.py', 'jasmine_web/batch/visualiser_storage.py',
+        'jasmine_web/batch/visualiser_preparation.py', 'jasmine_web/batch/visualiser_summary_retention.py',
+        'jasmine_web/batch/visualiser_export.py', 'jasmine_web/batch/processing_handover.py',
+        'jasmine_web/batch/performance_archive.py', 'jasmine_web/batch/performance_exports.py',
+        'jasmine_web/batch/performance_trace.py', 'jasmine_web/batch/experiment_extensions.py'),
+    'host': (
+        'deploy/multirun/backup.py', 'deploy/multirun/backup_live.py',
+        'deploy/multirun/backup_single.py', 'deploy/multirun/backup_visualiser.py',
+        'deploy/multirun/releases.py', 'deploy/multirun/prepared_dataset.py',
+        'deploy/multirun/resource_policy.py', 'deploy/multirun/visualiser_backend.py',
+        'deploy/multirun/visualiser_summary_cache.py'),
+}
+PLAN_FORMAT = 'simpaths.application-update-plan.v1'
 MAX_FILES, MAX_BYTES, MAX_FILE_BYTES = 4000, 32*1024**2, 16*1024**2
 
 
@@ -179,22 +203,138 @@ def verify(value):
         raise ValueError('Application migration inventory changed')
 
 
+@contextmanager
+def read_only_directories(value):
+    """Prevent helper bytecode/cache creation without excluding any inventory files.
+
+    The installed service cannot create files in its code directories. Reproduce
+    that here even for helpers whose deliberately minimal environment omits
+    PYTHONDONTWRITEBYTECODE. Preserve and restore every original directory mode.
+    """
+    verify(value)
+    modes = []
+    try:
+        for component in ('host', 'frontend'):
+            root = ordinary(value[component]['directory'])
+            for path in (root, *sorted(root.rglob('*'))):
+                info = path.lstat()
+                if stat.S_ISDIR(info.st_mode):
+                    if info.st_uid != os.geteuid():
+                        raise ValueError('Rehearsal code directories must be owned by the test user')
+                    mode = stat.S_IMODE(info.st_mode)
+                    modes.append((path, mode))
+                    path.chmod(mode & ~0o222)
+        yield
+    finally:
+        for path, mode in reversed(modes):
+            path.chmod(mode)
+
+
+def deployment_file(component, name):
+    """Ignore documentation/test overlays when identifying a real release change."""
+    path = PurePosixPath(name)
+    if path.suffix == '.txt' and (path.name.startswith('requirements') or path.name.startswith('constraints')):
+        return True
+    if component == 'frontend':
+        return (name in ('app.py', 'session_manager.py', 'container_manager.py', 'Dockerfile')
+                or name.startswith(('jasmine_web/', 'static/'))
+                and path.suffix in ('.py', '.sql', '.js', '.css', '.html'))
+    return (name.startswith('deploy/multirun/') and path.suffix in ('.py', '.java', '.sh')
+            or name.startswith('deploy/web-') and path.name == 'Dockerfile')
+
+
 def compatible(previous, candidate):
     verify(previous); verify(candidate)
     if previous['migrations'] != candidate['migrations']:
         raise ValueError('Direct rollback requires matching reviewed migration histories')
-    if all(previous['frontend']['files'][key] == candidate['frontend']['files'][key] for key in PUBLIC_ASSETS):
+    if all(previous[key]['commit'] == candidate[key]['commit'] for key in ('host', 'frontend')):
         raise ValueError('Select actual different application snapshots for this rehearsal')
-    # Matching SQL alone does not certify stored receipts/caches/other APIs.
-    # These particular committed snapshots have the same result/cache formats.
-    for name in ('jasmine_web/batch/results.py', 'jasmine_web/batch/downloads.py',
-                 'jasmine_web/batch/visualiser.py', 'jasmine_web/vm_recovery.py',
-                 'jasmine_web/batch/service_rpc.py','jasmine_web/batch/remote_service.py',
-                 'jasmine_web/single_rpc.py','jasmine_web/single_boundary.py','jasmine_web/single_runtime.py'):
-        if name not in previous['frontend']['files'] or name not in candidate['frontend']['files']:
-            raise ValueError('Review missing result/recovery/RPC formats before selecting another rollback pair')
-        if previous['frontend']['files'][name] != candidate['frontend']['files'][name]:
-            raise ValueError('Review changed result/recovery/RPC formats before selecting another rollback pair')
+    changes = {}
+    for component in ('host', 'frontend'):
+        left, right = previous[component]['files'], candidate[component]['files']
+        changes[component] = [name for name in sorted(left.keys() | right.keys())
+            if left.get(name) != right.get(name) and deployment_file(component, name)]
+    if not any(changes.values()):
+        raise ValueError('Select different deployment code or dependency declarations, not only documentation or fixtures')
+    # Exact equality is a conservative gate for this reviewed pair, not a
+    # general claim that matching SQL makes any code-only rollback safe.
+    for component, names in CONTRACT_FILES.items():
+        for name in names:
+            if name not in previous[component]['files'] or name not in candidate[component]['files']:
+                raise ValueError('Review missing result/recovery/RPC formats before selecting another rollback pair')
+            if previous[component]['files'][name] != candidate[component]['files'][name]:
+                raise ValueError('Review changed result/recovery/RPC formats before selecting another rollback pair')
+    return dict(changed_deployment_files=changes,
+        changed_public_assets=[key for key in PUBLIC_ASSETS
+            if previous['frontend']['files'][key] != candidate['frontend']['files'][key]],
+        identical_contract_files={key: list(names) for key, names in CONTRACT_FILES.items()},
+        dependency_environment='One qualified candidate environment for both code versions; dependency downgrades are not rehearsed')
+
+
+def plan_sources(host, frontend):
+    # Recovery fixtures also import ordinary model/frontend modules and test
+    # helpers. Bind that full live dependency footprint, including unit templates;
+    # committed bundle inventories independently bind all served assets.
+    paths = set()
+    for root in (ordinary(host)/'deploy', *(ordinary(frontend)/name
+                 for name in ('jasmine_web', 'tests', 'scripts', 'deploy'))):
+        paths.update(path for path in root.rglob('*')
+                     if path.suffix in ('.py', '.java', '.sh', '.sql', '.service', '.toml', '.txt'))
+    paths.update(ordinary(frontend)/name for name in ('app.py', 'session_manager.py', 'container_manager.py'))
+    for pattern in ('requirements*.txt', 'constraints*.txt'):
+        paths.update(ordinary(frontend).glob(pattern))
+    return {str(path): digest(ordinary(path).read_bytes()) for path in sorted(paths)}
+
+
+def create_plan(host, frontend, destination, *, previous_host=PREVIOUS_HOST,
+                previous_frontend=PREVIOUS_FRONTEND):
+    """Freeze real commits and separately hashed fixtures without native services."""
+    root = ordinary(destination)
+    if root.exists() or any(root.is_relative_to(ordinary(repo)) for repo in (host, frontend)):
+        raise ValueError('Choose a new private plan directory outside the source checkouts')
+    root.mkdir(mode=0o700)
+    (root/'COPYRIGHT.md').write_text('<!-- (C) Copyright 2026, by Ross Richardson\n'
+        'Frozen application update selections and qualification evidence.\n'
+        '@author ross richardson -->\n\nCopied source retains its existing attribution and licences.\n')
+    sources = plan_sources(host, frontend)
+    previous = bundle(host, frontend, root/'previous', host_ref=previous_host, frontend_ref=previous_frontend)
+    candidate = bundle(host, frontend, root/'candidate', host_ref='HEAD', frontend_ref='HEAD')
+    review = compatible(previous, candidate)
+    if plan_sources(host, frontend) != sources:
+        raise ValueError('Rehearsal fixtures changed during plan creation')
+    value = dict(format=PLAN_FORMAT, created_at=datetime.now(timezone.utc).isoformat(),
+        previous=previous, candidate=candidate, compatibility=review, source_hashes=sources,
+        production_acceptance=False)
+    target = root/'plan.json'
+    with target.open('x') as stream:
+        os.chmod(target, 0o600)
+        json.dump(value, stream, indent=2, allow_nan=False); stream.write('\n')
+    return target
+
+
+def load_plan(path, host, frontend):
+    path = ordinary(path)
+    if path.stat().st_size > 2*1024**2:
+        raise ValueError('Update plan exceeds its metadata bound')
+    def pairs(items):
+        value = {}
+        for key, item in items:
+            if key in value: raise ValueError('Duplicate update-plan field')
+            value[key] = item
+        return value
+    with path.open() as source:
+        value = json.load(source, object_pairs_hook=pairs,
+            parse_constant=lambda _: (_ for _ in ()).throw(ValueError('Non-finite update-plan value')))
+    if (set(value) != {'format', 'created_at', 'previous', 'candidate', 'compatibility',
+                       'source_hashes', 'production_acceptance'}
+            or value['format'] != PLAN_FORMAT or value['production_acceptance'] is not False):
+        raise ValueError('Unsupported update selection plan')
+    if compatible(value['previous'], value['candidate']) != value['compatibility']:
+        raise ValueError('Update compatibility review changed')
+    sources = value['source_hashes']
+    if sources != plan_sources(host, frontend):
+        raise ValueError('Rehearsal source changed after planning')
+    return value
 
 
 def future(candidate, destination):
@@ -208,6 +348,11 @@ def future(candidate, destination):
     for component, folder in (('host', 'SimPaths'), ('frontend', 'JAS-mine-web')):
         target = root/folder
         shutil.copytree(candidate[component]['directory'], target)
+        # The selected native bundle has read-only code directories. Only this
+        # separate synthetic copy may receive an additional migration.
+        for directory in (target, *sorted(target.rglob('*'))):
+            if directory.is_dir():
+                directory.chmod(stat.S_IMODE(directory.stat().st_mode) | 0o700)
         value[component]['directory'] = str(target)
     frontend = root/'JAS-mine-web'
     for component, filename, classname, method in (

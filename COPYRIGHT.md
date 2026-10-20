@@ -112,6 +112,14 @@ own notices. Generated trial Dockerfiles, timing records and numeric memory
 evidence are attributed in the trial directory's `COPYRIGHT.md`; public model
 inputs and third-party software retain their existing notices and licences.
 
+The frozen update-plan integration, retained-data fixture
+`deploy/acceptance/_update_retained.py` and update tests carry inline notices.
+Generated plan inventories, retained-summary/chart checksums and numeric monitoring
+recovery evidence are (C) Copyright 2026, by Ross Richardson;
+@author ross richardson. Their evidence directory includes `COPYRIGHT.md`.
+Copied source, package metadata and pre-existing scientific artifacts retain
+their original attribution and licences.
+
 The separated application update fixture `deploy/acceptance/_update_rpc.py` carries
 an inline notice. Generated version inventories, public/private boot records,
 shutdown receipts and update/rollback reports are (C) Copyright 2026, by Ross

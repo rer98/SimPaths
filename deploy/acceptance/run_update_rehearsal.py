@@ -8,6 +8,7 @@ Fictional models exercise ownership, frozen work and verified schema recovery.
 import argparse
 import asyncio
 from copy import deepcopy
+from contextlib import ExitStack
 from datetime import datetime, timezone
 import hashlib
 import io
@@ -102,11 +103,21 @@ def restored_routes(settings, dsn):
     executor = LocalExecutor(state/'execution'); queue.bind_executor(executor.identity())
     service = Submissions(access, datasets, BrowserModel(ReleaseRegistry(state).inventory()))
     service.results = Results(service, executor, result_catalogue, name=result_name)
+    retained = settings.get('retained')
+    if retained:
+        from deploy.acceptance._update_retained import attach
+        attach(service, executor)
     origin = 'https://restore.example.org'
     with TestClient(create_app(service, origin=origin), base_url=origin, headers={'Origin':origin}) as client:
         client.cookies.set(COOKIE, settings['authentication']['token'])
         signed = client.get('/api/session').json()
         assert signed['signed_in'] and signed['csrf'] == settings['authentication']['csrf']
+        if retained:
+            response = client.get('/api/visualiser/'+retained['key']+'/data')
+            assert response.status_code == 200
+            assert hashlib.sha256(response.content).hexdigest() == retained['publication_sha256']
+            catalogue = client.get('/api/visualiser/'+retained['key']+'/catalogue')
+            assert catalogue.status_code == 200 and catalogue.json()['seeds'] == ['606']
         own = client.get('/downloads/'+settings['completed_job'])
         assert own.status_code == 200
         with zipfile.ZipFile(io.BytesIO(own.content)) as archive:
@@ -122,9 +133,13 @@ def restored_routes(settings, dsn):
         signed = client.post('/api/verify',json={'challenge':challenge,'code':mail['bob@example.org']})
         assert signed.json()['authorised']
         other = client.get('/downloads/'+settings['completed_job']); assert other.status_code == 403
+        if retained:
+            denied = client.get('/api/visualiser/'+retained['key']+'/data')
+            assert denied.status_code in (403,404)
         return dict(own_status=own.status_code,provider_status=provider.status_code,
                     anonymous_status=anonymous.status_code,other_owner_status=other.status_code,
-                    original_cookie=True,original_csv_bytes=True)
+                    original_cookie=True,original_csv_bytes=True,
+                    retained_visualiser=bool(retained))
 
 
 def run_child(work, bundle, settings, dsn, *, name, restored_http=False, imports_only=False):
@@ -271,6 +286,8 @@ def schema_recovery(work, bundles, report):
         challenge = asyncio.run(fixture.access.issue('alice@example.org', 'fictional-client'))['challenge']
         authentication = fixture.access.verify(challenge, fixture.mail['alice@example.org'], 'fictional-client')
         assert authentication['authorised']
+        from deploy.acceptance import _update_retained as retained_fixture
+        retained = retained_fixture.seed(fixture, authentication)
         def empty_capture(c, dsn, vm_schema, destination, state):
             assert vm_schema == schema
             return dict(images=[], sessions=[])
@@ -302,11 +319,13 @@ def schema_recovery(work, bundles, report):
         except ArtifactError:
             pass
         backup.activate(fixture.target_q, fixture.backup, fixture.target, image_check=lambda _:None, source_isolated=True)
+        retained_checks = retained_fixture.verify_restored(fixture, retained)
         accepted = run_child(work, bundles['previous'], target_settings, fixture.target_q.dsn, name='restored-old-code')
         assert accepted['accepted'] and not (fixture.target/GATE).exists()
         assert (fixture.target/'session-secret').read_text() == fixture.secret
         http = run_child(work, bundles['previous'], dict(target_settings, state=str(fixture.target), authentication=authentication,
-            completed_job=fixture.completed.job_id, provider_job=fixture.provider_completed.job_id),
+            completed_job=fixture.completed.job_id, provider_job=fixture.provider_completed.job_id,
+            retained=retained),
             fixture.target_q.dsn, name='restored-http', restored_http=True)
         with fixture.target_q._connection() as c:
             jobs = c.execute('SELECT id,state,attempts FROM jobs ORDER BY id').fetchall()
@@ -322,7 +341,7 @@ def schema_recovery(work, bundles, report):
             newer_versions={k:len(v) for k,v in synthetic['migrations'].items()}, refused=refused,
             newer_database_unchanged=True, backup_id=manifest['id'], native_restore=True, inactive_gate=True,
             previous_code_accepted=True, original_cookie_preserved=True, queued_seeds=['606'],
-            claim_once=True, http=http)
+            claim_once=True, http=http, retained=retained_checks)
     finally:
         errors = []
         if vm:
@@ -350,6 +369,7 @@ def rehearsal(args, report):
     work = Path(tempfile.mkdtemp(prefix='simpaths-application-update-')); write_attribution(work)
     report.update(checks=[], phase='snapshot-preflight')
     supervisors = []; database = store = settings = None
+    protected_code = ExitStack()
     rpc_directory=None
     def passed(message):
         report['checks'].append(message); print('PASS: '+message, flush=True)
@@ -357,21 +377,29 @@ def rehearsal(args, report):
         Supervisor(uuid4().hex).probe()
         if shutil.disk_usage(work).free < 2*1024**3:
             raise RuntimeError('Need 2 GiB free for the application update rehearsal')
-        bundles = {name:releases.bundle(ROOT, args.frontend, work/name, host_ref=host, frontend_ref=frontend)
-                   for name,host,frontend in (('previous', args.previous_host, args.previous_frontend), ('candidate','HEAD','HEAD'))}
-        releases.compatible(bundles['previous'], bundles['candidate'])
+        plan_path = args.plan or releases.create_plan(ROOT, args.frontend, args.output/'selection',
+            previous_host=args.previous_host, previous_frontend=args.previous_frontend)
+        selection = releases.load_plan(plan_path, ROOT, args.frontend)
+        bundles = {name:selection[name] for name in ('previous', 'candidate')}
+        for bundle in bundles.values():
+            protected_code.enter_context(releases.read_only_directories(bundle))
+        report['selection_plan'] = dict(path=str(plan_path), bytes=plan_path.stat().st_size,
+            sha256=releases.digest(plan_path.read_bytes()))
+        report['compatibility'] = selection['compatibility']
         report['versions'] = {name:dict(host=bundle['host']['commit'], frontend=bundle['frontend']['commit'],
              migrations=bundle['migrations'], fixture_overlays=bundle['fixture_overlays'],
              frontend_fixture_overlays=bundle['frontend_fixture_overlays'],
              file_inventory={key:bundle[key]['files'] for key in ('host','frontend')}) for name,bundle in bundles.items()}
         report['adaptations'] = ['same recorded fictional-model adapters overlay each committed hosting tree',
+            'selected code directories are read-only while native services run; every file remains in the final integrity check',
             'loopback HTTP and transient user units; deployed HTTPS/boot hardening have separate acceptance',
             'four independent public/private processes use production Unix RPC framing and private lifecycle under one non-root test UID',
             'only installed listener/peer setup is adapted; distinct UIDs, filesystem restrictions and boot hardening require installed-host acceptance',
-            'same isolated dependency environment; no package/image/repository update or service installation',
+            'same qualified candidate dependency environment for both code versions; declared dependency changes are recorded but package downgrades are not rehearsed',
+            'unchanged public assets are allowed for dependency/installation updates; actual loaded code and served asset hashes are verified without claiming that unchanged bytes changed',
             'compatible Git snapshots have unchanged SQL, result/cache/recovery formats; compatibility is not inferred for arbitrary releases',
             'extra checksummed batch/SingleRun migrations exist only in a private synthetic future bundle',
-            'schema recovery uses an independent native backup fixture; its empty SingleRun registry needs no model export capture',
+            'schema recovery includes real retained summaries/indexed fictional charts, approved storage limits and nonempty queued monitoring attachments/journal; its empty SingleRun registry needs no model export capture',
             'restored-owner HTTP checks use the prior code directly through ASGI; they do not certify installed RPC identities',
             'tiny result downloads do not exercise an in-progress large ZIP builder during shutdown',
             'fictional backup model-image availability is stubbed; real image inventory was tested separately']
@@ -467,7 +495,7 @@ def rehearsal(args, report):
                 host=bundles[selected]['host']['commit'],frontend=bundles[selected]['frontend']['commit'],
                 original_attempt=True,original_containers=True,cookies_preserved=True,archives_preserved=True))
             report['transitions'][-1]['javascript_sha256']=javascript_sha256
-            passed(name+': real source/assets change; cookies, controls, result hashes, permissions and the original frozen attempt/reservations survive')
+            passed(name+': selected committed version and HTTP asset hashes verified; cookies, controls, result hashes, permissions and the original frozen attempt/reservations survive')
         report['phase'] = 'original-work-completion'
         (active['path']/'work/finish').write_text('finish original model after rollback\n')
         until(lambda: queue.inspect(owners['alice@example.org'],active_exp)['jobs'][0]['state']=='succeeded',seconds=45)
@@ -494,7 +522,10 @@ def rehearsal(args, report):
         report['phase'] = 'incompatible-schema-and-native-restore'
         schema_recovery(work,bundles,report)
         passed('old batch/SingleRun code rejects extra schema versions without changing data; verified native restore remains gated until activation and serves results with the original cookie')
-        for value in bundles.values(): releases.verify(value)
+        report['phase'] = 'final-selection-integrity'
+        releases.load_plan(plan_path, ROOT, args.frontend)
+        report['selection_integrity'] = dict(complete_file_inventories=True, source_hashes=True,
+            no_unlisted_files=True, read_only_code_directories=True)
         report['passed'] = True
     finally:
         errors = []
@@ -518,6 +549,8 @@ def rehearsal(args, report):
         for path in work.glob('*.log'):
             try: shutil.copyfile(path,args.output/path.name)
             except Exception as error: errors.append('evidence:'+type(error).__name__)
+        try: protected_code.close()
+        except Exception as error: errors.append('code-directory-modes:'+type(error).__name__)
         if not errors:
             shutil.rmtree(work)
             if rpc_directory is not None:shutil.rmtree(rpc_directory)
@@ -529,6 +562,10 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--frontend',type=Path,default=Path(os.environ.get('JASMINE_WEB_REPO',str(Path.home()/'git/JAS-mine/JAS-mine-web'))))
     parser.add_argument('--output',type=Path)
+    parser.add_argument('--plan',type=Path,default=os.environ.get('SIMPATHS_UPDATE_PLAN'),
+                        help='Use the exact previously frozen application update plan')
+    parser.add_argument('--plan-only',action='store_true',
+                        help='Freeze/review committed snapshots without Docker, sockets or package installation')
     parser.add_argument('--previous-frontend',default=os.environ.get('SIMPATHS_UPDATE_PREVIOUS_FRONTEND',releases.PREVIOUS_FRONTEND))
     parser.add_argument('--previous-host',default=os.environ.get('SIMPATHS_UPDATE_PREVIOUS_HOST',releases.PREVIOUS_HOST))
     parser.add_argument('--execute-proof',action='store_true',help=argparse.SUPPRESS)
@@ -545,14 +582,30 @@ def main(argv=None):
         return child(json.loads((args.probe_fixture or args.restored_http or args.import_fixture).read_text()),
                      restored_http=bool(args.restored_http),imports_only=bool(args.import_fixture))
     args.frontend = releases.ordinary(args.frontend.expanduser()).resolve(strict=True)
+    if args.plan_only:
+        if args.plan or args.execute_proof or not args.output:
+            parser.error('--plan-only requires a fresh --output and cannot use --plan or --execute-proof')
+        path = releases.create_plan(ROOT, args.frontend, args.output,
+            previous_host=args.previous_host, previous_frontend=args.previous_frontend)
+        value = releases.load_plan(path, ROOT, args.frontend)
+        print('Frozen update plan: '+str(path))
+        print('Migration counts: '+json.dumps({key:len(rows) for key,rows in value['candidate']['migrations'].items()}))
+        print('Changed deployment files: '+json.dumps(value['compatibility']['changed_deployment_files']))
+        return 0
+    if args.plan:
+        args.plan = releases.ordinary(Path(args.plan).expanduser()).resolve(strict=True)
+        releases.load_plan(args.plan, ROOT, args.frontend)
     os.environ['JASMINE_WEB_REPO'] = str(args.frontend)
     sys.path[:0] = [str(args.frontend),str(args.frontend/'tests/batch')]
     if not args.execute_proof:
         output = args.output or Path.home()/'simpaths-benchmarks'/('application-update-'+datetime.now().strftime('%Y%m%d-%H%M%S'))
+        environment = dict(os.environ, SIMPATHS_UPDATE_PREVIOUS_FRONTEND=args.previous_frontend,
+                           SIMPATHS_UPDATE_PREVIOUS_HOST=args.previous_host)
+        if args.plan: environment['SIMPATHS_UPDATE_PLAN'] = str(args.plan)
+        else: environment.pop('SIMPATHS_UPDATE_PLAN', None)
         return subprocess.run([sys.executable,str(args.frontend/'scripts/test_batch_queue.py'),'--proof-only',
             '--proof-script',str(Path(__file__).resolve()),'--proof-requirements',str(ROOT/'deploy/multirun/requirements.txt'),
-            str(args.frontend/'requirements-vm.txt'),'--output',str(output)],env=dict(os.environ,
-                SIMPATHS_UPDATE_PREVIOUS_FRONTEND=args.previous_frontend,SIMPATHS_UPDATE_PREVIOUS_HOST=args.previous_host)).returncode
+            str(args.frontend/'requirements-vm.txt'),'--output',str(output)],env=environment).returncode
     from deploy.multirun.proxy_rehearsal import require_test_database
     if not args.output or not os.environ.get('JASMINE_BATCH_TEST_DSN'): parser.error('Run without --execute-proof')
     require_test_database(os.environ['JASMINE_BATCH_TEST_DSN'])

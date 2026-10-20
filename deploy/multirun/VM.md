@@ -1198,7 +1198,7 @@ the installed-host privilege and browser acceptance described in
 [PRIVILEGE_SEPARATION.md](PRIVILEGE_SEPARATION.md) and the companion JAS-mine-web
 SingleRun deployment guide.
 
-The update rehearsal's historical rollback pair predates the added
+The update rehearsal's historical rollback pairs predate the added
 resource-recovery and operational-history migrations. Its compatibility gate
 correctly refuses that pair against current code. The offline checks verify this
 refusal. Its 14 October refresh now defaults to a reviewed pair with matching
@@ -1208,11 +1208,13 @@ update and rollback drain the public processes before their executors. The local
 offline checks and seven native stages passed; installed-host acceptance remains
 separate as described below.
 
-That success applies to the pinned 14 October pair. Later schema and format
-changes require a new reviewed pair before repeating the rehearsal against the
-current candidate. See the current task in the
-[deployment checklist](../DEPLOYMENT_CHECKLIST.md); do not bypass the rollback
-compatibility gate when adding migrations 026–029.
+That success applies to the pinned 14 October pair. The 20 October refresh
+selects a pair with all 32 batch migrations, freezes its source/fixture hashes
+in a plan and extends compatibility checks to retained Visualiser, handover,
+monitoring and backup formats. Its native check is tracked below. Old 20- and
+22-migration pairs still fail the current compatibility gate. See the
+[deployment checklist](../DEPLOYMENT_CHECKLIST.md); never bypass this gate by
+deleting migration records.
 
 The proof kills only its own frontend main processes and checks automatic restart,
 unchanged ownership cookies/credentials/settings, adoption of the same running
@@ -1503,14 +1505,101 @@ application processes for one pool. Keep migration/rollout evidence with the rel
 
 ## Local application update and rollback rehearsal
 
-Run from the ordinary laptop terminal after stopping local launchers:
+### Current frozen selection — 20 October 2026
+
+The current plan is
+`/tmp-codex/application-update-plan-20261020-final/plan.json`. It selects:
+
+- Previous JAS-mine-web `e19212bd659e410894530d54ad53cfb5158a34be` and
+  SimPaths `86b91cb1f87429c15fc579e121020b3ee34ead60`.
+- Candidate JAS-mine-web `5eea4664c0bdee419f60096ef4711a419971cc71` and
+  SimPaths `53b27e04f` (the plan records its full commit).
+- Identical 32 batch and 2 SingleRun migrations, including every SQL checksum.
+- Exact equality for 28 reviewed result, ownership/RPC, retained Visualiser,
+  handover, monitoring/archive and model/backup contract files.
+
+This actual pair changes dependency/installation declarations, with unchanged
+public JavaScript/CSS and application bodies. A documentation- or fixture-only
+change cannot qualify as an application update. The rehearsal checks selected
+committed code, real HTTP asset hashes, process replacement and preserved state;
+it does not claim that unchanged assets changed. Both generations use the same
+qualified candidate Python environment. Package compatibility was qualified
+separately; this rehearsal does **not** downgrade dependencies or approve the
+older dependency pins for deployment.
+
+The plan freezes complete code inventories, separately recorded fixture
+overlays and 585 live module, test, dependency and unit-template source files.
+Changing a selected bundle, compatibility decision or rehearsal source
+invalidates it before native services start. `--plan` keeps the selected commits
+fixed if HEAD later moves. Review and regenerate a new plan when the relevant
+source, fixture or contract changes.
+
+Run from the ordinary laptop terminal, outside quiet scientific benchmarks:
 
 ```bash
 cd ~/git/SimPathsWeb/SimPaths &&
-TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 ~/simpaths-browser-tests/venv/bin/python deploy/acceptance/run_update_rehearsal.py \
+TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 \
+~/simpaths-browser-tests/venv/bin/python deploy/acceptance/run_update_rehearsal.py \
   --frontend "$HOME/git/JAS-mine/JAS-mine-web" \
-  --output "/tmp-codex/application-update-rpc-$(date +%Y%m%d-%H%M%S)"
+  --plan /tmp-codex/application-update-plan-20261020-final/plan.json \
+  --output "/tmp-codex/application-update-current-$(date +%Y%m%d-%H%M%S)"
 ```
+
+Use a new evidence directory for a retry. The 55 local archive, compatibility,
+plan, route/import and handover guards pass. The final native run at
+`/tmp-codex/application-update-current-20261020-final` also **passed** all seven
+stages and the final source/file-inventory check. Both its
+[`report.json`](/tmp-codex/application-update-current-20261020-final/report.json)
+and [inner report](/tmp-codex/application-update-current-20261020-final/model-proof/report.json)
+confirm success and cleanup; the adjacent
+[`verification.json`](/tmp-codex/application-update-current-20261020-final/verification.json)
+binds the reports, selected commits, startup evidence and original protected
+artifacts by checksum.
+
+The native proof preserved original running containers, queued work, cookies,
+reservations and result hashes through public restarts, update and rollback.
+It verified refusal of synthetic schema versions 33/3 by code expecting 32/2,
+then recovered the verified pre-migration backup. Retained summaries, indexed
+charts, approved Visualiser limits, queued monitoring exports and their journal
+survived restoration; owner checks still denied unauthorised access. No actual
+scientific model or installed service was changed. Distinct installed service
+identities, filesystem/boot policies and hosted capacity remain VM acceptance
+work; dependency downgrades were not rehearsed.
+
+The first native attempt at `/tmp-codex/application-update-current-20261020`
+passed update, rollback, public-only restart and original-work completion.
+Its recovery fixture then opened the inactive restored summary cache too early,
+creating cache metadata that the activation inventory correctly rejected.
+Cleanup completed. The corrected fixture verifies activation before opening
+retained caches; a local regression rejects any earlier cache access without
+creating files. The first plan and failed reports are preserved separately.
+
+The retry at `/tmp-codex/application-update-current-20261020-retry` passed
+all seven native stages, including restored summaries, indexed charts, approved
+storage limits and monitoring records. Its final file-inventory check rejected
+17 new Python bytecode cache files created by the bounded Visualiser reader,
+whose minimal environment intentionally omits inherited Python settings. All
+selected source bytes were unchanged and cleanup completed. Code directories
+are now read-only during native execution, so helpers cannot add those files;
+the complete inventory check retains every file and excludes nothing. Separate
+synthetic migration copies stay writable, and the original directory modes are
+restored after service cleanup. A real minimal-environment helper regression
+checks this behaviour. Both earlier attempts remain failed evidence.
+
+To prepare a future selection without Docker, sockets or package installation:
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths &&
+TMPDIR=/tmp-codex ~/simpaths-browser-tests/venv/bin/python \
+  deploy/acceptance/run_update_rehearsal.py \
+  --frontend "$HOME/git/JAS-mine/JAS-mine-web" \
+  --plan-only \
+  --output "/tmp-codex/application-update-plan-$(date +%Y%m%d-%H%M%S)"
+```
+
+`--previous-host` and `--previous-frontend` select explicit local refs when
+creating a plan. The compatibility gate must pass for that exact selection;
+arbitrary refs are not certified by matching schema numbers alone.
 
 The wrapper installs isolated test dependencies and uses disposable PostgreSQL,
 tiny fictional Docker models and transient user systemd units. It installs no
@@ -1520,12 +1609,6 @@ small fixture; the installed PostgreSQL/Python images are reused. Docker and use
 systemd access require the ordinary terminal. Evidence appears in
 the selected output directory's `report.json` and
 `model-proof/report.json`; both success and cleanup must be true.
-
-The initial comparison uses actual committed application trees:
-
-- Previous JAS-mine-web `82aad9a0c33440aed2f7f7a0c27dcd65bcc64afa` with
-  SimPaths `47dc95a9b8788a308ef3514693b8efe0c62c85ee`.
-- Candidate: each checkout's `HEAD`, resolved once to complete commit identifiers.
 
 Source bundles exclude checkout environment/session-key files and SimPaths model
 inputs. Each committed tree receives the same recorded fictional-model adapters;
@@ -1558,8 +1641,13 @@ remain unchanged. Running and queued work then complete the original seeds once,
 and Reset/Leave release only settled capacity.
 
 A separate native recovery fixture captures a verified database/filesystem backup,
-including an empty shared SingleRun registry. A private test-only future code
-bundle appends real checksummed migrations: batch 22 → 23 and SingleRun 2 → 3
+including an empty shared SingleRun registry, retained intermediate summaries,
+published/indexed fictional charts, approved Visualiser storage limits and
+nonempty monitoring records, queued attachments and unpacked export changes.
+Restoration must preserve their bytes, identities and permissions; the previous
+code must serve the retained Visualiser publication without recalculation.
+A private test-only future code bundle appends real checksummed migrations:
+batch 32 → 33 and SingleRun 2 → 3
 for the current reviewed pair; future fixture filenames follow the actual next
 version rather than replacing an existing migration file.
 Older startup migration routines must refuse both schemas without changing the
@@ -1571,7 +1659,10 @@ settings/policy/seeds remain frozen and only one claim is permitted. The newer
 source database is never downgraded or overwritten. Required-image availability is
 stubbed only for this fictional backup fixture, as in the existing restore proof.
 
-The refreshed local archive/import/route/handover guards pass, including loading
+**Historical separated-process acceptance, 14 October 2026:** the previous
+`82aad9a0c33440aed2f7f7a0c27dcd65bcc64afa` frontend and
+`47dc95a9b8788a308ef3514693b8efe0c62c85ee` hosting pair had 22 batch migrations.
+Its local archive/import/route/handover guards passed, including loading
 all four actual service templates and fresh-process public import/credential
 checks against both snapshots. Native acceptance of this refreshed rehearsal
 passed in `application-update-rpc-retry-20261014-230649`. Both reports confirm

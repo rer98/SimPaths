@@ -6,6 +6,7 @@ Native database/Docker/systemd checks run separately in run_update_rehearsal.py.
 """
 import ast
 import builtins
+from contextlib import redirect_stdout
 from copy import deepcopy
 import dis
 import importlib
@@ -16,12 +17,13 @@ from pathlib import Path
 import sys
 import subprocess
 import shutil
+import stat
 import tarfile
 import tempfile
 from types import ModuleType, SimpleNamespace
 import types
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from deploy.acceptance import _application_update as releases
 from deploy.acceptance import run_update_rehearsal as proof
@@ -123,6 +125,8 @@ class ReleaseGuards(unittest.TestCase):
         cls.future = releases.future(cls.candidate,cls.root/'future')
         cls.historical=releases.bundle(ROOT,FRONTEND,cls.root/'historical',
             host_ref=releases.HISTORICAL_HOST,frontend_ref=releases.HISTORICAL_FRONTEND)
+        cls.separated=releases.bundle(ROOT,FRONTEND,cls.root/'separated',
+            host_ref=releases.SEPARATED_HOST,frontend_ref=releases.SEPARATED_FRONTEND)
 
     def test_historical_pair_is_rejected_after_new_schema_versions(self):
         # The retained historical rehearsal used 20 batch migrations. Current
@@ -134,25 +138,47 @@ class ReleaseGuards(unittest.TestCase):
         self.assertNotEqual(self.previous['host']['commit'],self.candidate['host']['commit'])
         self.assertNotEqual(self.previous['frontend']['commit'],self.candidate['frontend']['commit'])
         self.assertEqual({k:len(v) for k,v in self.historical['migrations'].items()},{'single':2,'batch':20})
+        self.assertEqual({k:len(v) for k,v in self.separated['migrations'].items()},{'single':2,'batch':22})
+        with self.assertRaisesRegex(ValueError,'matching reviewed migration histories'):
+            releases.compatible(self.separated,self.candidate)
 
-    def test_separated_default_pair_keeps_schema_and_protocol_formats_compatible(self):
-        releases.compatible(self.previous,self.candidate)
-        self.assertEqual({k:len(v) for k,v in self.previous['migrations'].items()},{'single':2,'batch':22})
-        self.assertNotEqual(self.previous['frontend']['files']['static/jasmine_main.js'],
-                            self.candidate['frontend']['files']['static/jasmine_main.js'])
+    def test_current_default_pair_has_32_migrations_and_records_dependency_only_frontend_changes(self):
+        review=releases.compatible(self.previous,self.candidate)
+        self.assertEqual({k:len(v) for k,v in self.previous['migrations'].items()},{'single':2,'batch':32})
+        self.assertEqual(review['changed_public_assets'],[])
+        self.assertIn('constraints-runtime.txt',review['changed_deployment_files']['frontend'])
+        self.assertIn('requirements-installer.txt',review['changed_deployment_files']['frontend'])
+        self.assertIn('dependency downgrades are not rehearsed',review['dependency_environment'])
+        self.assertEqual(sum(map(len,review['identical_contract_files'].values())),28)
 
     def test_changed_result_or_rpc_formats_require_a_new_review(self):
-        for name in ('jasmine_web/batch/results.py','jasmine_web/batch/service_rpc.py',
-                     'jasmine_web/single_rpc.py'):
+        for component,name in (('frontend','jasmine_web/batch/results.py'),
+                ('frontend','jasmine_web/batch/service_rpc.py'),('frontend','jasmine_web/single_rpc.py'),
+                ('frontend','jasmine_web/batch/visualiser_storage.py'),
+                ('frontend','jasmine_web/batch/performance_exports.py'),
+                ('frontend','jasmine_web/batch/processing_handover.py'),
+                ('host','deploy/multirun/backup_visualiser.py'),('host','deploy/multirun/releases.py')):
             with self.subTest(file=name),tempfile.TemporaryDirectory() as directory:
                 changed=deepcopy(self.candidate)
-                root=Path(directory)/'frontend'
-                shutil.copytree(changed['frontend']['directory'],root)
-                changed['frontend']['directory']=str(root)
+                root=Path(directory)/component
+                shutil.copytree(changed[component]['directory'],root)
+                changed[component]['directory']=str(root)
                 path=root/name;path.write_bytes(path.read_bytes()+b'\n# fictional format change\n')
-                changed['frontend']['files']=releases.inventory(root)
+                changed[component]['files']=releases.inventory(root)
                 with self.assertRaisesRegex(ValueError,'result/recovery/RPC formats'):
                     releases.compatible(self.previous,changed)
+
+    def test_documentation_or_fixture_only_changes_do_not_qualify_as_application_updates(self):
+        changed=deepcopy(self.candidate)
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)/'frontend'
+            shutil.copytree(changed['frontend']['directory'],root)
+            changed['frontend']['directory']=str(root)
+            (root/'README.md').write_text('Fictional documentation change\n')
+            changed['frontend']['files']=releases.inventory(root)
+            changed['frontend']['commit']='f'*40
+            with self.assertRaisesRegex(ValueError,'not only documentation or fixtures'):
+                releases.compatible(self.candidate,changed)
 
     def test_sessions_inputs_and_workbooks_are_absent_from_exported_code(self):
         for value in (self.previous,self.candidate):
@@ -205,6 +231,39 @@ class ReleaseGuards(unittest.TestCase):
     def test_caller_cannot_replace_the_migration_inventory(self):
         changed = deepcopy(self.candidate); changed['migrations']['batch'][0]['sha256'] = '0'*64
         with self.assertRaisesRegex(ValueError,'migration inventory'): releases.verify(changed)
+
+    def test_minimal_environment_helper_cannot_create_bytecode_in_selected_code(self):
+        from jasmine_web.batch.visualiser import Visualiser
+        import threading
+        helper=object.__new__(Visualiser)
+        helper.runtime=10;helper.stop=threading.Event();helper.timeout=shutil.which('timeout')
+        self.assertIsNotNone(helper.timeout)
+        # This is the production bounded reader's real minimal environment,
+        # which intentionally does not inherit PYTHONDONTWRITEBYTECODE.
+        program=('import os,sys; assert "PYTHONDONTWRITEBYTECODE" not in os.environ; '
+                 'sys.path.insert(0,sys.argv[1]); '
+                 'import jasmine_web.batch.visualiser, jasmine_web.batch.aggregate_sections')
+        with releases.read_only_directories(self.previous):
+            for component in ('host','frontend'):
+                root=Path(self.previous[component]['directory'])
+                self.assertFalse(root.stat().st_mode & 0o222)
+            helper._read_command([sys.executable,'-c',program,self.previous['frontend']['directory']])
+            releases.verify(self.previous)
+            self.assertFalse(list(Path(self.previous['frontend']['directory']).rglob('*.pyc')))
+
+    def test_read_only_bundle_allows_separate_synthetic_copy_and_restores_modes_on_error(self):
+        roots=[Path(self.candidate[name]['directory']) for name in ('host','frontend')]
+        modes={path:stat.S_IMODE(path.stat().st_mode) for root in roots
+               for path in (root,*root.rglob('*')) if path.is_dir()}
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(RuntimeError,'fictional interruption'):
+                with releases.read_only_directories(self.candidate):
+                    future=releases.future(self.candidate,Path(directory)/'future')
+                    self.assertEqual(len(future['migrations']['batch']),33)
+                    releases.verify(self.candidate);releases.verify(future)
+                    raise RuntimeError('fictional interruption')
+        self.assertEqual({path:stat.S_IMODE(path.stat().st_mode) for path in modes},modes)
+        releases.verify(self.candidate)
 
     def test_loaded_source_must_be_within_the_selected_bundle(self):
         root = Path(self.previous['frontend']['directory'])
@@ -433,6 +492,108 @@ class ProbeAndHandoverGuards(unittest.TestCase):
         single.request.return_value=batch.request.return_value=(200,{},b'fictional ready')
         with self.assertRaisesRegex(RuntimeError,'private executor'):
             proof.restart_public(supervisor,single,batch)
+
+
+class UpdatePlanGuards(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.temporary=tempfile.TemporaryDirectory(prefix='update-plan-guards-')
+        cls.addClassCleanup(cls.temporary.cleanup)
+        cls.root=Path(cls.temporary.name)
+        cls.path=releases.create_plan(ROOT,FRONTEND,cls.root/'selection')
+        cls.original=cls.path.read_bytes()
+
+    def tearDown(self):
+        self.path.write_bytes(self.original)
+
+    def test_plan_freezes_real_commits_current_formats_and_the_complete_fixture_identity(self):
+        value=releases.load_plan(self.path,ROOT,FRONTEND)
+        self.assertEqual(value['format'],releases.PLAN_FORMAT)
+        self.assertFalse(value['production_acceptance'])
+        self.assertEqual(value['previous']['frontend']['commit'],releases.PREVIOUS_FRONTEND)
+        self.assertEqual(value['candidate']['frontend']['commit'],releases.commit(FRONTEND,'HEAD'))
+        self.assertEqual(value['source_hashes'],releases.plan_sources(ROOT,FRONTEND))
+        self.assertEqual(self.path.stat().st_mode & 0o777,0o600)
+
+    def test_modified_review_missing_fixture_or_forged_source_identity_is_rejected(self):
+        for mutate,error in (
+                (lambda p:p['compatibility'].update(changed_public_assets=['invented.js']),'review changed'),
+                (lambda p:p['source_hashes'].pop(next(iter(p['source_hashes']))),'source changed'),
+                (lambda p:p['source_hashes'].update({next(iter(p['source_hashes'])):'0'*64}),'source changed'),
+                (lambda p:p.update(production_acceptance=True),'Unsupported')):
+            value=json.loads(self.original);mutate(value)
+            self.path.write_text(json.dumps(value))
+            with self.subTest(error=error),self.assertRaisesRegex(ValueError,error):
+                releases.load_plan(self.path,ROOT,FRONTEND)
+
+    def test_plan_rejects_duplicate_nonfinite_oversized_and_linked_metadata(self):
+        for body,error in (('{"format":1,"format":2}','Duplicate'),
+                ('{"format":NaN}','Non-finite'),('x'*(2*1024**2+1),'metadata bound')):
+            self.path.write_text(body)
+            with self.subTest(error=error),self.assertRaisesRegex(ValueError,error):
+                releases.load_plan(self.path,ROOT,FRONTEND)
+        linked=self.root/'linked.json';linked.symlink_to(self.path)
+        with self.assertRaisesRegex(ValueError,'Linked'):
+            releases.load_plan(linked,ROOT,FRONTEND)
+
+    def test_plan_cannot_reuse_an_existing_output_or_write_into_a_checkout(self):
+        for directory in (self.path.parent,ROOT/'new-update-plan',FRONTEND/'new-update-plan'):
+            with self.subTest(directory=directory),self.assertRaisesRegex(ValueError,'outside the source checkouts'):
+                releases.create_plan(ROOT,FRONTEND,directory)
+        self.assertFalse((ROOT/'new-update-plan').exists())
+        self.assertFalse((FRONTEND/'new-update-plan').exists())
+
+    def test_plan_only_cli_prepares_selection_without_native_rehearsal(self):
+        output=self.root/'cli-plan'
+        environment=dict(os.environ);environment.pop('SIMPATHS_UPDATE_PLAN',None)
+        with patch.dict(os.environ,environment,clear=True),redirect_stdout(io.StringIO()), \
+                patch.object(proof,'rehearsal') as native:
+            self.assertEqual(proof.main(['--frontend',str(FRONTEND),'--plan-only','--output',str(output)]),0)
+        native.assert_not_called()
+        self.assertEqual(releases.load_plan(output/'plan.json',ROOT,FRONTEND)['format'],releases.PLAN_FORMAT)
+
+    def test_cli_forwards_exact_plan_to_disposable_child_and_rejects_stale_plan_first(self):
+        with patch.object(proof.subprocess,'run',return_value=SimpleNamespace(returncode=0)) as child:
+            self.assertEqual(proof.main(['--frontend',str(FRONTEND),'--plan',str(self.path),
+                                        '--output',str(self.root/'native-evidence')]),0)
+        self.assertEqual(child.call_args.kwargs['env']['SIMPATHS_UPDATE_PLAN'],str(self.path))
+        self.path.write_text('{"format":"wrong"}')
+        with patch.object(proof.subprocess,'run') as child,self.assertRaises(ValueError):
+            proof.main(['--frontend',str(FRONTEND),'--plan',str(self.path)])
+        child.assert_not_called()
+
+
+class RetainedRecoveryFixtureGuards(unittest.TestCase):
+    def test_inactive_restore_cannot_be_opened_even_for_cache_verification(self):
+        from deploy.acceptance import _update_retained as retained
+        from deploy.multirun.maintenance import GATE
+        with tempfile.TemporaryDirectory() as directory:
+            target=Path(directory);(target/GATE).write_text('fictional inactive restore')
+            fixture=SimpleNamespace(target=target)
+            with patch('deploy.multirun.visualiser_summary_cache.SummaryCache') as cache:
+                with self.assertRaisesRegex(ValueError,'Activate the verified restore'):
+                    retained.verify_restored(fixture,{})
+            cache.assert_not_called()
+            self.assertEqual([p.name for p in target.iterdir()],[GATE])
+
+    def test_numeric_fingerprint_is_stable_for_binary_views_dates_and_row_order(self):
+        from datetime import datetime, timezone
+        from uuid import UUID
+        from deploy.acceptance import _update_retained as retained
+        first=dict(id=UUID('00000000-0000-4000-8000-000000000001'),
+            captured_at=datetime(2026,10,20,tzinfo=timezone.utc),payload=memoryview(b'fictional attachment'))
+        second=dict(id=UUID('00000000-0000-4000-8000-000000000002'),payload=b'another attachment')
+        connection=MagicMock();context=MagicMock();context.__enter__.return_value=connection
+        queue=SimpleNamespace(schema='test_fictional',_connection=lambda:context)
+        connection.execute.return_value.fetchall.return_value=[first,second]
+        before=retained.numeric_snapshot(queue)
+        connection.execute.return_value.fetchall.return_value=[second,{**first,'payload':bytes(first['payload'])}]
+        self.assertEqual(before,retained.numeric_snapshot(queue))
+        connection.execute.return_value.fetchall.return_value=[second,{**first,'payload':b'changed attachment'}]
+        self.assertNotEqual(before,retained.numeric_snapshot(queue))
+        self.assertEqual(set(before),set(retained.TABLES))
+        self.assertTrue(all(row['rows']==2 for row in before.values()))
+        self.assertNotIn('fictional attachment',json.dumps(before))
 
 
 class SeparatedFixtureGuards(unittest.TestCase):

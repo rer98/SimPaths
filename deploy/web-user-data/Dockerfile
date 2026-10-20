@@ -18,6 +18,18 @@ RUN apt-get update && apt-get install -y xvfb libxtst6 libxi6 libxrender1 libexp
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libx11-xcb1)" ge 2:1.8.13-1ubuntu0.1 \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libxpm4)" ge 1:3.5.17-1ubuntu0.26.04.2 \
     && rm -rf /var/lib/apt/lists/*
+# Begin audited Pebble exclusion (20 October 2026).
+# The pinned Temurin entrypoint and inherited, unowned executable were inspected.
+RUN set -eu; \
+    printf '%s\n' '4f41c720f4050a7389a1b6a3b69c322d417d8134338cc07e1be86cf82d650a63  /__cacert_entrypoint.sh' | sha256sum -c -; \
+    if [ -e /usr/bin/pebble ] || [ -L /usr/bin/pebble ]; then \
+        test -f /usr/bin/pebble; test ! -L /usr/bin/pebble; \
+        printf '%s\n' '5e33a1304f207bb275b1b4cc3dc4c05fdd88755f5c705e2fd569924ec72dc061  /usr/bin/pebble' | sha256sum -c -; \
+        if dpkg-query -S /usr/bin/pebble >/dev/null 2>&1; then exit 1; else test "$?" -eq 1; fi; \
+        rm -- /usr/bin/pebble; \
+    fi; \
+    test ! -e /usr/bin/pebble; test ! -L /usr/bin/pebble
+# End audited Pebble exclusion.
 WORKDIR /app
 COPY singlerun.jar app.jar
 COPY webserver.properties README.md license.txt COPYRIGHT.md ./

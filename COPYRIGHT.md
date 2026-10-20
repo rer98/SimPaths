@@ -7,6 +7,15 @@ Attribution scope and non-commentable/generated artifacts.
 
 # Attribution
 
+The hosted Visualiser integration manifest
+`deploy/multirun/visualiser/package.json` and its generated dependency lock are
+attributed here without inserting invalid JSON comments. Authored integration
+configuration: (C) Copyright 2026, by Ross Richardson; @author ross richardson.
+Third-party packages, metadata, licences and upstream Visualiser code retain
+their existing ownership and licences. Generated runtime-hardening receipts,
+dependency inventories and qualification reports are covered by the attribution
+written into their evidence directories.
+
 The optional-output Gini screening harness, regression checks and guide carry
 inline notices. Generated selected/paired plans, same-JVM repetition tables,
 labelled HTML/CSV reports, numeric per-seed Gini verification and compact trial

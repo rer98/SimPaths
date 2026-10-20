@@ -1,0 +1,14 @@
+{
+  "name": "simpaths-visualiser-integration-build",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pinned Webpack/Babel dependencies for the hosted Visualiser integration",
+  "dependencies": {
+    "@babel/core": "7.29.7",
+    "@babel/preset-react": "7.29.7",
+    "d3": "7.9.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "webpack": "5.112.0"
+  }
+}

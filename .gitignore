@@ -11,6 +11,9 @@
 __pycache__/
 *.py[cod]
 
+# Hosted Visualiser integration dependencies
+/deploy/multirun/visualiser/node_modules/
+
 # CMake
 cmake-build-*/
 

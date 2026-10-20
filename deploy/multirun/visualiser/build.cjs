@@ -5,6 +5,7 @@
  */
 const fs=require('fs'), path=require('path'), crypto=require('crypto');
 const {adaptApp}=require('./adapt_app.cjs');
+const {dependencyReceipt,emittedPackages}=require('./build_metadata.cjs');
 const args={};
 for(let i=2;i<process.argv.length;i+=2){
   if(!['--source','--dependencies','--output'].includes(process.argv[i])||!process.argv[i+1])throw Error('Invalid build arguments');
@@ -12,11 +13,12 @@ for(let i=2;i<process.argv.length;i+=2){
 }
 if(!args.source||!args.dependencies||!args.output) throw Error('Use --source CHECKOUT --dependencies NODE_MODULES --output NEW_DIRECTORY');
 if(fs.existsSync(args.output)) throw Error('Choose a new build directory');
+const dependencyState=dependencyReceipt(args.dependencies);
+args.dependencies=dependencyState.root;
 const tool=name=>{
-  for(const location of [path.join(args.dependencies,name),path.join('/usr/share/nodejs',name)]){
-    if(fs.existsSync(location)) return require(location);
-  }
-  return require(name);
+  const location=path.join(args.dependencies,name);
+  if(!fs.existsSync(location))throw Error('Missing installed build dependency: '+name);
+  return require(location);
 };
 const webpack=tool('webpack'),babel=tool('@babel/core'),reactPreset=tool('@babel/preset-react');
 const sha=value=>crypto.createHash('sha256').update(value).digest('hex');
@@ -34,6 +36,7 @@ function revision(){
 }
 const hashes={};
 const licences=new Map();
+const emitted={};
 const selected=['App.js','parseCore.js','useAggregatedData.js','DashboardSection.js','localFolderParser.js',
   'AggregateDataPanel.js','aggregateDataSource.js','useAggregateView.js','csvParse.js','tooltipContent.js'];
 fs.mkdirSync(args.output,{recursive:true,mode:0o700});
@@ -68,6 +71,8 @@ const compile=(entry,filename,target)=>new Promise((resolve,reject)=>{
   },(error,stats)=>{
     if(error||stats.hasErrors())reject(error||Error(stats.toString({all:false,errors:true})));
     else {
+      try {
+      emitted[filename]=emittedPackages(stats.compilation,dependencyState);
       for(const module of stats.compilation.modules){
         if(!module.resource||!module.resource.startsWith(args.dependencies+path.sep))continue;
         let directory=path.dirname(module.resource);
@@ -80,6 +85,7 @@ const compile=(entry,filename,target)=>new Promise((resolve,reject)=>{
         }
       }
       resolve();
+      } catch(error) { reject(error); }
     }
   });
 });
@@ -134,7 +140,9 @@ const compile=(entry,filename,target)=>new Promise((resolve,reject)=>{
   const identity={format:'simpaths.visualiser.build.v1',
     revision:revision(),
     mode:'development-paired',transport:'simpaths.visualiser.catalogue.v1',source_hashes:hashes,dependencies,
-    toolchain:{node:process.version,webpack:webpack.version,babel:babel.version},files};
+    toolchain:{node:process.version,webpack:webpack.version,babel:babel.version},
+    dependency_lock:dependencyState.record,emitted_packages:emitted,files};
+  dependencyState.verify();
   fs.writeFileSync(path.join(args.output,'build.json'),JSON.stringify(identity,null,2),{mode:0o600});
   fs.rmSync(staging,{recursive:true});
   console.log('Built pinned development Visualiser: '+args.output);

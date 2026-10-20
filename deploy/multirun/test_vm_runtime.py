@@ -476,6 +476,22 @@ class VMRuntimeTests(unittest.TestCase):
             asyncio.run(exercise())
         self.assertFalse(reviewer.thread.is_alive())
 
+    def test_export_worker_starts_before_collectors_and_joins_before_state_fences(self):
+        import asyncio
+        from jasmine_web.batch.performance_exports import set_control,status
+        bundle=self.app(private_service=True)
+        exporter=bundle.service.performance_exports
+        set_control(self.state,enabled=True)
+        async def exercise():
+            async with bundle.lifespan(None):
+                self.assertTrue(status(self.q)['enabled'])
+                self.assertTrue(exporter.thread.is_alive())
+                exporter.tick(force=True)
+                self.assertIsNone(exporter.last_error)
+        asyncio.run(exercise())
+        self.assertFalse(exporter.thread.is_alive())
+        self.assertIsNone(exporter.lock_fd)
+
     def test_database_migrations_and_registry_work_without_cluster_superuser_privileges(self):
         import psycopg
         from psycopg import sql

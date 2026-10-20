@@ -76,12 +76,15 @@ class PopulationProfileTests(unittest.TestCase):
         shutil.move(str(old),completed)
         receipt=calibration.read_calibration(prepared)
         record,_=bench.read_json(completed/'model-proof/report.json')
-        config=calibration.configuration(receipt,case['settings']).as_dict()
-        record.update(settings=case['settings'],model=plan['model'],image=plan['image'],
+        config=calibration.configuration(receipt,case['settings'],case.get('variant','baseline')).as_dict()
+        record.update(settings=case['settings'],variant=case.get('variant','baseline'),model=plan['model'],image=plan['image'],
             prepared_sha256=receipt['sha256'],output_location=str(completed/'model-proof/retained-output'),
             year_profile_sources={str(Path(n).relative_to(campaign.ROOT)):v for n,v in plan['frozen'].items()},
             year_profile_interval_ms=2000)
         output=completed/'model-proof/retained-output'
+        for folder in output.iterdir():
+            if folder.name.rsplit('_',2)[1] not in config['seed_plan']['seeds']:shutil.rmtree(folder)
+        record['verified_repetitions']=[r for r in record['verified_repetitions'] if r['seed'] in config['seed_plan']['seeds']]
         for csv_file in output.glob('*/csv/*.csv'):
             value=csv_file.read_text().splitlines()[1].split(',',1)[1]
             csv_file.write_text('time,fictional_value\n'+''.join(f'{y},{value}\n' for y in range(2019,case['settings']['end_year']+1)))
@@ -90,11 +93,12 @@ class PopulationProfileTests(unittest.TestCase):
         record['annual_years']=list(range(2019,case['settings']['end_year']+1))
         bench.write_json(completed/'model-proof/output-manifest.json',manifest,replace=True)
         attempt=record['attempts'][0];path=completed/'model-proof/attempts'/attempt['id'];path.mkdir(parents=True)
+        attempt['model_initialisation_seconds']=attempt['model_initialisation_seconds'][:case['settings']['repetitions']]
         attempt.update(heap_mib=case['settings']['heap_mib'],observed_jvm_pid=1234,single_jvm_verified=True,
             cpu_millis=case['settings']['cpu_millis'],
             observed_container_limits_bytes=[case['settings']['memory_mib']*campaign.MIB])
         attempt['peak'].update(heap_max_bytes=case['settings']['heap_mib']*campaign.MIB)
-        rows=profile_rows(population=case['settings']['population'],end_year=case['settings']['end_year'],repetitions=2,
+        rows=profile_rows(population=case['settings']['population'],end_year=case['settings']['end_year'],repetitions=case['settings']['repetitions'],
             heap_mib=case['settings']['heap_mib'],memory_mib=case['settings']['memory_mib'])
         attempt['peak']={key:max(row[key] for row in rows) for key in attempt['peak']}
         years.write_samples(path/'year-samples.jsonl',rows)

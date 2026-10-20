@@ -7,8 +7,10 @@ Hosted SimPaths Online capacity and responsiveness test plan.
 
 # Hosted load-test plan
 
-Prepared 11 October 2026. Status: plan only; no hosting has been ordered and no
-hosted test has been run. Use this with the [deployment checklist](DEPLOYMENT_CHECKLIST.md),
+Prepared 11 October; reviewed 20 October 2026. Status: hosted plan, not completed
+hosted acceptance. The intended trial is Contabo VPS 12 EU, with funding agreed;
+provider/setup checks and a measured installed-host configuration remain open.
+Use this with the [deployment checklist](DEPLOYMENT_CHECKLIST.md),
 [research measurements](multirun/RESEARCH_STORAGE.md) and
 [operator metrics guidance](multirun/OPERATOR.md).
 
@@ -36,24 +38,100 @@ identity, Visualiser build, collector settings and frozen resource/runtime
 policies. Match seeds across baseline and alternatives. Do not use restricted
 provider inputs for capacity testing.
 
+## Provider delivery checks
+
+For the first Contabo trial and any later provider comparison, retain a dated
+copy of the purchased specification, order/plan identifier, region and relevant
+written clarifications about shared/dedicated CPU allocation, sustained CPU use,
+storage and network allowances. Record explicit guarantees separately from
+advertised maxima and general performance descriptions. Use the actual order as
+the reference when a supplier's public plans subsequently change.
+
+### Inventory and bounded component checks
+
+Before application trials, record the host identity, UTC time, kernel, tool
+versions and the following observations. Repeat inventory after a resize,
+migration or replacement, retaining the earlier record.
+
+| Area | Initial check | Performance evidence |
+| --- | --- | --- |
+| CPU | Guest-visible vCPU count, advertised processor identity and guest/service/container CPU restrictions | Fixed-work scientific timings and CPU consumption at known quotas; sustained concurrent throughput; reported steal time and pressure where exposed |
+| RAM | Guest-visible memory in bytes, OS overhead, available memory and swap configuration | Working-memory/heap observations, swap or OOM events and stability within the admitted service budget |
+| Storage | Virtual-device, partition and filesystem capacities in bytes, allocated/free space and the filesystem used by model/Docker data | Bounded reads/writes on the intended filesystem; latency/throughput, I/O pressure and real Visualiser processing times |
+| Network | Purchased port/traffic terms, selected region, external test route and endpoint identity | Repeated external latency, packet loss and bounded transfer rates in both directions where a suitable endpoint is available |
+| Reliability | Boot identity, service start times and available host/service event records | Failed requests, unexpected restarts and performance degradation across the trial; correlate with application and resource events |
+
+Keep decimal GB, binary GiB, network bits and transferred bytes explicit. A
+filesystem smaller than the virtual disk may indicate partitioning or filesystem
+overhead; compare each layer before treating it as missing purchased capacity.
+
+Run component benchmarks before user work or in a separate declared test window.
+Record explicit duration, temporary-file and network-transfer bounds chosen to
+fit actual headroom. Disk probes use unique disposable files on the intended
+filesystem, leaving the operator reserve available. Record direct versus buffered
+I/O and cache conditions; verify probe completion and cleanup. Network probes
+use an authorised endpoint with enough capacity; record its possible limits and
+the route. The 15-second collector does not itself perform these disk/network
+benchmarks or measure complete external browser transfer/paint time.
+
+### Repeated application evidence and interpretation
+
+Enable external and new-launch Java review at **15 seconds** for the initial VM
+trial, verifying acknowledgement and actual launch mode. Repeat the same pinned
+single-configuration reference, selected concurrency case and aggregation workload
+in **at least three separated time windows**, preferably at different times of
+day. Preserve inputs, scientific settings, quotas, monitor modes and artifact
+identities; record other activity, cache conditions and any host change. Report
+all outcomes, medians and ranges, including slow or failed trials. The laptop
+results provide a workload reference, not a guaranteed VPS completion time.
+
+Distinguish Docker/cgroup throttling from host contention: an intentionally
+limited model can accumulate throttled time while using its CPU allowance
+normally. Reported steal time can support a contention diagnosis; low, absent or
+zero steal time does not exclude limitations hidden by the hypervisor. Disk,
+network and application bottlenecks can also reduce throughput. Guest processor
+and virtual-disk identities do not certify exclusive physical cores, underlying
+SSD/NVMe media or the provider's oversubscription ratio.
+
+Classify the outcome separately as **capacity verified/mismatch/unknown** and
+**service targets met/not met/inconclusive**. An observed slowdown is not by itself
+proof that an explicit provider guarantee was breached. Retain the ordered versus
+observed capacities, applicable promised metric, test bounds, UTC windows,
+artifact/host identities, full trial distribution, missing counters and cleanup
+evidence. Use this record for a specific supplier query, tuning decision or
+repeatable comparison with another provider.
+
 ## Capacity budget before launching work
 
 - Record actual guest RAM, vCPU count, CPU model, swap policy, filesystem and
   quota support, disk size/free space, and hosting plan/location. Distinguish GB
   from GiB; use actual guest measurements rather than a plan's advertised size.
-- Choose starting heap/container settings from the completed A/B/C comparison
-  and representative hosted measurements. Case A passed with a fixed 5 GiB
-  container and 4 GiB heap; B and C are pending. A 6 GiB container is a candidate,
-  not yet a final recommendation. Keep operational expansion and resource-specific
-  retries available as safeguards in the service, within explicit ceilings.
+- Use the current tested large-workload candidate of a 4 GiB maximum heap and
+  fixed 5 GiB container for the first matched model tests. All A/B/C cases and
+  quiet repeats passed; the earlier single C timing does not establish a benefit
+  from more RAM. The six population/horizon profiles also passed at 4/5 GiB.
+  The six smaller-memory cases also passed two repetitions per JVM at fixed
+  2 vCPUs on 20 October; see [MEMORY_TRIALS.md](multirun/MEMORY_TRIALS.md).
+  Selected profiles still need lower-CPU, ten-repetition and hosted qualification.
+  Keep operational expansion and resource-specific retries available as safeguards
+  in the service, within explicit ceilings.
   Check representative population/horizon and collector combinations when
   defining profile coverage, including shorter common workloads and the research
   boundary. A successful baseline is not evidence for every policy or collector
   combination; avoid untested interpolation or an automatic smaller fallback.
-- Reserve memory for the operating system, database, web service, aggregation,
-  ZIP preparation and monitoring. Account separately for SingleRun capacity and
-  background tasks. For illustration, four 6 GiB containers reserve 24 GiB
-  before these services or any growth; check that the remaining memory is enough.
+- Start from the opt-in [throughput candidate](multirun/vm/throughput.toml.example),
+  after measuring host capacity: an 11-vCPU/39.5-GiB common pool containing
+  8 vCPUs/30 GiB for ordinary models, protected 2 vCPUs/5 GiB for SingleRun,
+  protected 1 vCPU/2.5 GiB for primary Visualiser preparation and 2 GiB shared
+  model-growth headroom. Keep OS/PostgreSQL/public/private orchestration outside
+  the pool. If 48 GB is decimal, the nominal total is about 44.7 GiB; confirm
+  actual guest memory. These are candidate budgets, not accepted host sizing.
+- Model CPU floors are 1 vCPU with revocable boosts up to 2 vCPUs and fairness
+  between users. Reclaim boosts before admitting otherwise feasible work, while
+  preserving running-job floors. Completed model reservations can transfer into
+  compact preparation or a fully admitted 5-GiB/2-vCPU seed-parallel group. Do not
+  count the old model and its transferred allocation twice. Include helper
+  scratch, the executor's manager limit and retained files in physical budgets.
 - Use CPU limits consistently across matched trials. More advertised vCPUs do
   not establish useful model throughput; measure it under sustained load.
 - The research storage candidate is 4 GiB fixed plus 4 GiB per repetition:
@@ -88,11 +166,11 @@ quota and resource ceilings enabled throughout.
 
 | Stage | Work | Evidence and decision |
 | --- | --- | --- |
-| 1. Installed-host acceptance | Public HTTPS, sign-in mail, restricted database role, native quota broker, restart/boot behaviour and operator metrics | Complete the installation-specific checklist; establish quiet-host CPU/RAM/disk and HTTP baseline |
+| 1. Installed-host acceptance | Purchased-versus-observed provider inventory and bounded component checks; public HTTPS, sign-in mail, restricted database role, native quota broker, restart/boot behaviour and operator metrics | Complete the installation-specific checklist and provider delivery record; establish quiet-host CPU/RAM/disk/network and HTTP baseline |
 | 2. Single configuration | Two seeds, 100,000 people through 2070, same pinned model/settings as laptop cases | Verify annual output, seed/settings identity, runtime, GC, working/total memory, storage peak, polling and settled cleanup |
-| 3. Concurrent configurations | Repeat at two, then three, then four admitted configurations if capacity permits; retain a one-configuration reference | Compare throughput and completion-time spread; do not raise admission limits to force a test that cannot fit |
+| 3. Concurrent configurations | Increase admitted work in stages (for example two, four, then the largest feasible candidate count), retaining a one-configuration reference and protected service budgets | Compare throughput, completion spread, CPU boosts/reclamation and storage admission. The 30-GiB model budget can fund at most six 5-GiB starts before donated preparation or other contention; actual CPU/disk/readiness may admit fewer. Do not force a test that cannot fit |
 | 4. Four-user workflow | Four owners submit work, poll status and use Results; allow excess configurations to queue | Measure waiting time and fairness; confirm owner isolation and admission limits; report how many jobs actually run |
-| 5. Mixed activity | While models run, prepare a baseline/alternative chart comparison, navigate charts, refresh cached charts, prepare/download an authorised ZIP and exercise one interactive session where capacity permits | Check helper reservations, web latency, chart readiness, bounded transfers and coexistence with worker heartbeats |
+| 5. Mixed activity | While models run, exercise automatic stopped-model summary handover, ready baseline/alternative pairs, cached/regenerated charts, an authorised ZIP and one interactive session within its protected allowance | Measure first usable charts, all required charts, queue fairness, boost reclamation and website/SingleRun responsiveness. Compare one/two admitted preparation groups and seed-parallel fallback under actual disk contention |
 | 6. Ten repetitions | At least one full ten-seed configuration, then a matching alternative if disk budget permits | Measure actual output growth, runtime allowance, memory drift, cleanup and aggregation; projections become observations only after completion |
 | 7. Repeat and soak | Repeat matched concurrency trials in at least three separated time windows; include a sustained period with retained output present | Assess shared-host variability, queue drainage, trends and background maintenance under realistic use |
 
@@ -120,19 +198,26 @@ proofs; selected-host enforcement and capacity remain to verify.
 
 ## Measurements
 
-Enable the optional background operational collector (documented default interval
-15 seconds). Collect monotonic durations and record unavailable samples rather
+Select the existing operational collector and optional review controls explicitly;
+record which are enabled and the 15-second review interval. External review is
+live-switchable; detailed Java applies only to newly launched processes. Record
+monitoring-off/on qualification separately, and keep expensive diagnostics or
+other benchmarks out of matched trials. Collect monotonic durations and record unavailable samples rather
 than treating them as zero. Keep diagnostic evidence private and credentials,
 cookies, personal information and raw scientific rows out of shared reports.
 
-The existing operational collector provides counts, means, maxima and sampled
-80%/90% durations. Its hourly summaries cannot reconstruct median/p95/p99.
-Collect separate bounded per-request timing samples in the test client, with
+Operational summaries provide counts, means, maxima and sampled 80%/90% durations;
+their hourly data cannot reconstruct median/p95/p99. Optional performance traces
+also retain bounded response histograms, whose percentile results are bucket
+upper bounds. Collect separate bounded per-request timing samples in the test client, with
 route category, response class, sample count and the chosen percentile method.
-Measure server processing and client transfer/paint time separately. Java heap
-and GC readings come from the opt-in JVM monitor/calibration evidence; swap rates,
-I/O pressure and detailed lease-renewal diagnostics need additional host/log
-observations. They are not all supplied by the operational summary command.
+Measure server processing and client transfer/paint time separately. Optional
+review now records available CPU/steal, I/O/pressure, service/PostgreSQL and
+Java progress/heap/GC observations, with coverage and missing counters labelled.
+GC counters are not pause-time measurements; sampled peaks are not exact maxima.
+Installed permissions, kernel support and disabled database I/O timing can leave
+fields unknown. Supplement with bounded host/lease diagnostics where needed;
+none of these metrics is guaranteed by the basic operational-summary command.
 
 | Area | Record |
 | --- | --- |

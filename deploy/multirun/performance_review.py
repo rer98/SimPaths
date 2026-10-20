@@ -19,7 +19,7 @@ def application_fingerprint():
     try:
         for name in ('runtime.py','container_adapter.py','submission_adapter.py','queue_adapter.py',
                      'configuration.py','schema.py','resource_policy.py','visualiser_backend.py',
-                     'java_review.py','performance_review.py','container_run.sh'):
+                     'java_review.py','performance_review.py','monitoring_exports.py','container_run.sh'):
             digest.update(name.encode());digest.update(Path(__file__).with_name(name).read_bytes())
     except OSError:return None
     return digest.hexdigest()
@@ -128,6 +128,8 @@ def main(argv=None):
         control,applied=read_control(state),read_status(state)
         report=dict(control=control,java_launch_control=read_control(state,java=True),collector=applied,
                     control_acknowledged=applied.get('recorded',False) and applied['generation']==control['generation'])
+        from jasmine_web.batch.performance_exports import control as export_control
+        report['monitoring_exports_control']=export_control(state)
         from jasmine_web.batch.performance_trace import read_small
         try:report['timeline_collector']=json.loads(read_small(state,'performance-trace-status.json'))
         except FileNotFoundError:report['timeline_collector']=dict(recorded=False)

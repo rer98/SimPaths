@@ -162,6 +162,7 @@ COLLECTOR_FIELDS.update({
     "dataDumpTimePeriod": Field("double", 1.0),
 })
 REQUIRED_OUTPUT = {
-    "exportToCSV": True, "persistPersons": True, "persistBenefitUnits": True,
+    "exportToCSV": True, "exportToDatabase": False,
+    "persistPersons": True, "persistBenefitUnits": True,
     "dataDumpStartTime": 0, "dataDumpTimePeriod": 1.0,
 }

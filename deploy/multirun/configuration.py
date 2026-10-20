@@ -75,7 +75,8 @@ def _settings(value, path):
     for key, expected in REQUIRED_OUTPUT.items():
         if collector[key] != expected:
             raise ConfigurationError(path + ".collector_args." + key,
-                                     "required by the provisional annual visualiser output contract")
+                "database export is disabled for this online service" if key == "exportToDatabase"
+                else "required by the provisional annual visualiser output contract")
     return {"model_args": model, "collector_args": collector}
 
 

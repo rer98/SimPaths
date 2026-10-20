@@ -49,6 +49,14 @@ class VMConfigTests(unittest.TestCase):
                         ('enabled = true','enabled = 1')):
             with self.subTest(new=new),self.assertRaises(ValueError):self.config(self.text.replace(old,new,1))
 
+    def test_monitoring_exports_validate_budgets_and_require_explicit_private_mail(self):
+        self.assertFalse(self.config().monitoring_exports['enabled'])
+        text=self.text.replace('[monitoring_exports]\nenabled = false','[monitoring_exports]\nenabled = true')
+        self.assertTrue(self.config(text).monitoring_exports['enabled'])
+        for old,new in (('part_mib = 2','part_mib = 9'),('mail_enabled = false','mail_enabled = true'),
+                        ('enabled = true\nmail_enabled','enabled = 1\nmail_enabled')):
+            with self.subTest(new=new),self.assertRaises(ValueError):self.config(text.replace(old,new))
+
     def test_configuration_check_has_no_side_effects_and_scales_runtime(self):
         options = self.config()
         self.assertEqual(options.capacity, dict(cpu_millis=3000, memory_mib=6144, storage_mib=13312))

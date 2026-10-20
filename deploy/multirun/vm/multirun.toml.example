@@ -103,3 +103,17 @@ timeout_seconds = 600
 cache_hours = 168
 retain_completed_summaries = true
 summary_hours = 168
+
+# Private admin archive/mail settings. Enable before collection on the deployed
+# host; enable mail only after notifications/admin_email and SMTP are configured.
+# TOML seeds live controls on first startup; later changes use monitoring_exports.
+[monitoring_exports]
+enabled = false
+mail_enabled = false
+archive_seconds = 3600
+delivery_seconds = 86400
+journal_mib = 64
+journal_rows = 100000
+archive_mib = 512
+archive_days = 30
+part_mib = 2

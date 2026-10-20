@@ -117,13 +117,14 @@ Findings and limits:
   This is an extrapolation, not a measured ten-repetition result; shared setup,
   temporary workspace and Visualiser data need separate allowances.
 
-The next campaign now combines explicit smaller-heap/container trials with two
-sequential repetitions in one JVM for each population/horizon. See
-[MEMORY_TRIALS.md](MEMORY_TRIALS.md) for the six candidate profiles, same-JVM
-diagnostics, guarded failure handling and commands. Keep 2 vCPUs to isolate memory
-changes; later qualify only the selected profiles at lower CPU quotas with two
-repetitions, rather than repeating the entire matrix. Hosted mixed-load acceptance
-is still needed before approving concurrency. Production defaults were not changed.
+The follow-up campaign completed on **20 October**: all six smaller-heap/container
+cases passed two sequential repetitions in one JVM, at fixed 2 vCPUs with no
+expansion or retries. See [MEMORY_TRIALS.md](MEMORY_TRIALS.md#measured-results--20-october-2026)
+for the candidate allocations, measured peaks, reclamation observations and timing
+limits. Only the selected profiles need qualification at lower CPU quotas with
+two repetitions; the full matrix need not be repeated. Ten-repetition and hosted
+mixed-load acceptance are still needed before approving those workloads and
+concurrency. Production defaults were not changed.
 
 ## Measurements
 

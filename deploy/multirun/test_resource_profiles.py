@@ -66,6 +66,7 @@ class ProfilePolicyTests(unittest.TestCase):
         changes=[dict(memory_mib=4096),dict(heap_mib=True),dict(native_headroom_mib=0),
                  dict(collectors={'persistPersons':True}),
                  dict(collectors=self.context['collectors']|dict(exportToCSV=1)),
+                 dict(collectors=self.context['collectors']|dict(exportToDatabase=True)),
                  dict(collectors=self.context['collectors']|dict(dataDumpTimePeriod=float('inf')))]
         for change in changes:
             with self.subTest(change=change),self.assertRaises(ArtifactError):

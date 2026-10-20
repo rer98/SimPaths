@@ -47,7 +47,7 @@ SOURCE = 'maintainer-public-training-calibration'
 ENV = 'SIMPATHS_RESEARCH_TRIAL'
 FIELDS = {'population', 'end_year', 'repetitions', 'cpu_millis', 'heap_mib', 'memory_mib',
           'max_memory_mib', 'storage_mib', 'setup_seconds', 'repetition_seconds', 'max_attempts'}
-VARIANTS = ('baseline', 'lower-saving-rate')
+VARIANTS = ('baseline', 'lower-saving-rate', 'baseline-gini')
 BUILD_TIME = re.compile(r'^Time to complete initialisation ([0-9]+(?:\.[0-9]+)?) minutes\.$')
 YEAR_PROBE = ROOT/'deploy/acceptance/SimPathsYearProfileProbe.java'
 INCOMPLETE_CALIBRATION = 'Calibration stopped before verified completion; inspect diagnostics'
@@ -211,8 +211,10 @@ def configuration(receipt, settings, variant='baseline'):
     value['dataset_revision'] = receipt['revision']
     value['common'].update(population=settings['population'], start_year=2019, end_year=settings['end_year'])
     value['seed_plan']['repetitions'] = settings['repetitions']
-    value['run_sets'] = [dict(id='baseline', name='Baseline')] if variant == 'baseline' else [dict(
+    value['run_sets'] = [dict(id='baseline', name='Baseline')] if variant != 'lower-saving-rate' else [dict(
         id='alternative', name='Lower saving rate (0.04)', model_args=dict(savingRate=0.04))]
+    if variant == 'baseline-gini':
+        value['run_sets'][0]['collector_args'] = dict(calculateGiniCoefficients=True)
     return normalise(value)
 
 
@@ -836,7 +838,7 @@ def main():
     parser.add_argument('--end-year', type=int, default=2070)
     parser.add_argument('--repetitions', type=int, default=1)
     parser.add_argument('--variant', choices=VARIANTS, default='baseline',
-        help='Private calibration configuration; lower-saving-rate changes only savingRate to 0.04')
+        help='Private calibration: lower-saving-rate changes only savingRate; baseline-gini enables only Gini calculations')
     parser.add_argument('--heap-mib', type=int, default=4096)
     parser.add_argument('--cpu-millis', type=int, default=2000,
                         help='Private model CPU quota: 1000=1, 1500=1.5, 2000=2 vCPUs; JVM processor count stays at 2')

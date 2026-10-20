@@ -28,9 +28,11 @@ cleanup passed. Evidence is in
 The new per-repetition reporting code was also checked against these real archived
 observations, without more simulations or changing the original evidence; the
 derived check is in `/tmp-codex/population-memory-smoke-report-check-20261019`.
-The longer 2035/2070 candidates remain to be qualified by the overnight campaign.
+The longer six-case 2035/2070 campaign completed successfully on **20 October**;
+the measured results are recorded below. Qualification at lower CPU quotas,
+ten repetitions and hosted mixed load remains separate.
 
-## Tonight's cases
+## Tested cases
 
 Each case runs **two repetitions, seeds 606 and 607, sequentially in the same
 JVM**. Separate cases have separate JVMs. A fixed **2-vCPU Docker quota** and
@@ -47,16 +49,97 @@ At least 1 GiB remains between maximum heap and the container memory limit.
 | 100,000 | 2035 | 3 GiB | 4 GiB | 2 |
 | 100,000 | 2070 | 3.5 GiB | 4.5 GiB | 2 |
 
-The final case is exploratory; the 4 GiB heap / 5 GiB container remains the
-tested reference until smaller profiles are qualified. A successful case covers
-these two seeds and scientific settings, not all population paths or ten
-repetitions. Earlier observed peaks under larger limits do not establish smaller
-safe limits, because GC and memory use can change with the available heap.
+All six candidates are now locally verified at 2 vCPUs for these two seeds and
+scientific settings. The 4 GiB heap / 5 GiB container remains the broader tested
+reference; this campaign does not itself change deployment policies or qualify
+all population paths or ten repetitions. Earlier observed peaks under larger
+limits did not establish smaller safe limits; the completed trials below now
+provide explicit fixed-limit evidence for the selected settings.
 
 `--memory-trials` selects the table's sizes for the requested population/horizon
 subset and requires `--repetitions 2`. Do not combine it with custom heap/container
 arguments. Without the flag, the existing profiling driver still accepts explicit
 heap/container settings and retains its original defaults.
+
+## Measured results — 20 October 2026
+
+All **six cases and twelve scientific repetitions passed**, with one attempt per
+case, fixed allocations, no resource increases or retries, and a single verified
+JVM for each pair of seeds. The complete campaign took **8 hours 30 minutes**;
+observed Java lifetimes totalled **7 hours 15 minutes**, with the remainder covering
+input preparation, staging, output verification, archiving and disposal.
+
+All six native harness/model reports confirm cleanup, all output audits passed,
+all 33 campaign stages passed, and each compact archive was independently reopened
+and reverified after completion. No candidate was rejected. Generated input/output
+bulk was retired after verified archival; the original runtime and earlier
+evidence remain available. Production settings were not changed.
+
+| Initial people | Ending year | Java lifetime, both repetitions (min) | Sampled heap peak (GiB) | Sampled working-RAM peak (GiB) |
+| ---: | ---: | ---: | ---: | ---: |
+| 20,000 | 2035 | 14.89 | 2.193 | 2.710 |
+| 20,000 | 2070 | 36.79 | 1.991 | 2.422 |
+| 50,000 | 2035 | 36.09 | 2.352 | 2.834 |
+| 50,000 | 2070 | 90.39 | 2.537 | 3.042 |
+| 100,000 | 2035 | 73.76 | 2.843 | 3.365 |
+| 100,000 | 2070 | 183.13 | 3.320 | 3.905 |
+
+The fixed heap/container limits are in the preceding table. These whole-JVM
+figures include finalisation; working memory subtracts inactive file cache and
+is not the total memory charged to the container. Charged memory reached the
+container ceiling as file cache accumulated. A successful fixed-limit run, not
+the sampled working peak alone, supports the candidate allocation.
+
+### Memory reuse and timing interpretation
+
+- Heap used fell between repetitions in every case. For 100,000 people through
+  2070 it fell from **2.495 GiB** at the first finish marker to a lowest observed
+  **1.277 GiB** during disposal/next-build work. This is evidence of reclamation
+  and reusable heap, not a guaranteed post-GC idle live set.
+- The second repetition's sampled working peak was higher by **0.003–0.161 GiB**.
+  Both repetitions still fitted every fixed candidate allowance. Different seeds,
+  retained JVM state, committed heap and cache behaviour can affect these values;
+  two repetitions cannot establish the absence of longer-term memory growth.
+- The six smaller candidates used the **same frozen model JAR and immutable
+  runtime image as the preceding population/horizon campaign**, verified from
+  both plans. Inputs were freshly prepared for this campaign and reused between
+  horizons for each population. This is the appropriate reference for these
+  trials; the older package used for monitoring-cost trials is a separate model
+  artifact, despite sharing the same runtime image.
+- The first seed's time including setup was approximately **1% lower to 12%
+  higher** than the earlier one-repetition 4/5 GiB observations, depending on the
+  case. These are separate-night observations with fresh preparations and only
+  one first-seed measurement per setting, not a controlled estimate of the cost
+  of reducing memory. Do not compare the two-repetition total with an earlier
+  one-repetition total or interpret faster second setup as a second fresh launch.
+- At 100,000/2070 the largest sampled workspace was **11.18 GiB** within a 12 GiB
+  allowance. Workspace observations can miss short bursts and long sampling
+  gaps; this is application-accounted storage rather than a kernel-quota proof.
+  Preserve physical headroom and the production growth safeguard.
+
+These are candidates for reviewed workload-specific allocations. Before using
+them at 1 or 1.5 vCPUs, qualify the selected candidates with two repetitions at
+those quotas. The full six-case matrix need not be repeated for every CPU quota.
+Ten-repetition stability, representative policy variations and shared-VM mixed
+load/concurrency still need their own measurements. All previously scheduled
+overnight campaigns have now completed; this document records that result rather
+than requiring another copy of this matrix.
+
+The optional Gini calculations were disabled in these measurements. A small
+matched on/off screening campaign is prepared in [OUTPUT_TRIALS.md](OUTPUT_TRIALS.md).
+It starts with 20,000 people and a short horizon because the current Gini
+implementation uses pairwise loops. Standard annual CSV exports remain enabled
+in both conditions; model database output remains disabled.
+The first native pair passed on 20 October at 20,000 requested people over
+2019–2021, using 2.5 GiB heap / 3.5 GiB container and 2 vCPUs. Gini increased
+whole-JVM time from 137.9 to 265.0 seconds and sampled working RAM from 2.31 to
+2.66 GiB. This short-case result does not qualify Gini for the longer/larger
+profiles; keep its runtime/resource scope separate from the baseline tests.
+
+Evidence: [campaign report](/tmp-codex/population-memory-20261019-231601/report.json),
+[readable memory/repetition tables](/tmp-codex/population-memory-20261019-231601/memory-comparison.html),
+[annual/phase/storage detail](/tmp-codex/population-memory-20261019-231601/comparison.html)
+and [per-repetition CSV](/tmp-codex/population-memory-20261019-231601/memory-repetitions.csv).
 
 ## What the repeated run measures
 

@@ -96,6 +96,19 @@ class ResearchCalibrationTests(unittest.TestCase):
         lease.specification['run_sets'][0]['parameters'] = changed
         with self.assertRaises(ArtifactError):adapter._configuration(lease)
 
+    def test_gini_variant_changes_only_the_optional_collector_and_is_frozen_at_launch(self):
+        baseline=trial.configuration(self.receipt,self.plan).as_dict()
+        gini=trial.configuration(self.receipt,self.plan,'baseline-gini').as_dict()
+        self.assertFalse(baseline['run_sets'][0]['collector_args']['calculateGiniCoefficients'])
+        self.assertTrue(gini['run_sets'][0]['collector_args']['calculateGiniCoefficients'])
+        gini['run_sets'][0]['collector_args']['calculateGiniCoefficients']=False
+        self.assertEqual(gini,baseline)
+        adapter,lease=self.adapter_lease('baseline-gini')
+        config=adapter._configuration(lease)
+        self.assertTrue(config.native_configuration('baseline')['collector_args']['calculateGiniCoefficients'])
+        lease.specification['run_sets'][0]['parameters']=trial.configuration(self.receipt,self.plan).editable_configuration()
+        with self.assertRaises(ArtifactError):adapter._configuration(lease)
+
     def test_private_receipt_accepts_actual_counts_but_never_enters_service(self):
         self.assertEqual(trial.read_calibration(self.prepared), self.receipt)
         with self.assertRaises(ArtifactError):read_prepared(self.prepared)

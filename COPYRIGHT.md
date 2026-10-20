@@ -7,6 +7,12 @@ Attribution scope and non-commentable/generated artifacts.
 
 # Attribution
 
+The optional-output Gini screening harness, regression checks and guide carry
+inline notices. Generated paired plans, labelled HTML/CSV tables, numeric Gini
+verification and compact trial evidence are (C) Copyright 2026, by Ross Richardson;
+@author ross richardson. Copied scientific inputs, model outputs and runtime
+components retain their original ownership and licences.
+
 The optional Java observer, bounded performance timelines, labelled reports,
 monitoring-cost fixture, operator controls and native recovery checks carry
 inline notices. Generated observer JARs, receipts, numeric review controls,
@@ -355,3 +361,18 @@ partial-failure archives, numeric reports and labelled HTML/CSV tables are
 notice in each evidence directory's `COPYRIGHT.md`. Model code, source inputs,
 scientific output and runtime components retain their existing attribution and
 licences. Recording their checksums does not relicense those materials.
+
+The scientific monitoring-cost driver, matched-launch/evidence checks and focused
+tests carry attribution in their source headers. Generated scientific contracts,
+counterbalanced plans, numeric measurements, checksum comparisons, bounded
+diagnostic manifests and labelled HTML reports are (C) Copyright 2026, by Ross
+Richardson; @author ross richardson. Each evidence directory includes `COPYRIGHT.md`.
+Copied model output, source inputs, runtime images and third-party components
+retain their existing attribution and licences.
+
+The administrator monitoring archive, private controls, multipart mail worker,
+offline importer, recovery proof and guide carry inline notices. Generated gzip
+monitoring attachments, manifests, SQLite records, control/status JSON, labelled
+HTML/CSV reports and fictional proof evidence are
+(C) Copyright 2026, by Ross Richardson; @author ross richardson. This attribution
+does not claim ownership of scientific records or third-party software.

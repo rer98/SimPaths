@@ -150,14 +150,14 @@ def preflight(plan,*,preparing=True):
     return result
 
 
-def audit(prepared,completed,output):
+def audit(prepared,completed,output,*,variant='baseline'):
     prepared,completed,output=map(bench.ordinary,(prepared,completed,output))
     if output.exists() or any(source==output or source in output.parents for source in (prepared,completed,ROOT)):
         raise ArtifactError('Use a new audit directory outside inputs/results/sources')
     receipt=calibration.read_calibration(prepared)
     verify_snapshot(prepared,receipt)
     evidence,(record,frozen,manifest,_)=bench.completion(completed)
-    config=calibration.configuration(receipt,record['settings'],'baseline')
+    config=calibration.configuration(receipt,record['settings'],variant)
     if (record.get('failure') or record['prepared_sha256']!=receipt['sha256'] or config.as_dict()!=frozen
             or record['model']!=receipt['identity']['model'] or record['image']!=receipt['identity']['source_image']):
         raise ArtifactError('Completion does not match this verified population preparation')
@@ -181,7 +181,7 @@ def archive_profile(plan,case):
     completed=Path(case['completed']);target=Path(case['archive'])
     _,(record,config,_,_)=bench.completion(completed)
     if (record['settings']!=case['settings'] or record['model']!=plan['model'] or record['image']!=plan['image']
-            or record['variant']!='baseline' or len(record['attempts'])!=1):
+            or record['variant']!=case.get('variant','baseline') or len(record['attempts'])!=1):
         raise ArtifactError('Completed population differs from the fixed plan')
     expected_sources={name:plan['frozen'][str(ROOT/name)] for name in (
         'deploy/acceptance/SimPathsYearProfileProbe.java','deploy/multirun/research_year_profile.py',

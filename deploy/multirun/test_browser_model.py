@@ -52,6 +52,13 @@ class BrowserModelTests(unittest.TestCase):
         self.assertEqual(summary['different'],['savingRate'])
         self.assertEqual(len(summary['configurations']),2)
 
+    def test_database_export_control_is_locked_and_a_forged_form_is_rejected(self):
+        field=next(f for f in self.model.browser_form()['collector_fields'] if f['id']=='exportToDatabase')
+        self.assertTrue(field['locked']);self.assertFalse(field['default'])
+        form=deepcopy(self.form);form['run_sets'][0]['collector_args']={'exportToDatabase':True}
+        with self.assertRaisesRegex(ConfigurationError,'database export is disabled'):
+            self.model.browser_configuration(self.receipt['revision'],form)
+
     def test_browser_workbooks_require_public_names_not_just_excel_extensions(self):
         from deploy.multirun.prepare_inputs import selected_sources
         defaults=self.model.releases['approved']['defaults']

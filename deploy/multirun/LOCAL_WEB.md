@@ -97,6 +97,9 @@ the default dataset and per-configuration dataset/year/population overrides. The
 first seed is a decimal string, preserving all signed 64-bit values through the
 browser. Every repetition adds one, with overflow rejected. **Output and statistics
 settings** shows collector controls; required annual comparison outputs are fixed.
+Model database export is fixed off for the online service, including YAML imports.
+Raw CSVs remain private and subject to the existing download permissions;
+researchers use the Visualiser for aggregate results and charts.
 **Use different population or years** allows a card to override common settings
 while inheriting the default dataset, subject to that dataset's locked fields.
 

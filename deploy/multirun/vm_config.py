@@ -18,6 +18,9 @@ from .resource_recovery_settings import DEFAULTS as RECOVERY_DEFAULTS, validate 
 DEFAULTS = {
     'rpc': {'socket': '/run/simpaths-executor/control.sock', 'frontend_user': 'simpaths-web'},
     'monitoring': {'enabled': False, 'sample_seconds': 15, 'retention_days': 30, 'max_rows': 20000},
+    'monitoring_exports': {'enabled': False, 'mail_enabled': False, 'archive_seconds': 3600,
+        'delivery_seconds': 86400, 'journal_mib': 64, 'journal_rows': 100000,
+        'archive_mib': 512, 'archive_days': 30, 'part_mib': 2},
     'recovery': RECOVERY_DEFAULTS,
     'service': {'origin': None, 'port': 5002, 'pool_id': 'simpaths-online',
                 'dedicated_storage': True},
@@ -128,6 +131,13 @@ def load_config(path):
     monitoring = sections['monitoring']
     for key, low, high in (('sample_seconds',5,300),('retention_days',1,90),('max_rows',100,100000)):
         number(monitoring[key],'monitoring.'+key,low,high)
+    export=sections['monitoring_exports']
+    for key,low,high in (('archive_seconds',30,86400),('delivery_seconds',60,604800),
+            ('journal_mib',1,1024),('journal_rows',100,1000000),('archive_mib',1,10240),
+            ('archive_days',1,365),('part_mib',1,3)):
+        number(export[key],'monitoring_exports.'+key,low,high)
+    if export['mail_enabled'] and (not export['enabled'] or not sections['notifications']['enabled'] or not sections['notifications']['admin_email']):
+        raise ValueError('Monitoring export mail requires exports, notifications and a private admin recipient')
     deployment_configuration_limit(limits['max_configurations'])
     deployment_repetition_limit(limits['max_repetitions'])
     for key, low, high in (('max_unfinished_jobs', 1, 10000), ('pool_unfinished_jobs', 1, 10000),
@@ -235,7 +245,7 @@ def load_config(path):
     if not re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}',sections['rpc']['frontend_user']):
         raise ValueError('rpc.frontend_user must name a dedicated Linux account')
     options = SimpleNamespace(rpc_socket=rpc_socket,rpc_frontend_user=sections['rpc']['frontend_user'],**limits, **paths, **service, image=image,
-        operational_metrics=monitoring['enabled'],metrics_sample_seconds=monitoring['sample_seconds'],
+        monitoring_exports=dict(export),operational_metrics=monitoring['enabled'],metrics_sample_seconds=monitoring['sample_seconds'],
         metrics_retention_days=monitoring['retention_days'],metrics_max_rows=monitoring['max_rows'],
         **{'recovery_'+key:value for key,value in sections['recovery'].items()},
         workspace_quota_socket=quota_socket,

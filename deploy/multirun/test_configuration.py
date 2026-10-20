@@ -110,6 +110,19 @@ class ConfigurationTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(ConfigurationError):
                 normalise(draft)
 
+    def test_database_export_is_fixed_off_in_forms_yaml_and_native_imports(self):
+        config=normalise(document())
+        self.assertFalse(config.native_configuration('baseline')['collector_args']['exportToDatabase'])
+        draft=document();draft['run_sets'][0]['collector_args']={'exportToDatabase':True}
+        for decode in (normalise,lambda value:normalise_yaml(yaml.safe_dump(value))):
+            with self.assertRaisesRegex(ConfigurationError,'database export is disabled'):
+                decode(draft)
+        native=config.native_configuration('baseline')
+        native['collector_args']['exportToDatabase']=True
+        with self.assertRaisesRegex(ConfigurationError,'database export is disabled'):
+            import_native_yaml(yaml.safe_dump(native),model_release='test-release',
+                dataset_revision='test-dataset',name='Database export')
+
     def test_platform_fields_and_unknown_keys_rejected(self):
         for key in ("owner", "image", "command", "working_directory", "retry_policy", "provenance"):
             draft = document()

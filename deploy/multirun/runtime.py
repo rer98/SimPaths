@@ -6,6 +6,7 @@ Authentication delivery, origin and resource policy are supplied by the launcher
 """
 import asyncio
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 import json
 import os
 from pathlib import Path
@@ -229,12 +230,17 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
         from jasmine_web.batch.backup import database_guard
         # Covers hosts embedding this application as well as native launchers.
         with service_state(state), database_guard(q):
-            async with running(app):
-                if private_service:
-                    async with private_processors(service,stop):
+            exports=getattr(service,'performance_exports',None)
+            try:
+                if exports is not None:exports.start()
+                async with running(app):
+                    if private_service:
+                        async with private_processors(service,stop):
+                            yield
+                    else:
                         yield
-                else:
-                    yield
+            finally:
+                if exports is not None:await finish_before_cancelling(asyncio.create_task(asyncio.to_thread(exports.close)))
     @asynccontextmanager
     async def running(app):
         service.performance_review.start()
@@ -303,6 +309,11 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
     executor.performance=trace
     native_reader=shared_reader(model_reader(q,executor))
     service.performance_review=PerformanceReview(q,state,native_reader,trace=trace)
+    from jasmine_web.batch.performance_exports import PerformanceExports,Settings as ExportSettings,set_control as export_control,smtp_sender as export_sender
+    export_settings=ExportSettings(**getattr(args,'monitoring_exports',{}))
+    if not (state/'performance-exports.json').exists():export_control(state,**asdict(export_settings))
+    service.performance_exports=PerformanceExports(q,state,recipient=args.admin_email,
+        sender=export_sender(os.environ['SMTP_FROM_EMAIL']) if args.notification_emails else None)
     if getattr(args,'operational_metrics',False):
         from jasmine_web.batch.observability import OperationalMonitor, Settings, model_reader
         service.monitor=OperationalMonitor(q,state,settings=Settings(

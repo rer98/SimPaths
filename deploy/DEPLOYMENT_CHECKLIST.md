@@ -7,14 +7,108 @@ SimPaths Online deployment readiness, verified local evidence and installation o
 
 # SimPaths Online deployment readiness
 
-**Reviewed:** 12 October 2026. **Deployment status:** local implementation and
-rehearsals are recorded below; no production VM or domain has been selected.
+**Reviewed:** 20 October 2026. **Deployment status:** the intended first trial is
+Contabo Cloud VPS 12 in the EU. Matteo confirmed funding on 14 October through
+Alliance for Microsimulation and Policy Analysis CIC and requested that project
+accounts refer to that entity. No installed/accepted VM, selected domain or
+completed provider CPU-use/account-arrangement checks are recorded here.
 
 Use this checklist to prepare and validate the first SimPaths Online installation,
 covering SingleRun, UK MultiRun and the Policy Impact Visualiser connection.
 The evidence table records passing local tests. The unchecked items require the
 actual deployment configuration, host or external service. Older dated plans
 retain the development history; this checklist supplies the current deployment order.
+
+## Current implementation and next work
+
+The following capabilities are implemented and have local/native fixture evidence;
+their installation-specific acceptance is still open:
+
+- Separate public gateways and private executors for MultiRun and SingleRun,
+  with private ownership/permission checks and independent public restarts.
+- Fair adaptive simulation CPU quotas, baseline-first admission, immediate
+  completion discovery, [direct resource handover](multirun/VISUALISER_HANDOVER.md)
+  and parallel per-seed summary preparation. Completed configurations continue
+  through ready comparisons/publications before releasing their preparation
+  allocation; missing partner summaries do not retain idle resources.
+- Incremental experiment additions, [portable finished-chart downloads](multirun/VISUALISER_PREPARATION.md),
+  independently configured raw/summary/chart retention and chart access after
+  routine raw expiry. Explicit deletion and revocation still deny derived access.
+- [Visualiser storage pressure](multirun/VISUALISER_STORAGE.md): 72-hour-unused
+  finished-result eviction, durable suppression of automatic recreation, protected
+  readers, administrator warning levels and live approval of bounded storage growth.
+- Intermediate-summary and finished-chart backup/restore, including encrypted
+  recovery with [pending/adopted preparation transfers](multirun/HANDOVER_RECOVERY.md).
+- Storage-aware queue admission, administrator incidents, optional one-off owner
+  email after six hours of persistent storage delay and a subsequent start notice.
+- [Optional performance review](multirun/PERFORMANCE_REVIEW.md), with live external
+  controls, launch-selected detailed Java observations, bounded timelines and
+  workload/pipeline reports. Optional review defaults remain off; safety checks
+  and basic lifecycle records remain enabled independently.
+- SingleRun public-input preparation exits before Build. The tested user-data
+  catalogue now requests a 4 GiB application heap and 5 GiB container, with a
+  4 GiB preparation-worker heap used in the preceding, non-overlapping phase.
+
+These mechanisms do not establish the chosen shared host's throughput or
+responsiveness. Preserve exact tested artifact identities; the older image/browser
+and update reports below are not blanket acceptance of today's source tree.
+
+### Work order from this review
+
+1. Preserve and review the completed [smaller-memory, same-JVM campaign](multirun/MEMORY_TRIALS.md):
+   all six cases passed both repetitions at 2 vCPUs on 20 October. The genuine
+   nine-job quiet monitoring comparison and both fictional quiet campaigns passed
+   too. The planned overnight campaigns are complete. Select workload-specific
+   candidates for lower-CPU/hosted qualification; the 4 GiB heap / 5 GiB allowance
+   remains available as the broader tested reference. Precise monitoring overhead,
+   ten-repetition stability and chosen-host mixed load remain unqualified.
+2. Close the [dependency release gates](../../solveit_SimPathsWeb/SECURITY_DEPENDENCY_TRIAGE_2026-10-15.md#follow-up-review--19-october-2026):
+   isolated Python/installer compatibility, patched image rebuild/qualification,
+   fresh exact-artifact scans and current Visualiser emitted-package inventory.
+   Perform installation/build/scan work outside quiet benchmarks. The old audit
+   command defaults select retired images and an older bundle; update target
+   selection before creating the next inventory.
+3. Freeze a new release inventory and review its migration/rollback procedure.
+   There are now **32 batch migrations**, including handover (030), detailed
+   performance history (031) and administrator monitoring exports (032). The retained 22-migration update pair is historical;
+   it does not qualify code-only rollback for the current release.
+4. Complete provider checks, provision private staging and execute the installed
+   host, external privacy, recovery and mixed-load checks below. Funding is
+   already agreed; provider suitability, billing/account setup and technical
+   handover arrangements still need recording.
+
+### Candidate VPS 12 resource budget
+
+The opt-in [throughput configuration](multirun/vm/throughput.toml.example) records
+this starting candidate, not a measured hosted optimum:
+
+| Purpose | CPU allowance | RAM allowance |
+| --- | ---: | ---: |
+| Ordinary MultiRun work | 8 vCPUs | 30 GiB |
+| Protected interactive SingleRun capacity | 2 vCPUs | 5 GiB |
+| Protected primary Visualiser preparation | 1 vCPU | 2.5 GiB |
+| Shared unexpected-model-growth reserve | Within admitted CPU budgets | 2 GiB |
+| Total common pool | 11 vCPUs | 39.5 GiB |
+
+Keep the remaining actual host capacity for the OS, PostgreSQL, public/private
+orchestration and other service work. If the provider's 48 GB is decimal, it is
+about 44.7 GiB before guest/system effects; measure actual available memory.
+The CPU/RAM allowances are admission budgets, not a guarantee of dedicated cores.
+Do not infer final concurrency from advertised specifications alone.
+
+The candidate retains one protected preparation allowance and permits two
+independently admitted groups. A group can use two seed tasks within a total
+5 GiB / 2-vCPU allowance, or fall back to a compact sequential group when that
+larger allowance cannot fit. Handover transfers reservations after verified
+termination; it does not double-count the stopped model and its preparation.
+Install and verify the delegated resource drop-in and whole-group limits before
+enabling it. Lending emergency growth RAM remains unimplemented and disabled.
+
+## Earlier local foundations
+
+The dated observations below retain earlier build evidence. Current preparation,
+retention, resource and release decisions are summarised above; later evidence
+in the table supplements these historical measurements.
 
 The [9 October Visualiser update](multirun/VISUALISER.md) merges Reese's current
 multi-scenario charts and seed-paired calculations into both proposed PR branches.
@@ -175,6 +269,28 @@ The older real-model drivers use `status: "passed"` rather than that report form
 | Restricted database-role permissions, orderly PostgreSQL stop and crash, safe denials and reconciliation | [Database recovery report](/home/rer/simpaths-benchmarks/postgres-recovery-20261004-213531/report.json) | Real disposable PostgreSQL and fictional models |
 | Compatible application update/rollback, retained ownership/work/results, rejection of newer schemas and verified recovery | [Separated update report](/tmp-codex/application-update-rpc-retry-20261014-230649/report.json) and [verification](/tmp-codex/application-update-rpc-retry-20261014-230649/verification.json) | Four native processes, production Unix RPC and transient user units; fictional models; original containers/cookies/attempts/download hashes preserved; gated isolated schema restore and owner denials; cleanup confirmed; installed identities and pending large ZIP builders remain separate |
 
+### Evidence added to this review — 16–19 October
+
+The following report outcomes were reread on 19 October. Earlier failed reports
+remain preserved; later successful fixtures do not turn those reports into passes.
+
+| Capability / measurement | Evidence | Scope and remaining limit |
+| --- | --- | --- |
+| Portable complete chart download and offline reopening | [Private-service Chromium proof](/home/rer/simpaths-benchmarks/vm-visualiser-portable-retry-20261016-110048/model-proof/report.json) | Passed; downloaded comparisons recreate charts after server raw-output deletion. Same-UID local services; installed-host identities still require acceptance |
+| Raw CSV to intermediate summaries | [36-case raw-summary matrix](/tmp-codex/visualiser-summary-matrix-20261017-234536/report.json) | Campaign completed with 34 passes and two worker failures, retained explicitly. Two genuine repetitions per configuration; failed cases are not complete-run performance observations. See [interpretation](multirun/VISUALISER_PREPARATION.md) |
+| Finished comparison/chart regeneration from retained summaries | [108-case regeneration matrix](/tmp-codex/visualiser-regeneration-matrix-20261017-174945/report.json) | Passed, cleanup confirmed; 2/2.5/3 GiB, CPU/worker settings and replayed 2/5/10-seed workloads. Replays measure processing load, not newly independent scientific simulations |
+| Seed-parallel preparation and admitted worker scaling | [18-case scaling report](/tmp-codex/visualiser-scaling-20261018-113148/report.json), [production integration](/tmp-codex/visualiser-production-parallel-final-20261018-192819/report.json) and [guide](multirun/VISUALISER_PREPARATION.md) | Passed with cleanup; native group limits and shared admission verified separately from genuine two-seed processing and publication-backlog replays. Hosted disk contention and full ten-seed mixtures remain open |
+| Direct stopped-model resource handover and baseline-first scheduling | [Handover runtime proof](/tmp-codex/visualiser-handover-native-20261018-200716/report.json), [89-check baseline/admission proof](/tmp-codex/baseline-first-native-20261018-210920/report.json) and [behaviour](multirun/VISUALISER_HANDOVER.md) | Passed with cleanup; permission/readiness rechecks, continuation, capacity release and restart compatibility use fictional results. Hosted throughput and installed service boundaries remain open |
+| Pressure eviction, live storage approval and reader/recovery protection | [54-check final native proof](/tmp-codex/visualiser-storage-native-final-20261018-215233/model-proof/report.json) and [storage guide](multirun/VISUALISER_STORAGE.md) | Passed without skips, cleanup confirmed; fictional files and captured senders, not real inbox or hosted-storage evidence |
+| Encrypted restoration of pending and adopted preparation work | [30-check recovery proof](/tmp-codex/handover-encrypted-recovery-final-20261018-221156/model-proof/report.json) and [guide](multirun/HANDOVER_RECOVERY.md) | Passed without skips, cleanup confirmed; real PostgreSQL/GnuPG with fictional results and temporary keys. Actual remote provider transfer/retrieval remains open |
+| Population/horizon resource profiles | [Six-case campaign](/tmp-codex/population-year-resources-20261018-235354/report.json) and [measurements](multirun/POPULATION_RESOURCES.md) | All six passed: 20k/50k/100k requested people, ending 2035 and 2070, one seed each, fixed 4 GiB heap/5 GiB container, 2 vCPUs; original settings, annual output, audits, archives and cleanup verified. Observed peaks do not qualify smaller limits |
+| Smaller-memory same-JVM smoke | [Native smoke](/tmp-codex/population-memory-smoke-20261019-100139/report.json) and [campaign guide](multirun/MEMORY_TRIALS.md) | Passed: 20k short horizon, two sequential seeds in one JVM, 2.5 GiB heap/3.5 GiB container. The six longer cases completed separately below |
+| Smaller-memory same-JVM matrix | [Six-case campaign](/tmp-codex/population-memory-20261019-231601/report.json), [readable tables](/tmp-codex/population-memory-20261019-231601/memory-comparison.html) and [interpretation](multirun/MEMORY_TRIALS.md#measured-results--20-october-2026) | All six passed in 8 h 30 min: two sequential seeds per JVM, fixed 2 vCPUs, heaps/containers 2.5/3.5, 3/4 and 3.5/4.5 GiB as specified. No growth/retries, all native cleanup/audits and compact archives verified. Heap reclaimed between repetitions; two repetitions do not establish ten-repetition stability, lower-CPU safety or hosted concurrency |
+| Optional performance timeline/control/recovery implementation | [33-check database proof](/tmp-codex/performance-monitoring-native-20261019-115211/report.json), [50-check native runtime/recovery proof](/tmp-codex/performance-runtime-final-20261019-121537/model-proof/report.json) and [28-check timing follow-up](/tmp-codex/performance-timing-native-20261019-122218/report.json) | Passed with cleanup; fictional work and retained numeric observations. Detailed Java is selected at launch; live external toggles leave running work intact |
+| Quiet fictional monitoring cost | [15-second report](/tmp-codex/monitoring-cost-quiet-20261019-124321-15s/model-proof/report.json), [5-second report](/tmp-codex/monitoring-cost-quiet-20261019-124321-5s/model-proof/report.json) and [interpretation](multirun/PERFORMANCE_REVIEW.md#quiet-fictional-monitoring-cost-trials--19-october) | Both passed, 18 jobs in total, identical fictional result fingerprints and cleanup. No clear full-review slowdown on that fixture; not proof of zero cost or scientific/hosted overhead |
+| Genuine scientific monitoring smoke | [Model report](/tmp-codex/monitoring-simpaths-smoke-retry-20261019-143815/model-proof/report.json), [cleanup](/tmp-codex/monitoring-simpaths-smoke-retry-20261019-143815/report.json) and [interpretation](multirun/PERFORMANCE_REVIEW.md#genuine-scientific-monitoring-smoke--19-october) | All three modes passed: 100k requested people, 2019–2021, seed 606, fixed 2 vCPUs/4 GiB heap/5 GiB container, one attempt each. Full Java coverage, 37 records without loss, and cleanup confirmed. Only BenefitUnit.csv differed; other eight CSVs matched. This functional smoke does not establish overhead |
+| Quiet genuine scientific monitoring cost | [Nine-job model report](/tmp-codex/monitoring-simpaths-quiet-20261019-150929/model-proof/report.json), [cleanup](/tmp-codex/monitoring-simpaths-quiet-20261019-150929/report.json) and [interpretation](multirun/PERFORMANCE_REVIEW.md#quiet-genuine-simpaths-monitoring-cost-trials--19-october) | Passed in 5 h 55 min: 100k requested people, 2019–2035, seed 606, three counterbalanced rounds, fixed 2 vCPUs/4 GiB heap/5 GiB container. No clear monitoring slowdown; complete Java logs without loss. Eight CSVs matched across all nine runs; BenefitUnit.csv also differed between off-mode runs. Combined trace capped at 2,000 observations; complete per-run evidence retained. Precise overhead and hosted mixed load remain unqualified |
+
 ### Real-model calibration observations
 
 The [starting-allocation report](/tmp/codex-rer/resource-model-20261006-a/model-proof/report.json)
@@ -204,8 +320,9 @@ The current hosted Visualiser integration is a pinned **development preview**
 for owner-supplied inputs and explicitly verified public training data.
 Confidential provider derivatives are ineligible. Online charts display the baseline
 and multiple selected alternatives together, using the maintained seed-paired
-policy-impact and uncertainty calculations. Manifest-aware local-folder comparison
-sets remain a later option. See [the connection scope](multirun/VISUALISER.md).
+policy-impact and uncertainty calculations. Native local-folder input and portable
+finished-comparison reopening have local browser evidence; use the selected
+build's supported formats. See [the connection scope](multirun/VISUALISER.md).
 
 The Visualiser receives only aggregate results from the VM. Separate authenticated
 downloads of eligible owner-supplied output are intentional; provider-derived raw
@@ -241,15 +358,17 @@ seven refreshed native stages pass, with cleanup confirmed in
 `application-update-rpc-retry-20261014-230649`. See the
 [runbook](multirun/VM.md#local-application-update-and-rollback-rehearsal).
 
-**To do before the next deployed release (17 October):** select and review a new
-compatible code-only rollback pair after the recent schema/protocol additions.
-The pinned `82aad9a` frontend has 22 batch migrations, while the current committed
-frontend has 25; storage notifications, performance review and iterative
-experiment additions and retained-aggregate provenance add migrations 026–029. The old
-default-pair compatibility checks correctly reject those different histories.
-The earlier successful rehearsal remains historical evidence, not acceptance
-for the current candidate. Do not bypass that guard or claim a code-only rollback
-across migrations 026–029; retain a verified pre-migration backup/restore plan.
+**To do before the next deployed release (reviewed 19 October):** select and
+review a new compatible code-only rollback pair after the schema/protocol and
+retained-file additions. The pinned `82aad9a` frontend has 22 batch migrations;
+the current candidate frontend has **32**. Migrations 026–032 add storage notices,
+external review, experiment additions, retained provenance, preparation handover
+detailed performance history and a durable monitoring/mail archive. Retained-Visualiser storage backups also have
+a v2 format with approved limits and eviction state. Review schema, RPC, result
+and retained-file compatibility together. Do not bypass the migration guard or
+claim that the October 14 rehearsal qualifies today's pair. Keep the verified
+pre-migration backup/inactive-restore path for changes that cannot roll back by
+code alone. Freeze committed candidate sources before preparing another pair.
 
 [`release_record.py`](release_record.py) collects a private inventory of the four
 source checkouts, the selected JAR and immutable image references, a retained
@@ -326,20 +445,52 @@ not install services, choose providers or change security settings.
   and Visualiser build/source manifest. The candidate tool above prepares this
   inventory; select committed sources and verify the installed artifacts/dependencies
   before completing this gate. Retain the previous usable builds/images.
+- [ ] Qualify the Python/installer update in an isolated environment, including
+  FastHTML imports, sign-in/session/permission/browser workflows and resolved
+  installed versions. The shared OAuthLib pin is still 3.3.1; installer guidance
+  alone has not upgraded the test interpreter or disposable proof bootstrap.
+- [ ] Build, qualify and scan fresh model-image IDs with the recorded native
+  fixes and current advisory databases. Prepare a new audit inventory with the
+  selected qualification receipt and actual Visualiser build/lock directory;
+  the old audit defaults and retired image receipts cannot close this gate.
+  Record remaining findings and the Pebble component decision individually.
+- [ ] Review emitted dependencies for the selected browser/calculation/helper
+  bundle; the October 15 `cache-b` assessment does not certify later bundle bytes.
+- [ ] Select and rehearse a compatible update/rollback pair for the current
+  migration and retained-file formats, preserving a verified backup/inactive-
+  restore route across incompatible schema changes. Apply all 32 reviewed batch
+  migrations on the fresh installation before sharing its pool with SingleRun.
 - [ ] Verify licences, notices and permitted redistribution for the selected
   model, dependencies, Visualiser and training inputs before publishing artifacts.
 - [ ] Set the initial data/profile scope and account approval rules. Retain the
   current provider restrictions; agree applicable Visualiser release/output rules
   with its maintainers before expanding the preview. Scientific calculations and
   disclosure decisions remain with the model/Visualiser maintainers.
+- [ ] Agree and centrally validate the permitted scientific parameter ranges
+  with the SimPaths maintainers (security finding SR06). Request/resource/runtime
+  bounds do not by themselves establish scientifically valid model parameters.
 - [ ] Confirm normal browser use and guidance for the selected release, including
   narrow layout, preparation, sweeps, retries, downloads and Online/local Visualiser use.
 
 ### Host storage and capacity
 
-- [ ] Choose the host, operating system, private volume and domain when that
-  decision is resumed. Install reviewed artifacts with a dedicated service account
-  and operator-controlled code/configuration; keep host/Docker access private.
+- [ ] Record Contabo's response on sustained scientific CPU use and the project
+  account/billing/administration arrangements before ordering the intended trial.
+  Funding is agreed; this is the remaining provider/setup check, not a new request
+  for reimbursement approval. Confirm the final one-month specification at order.
+- [ ] Provision the selected host/OS, private volume and domain. Install reviewed
+  artifacts with dedicated service identities and operator-controlled code/config;
+  keep host/Docker access private. Record actual usable RAM/disk and CPU sharing.
+- [ ] Complete [provider delivery checks](HOSTED_LOAD_TEST_PLAN.md#provider-delivery-checks):
+  preserve the dated order/specification and sustained-use clarifications; compare
+  guest vCPU/RAM and device/partition/filesystem capacities with purchased values
+  using explicit units. Record bounded disk and external network probes and
+  their test limits, endpoint/cache conditions and cleanup.
+- [ ] Repeat matched scientific, concurrency and aggregation references in at
+  least three separated time windows with 15-second monitoring. Separate our
+  Docker CPU throttling from reported host steal/contention. Record ordered
+  capacity compliance and service-performance outcomes independently, including
+  unknown counters, slow/failed runs and underlying-hardware verification limits.
 - [ ] Mount and verify persistent private storage outside all static roots. Budget
   the OS, Docker/PostgreSQL data, retained results, caches, logs and separate backup
   storage independently, including temporary copies and free-space reserves.
@@ -354,12 +505,13 @@ not install services, choose providers or change security settings.
   for those populations, representative horizons and collector settings against
   the 4 GiB + 256 MiB-per-repetition standard before opening the service. The current
   twelve-run evidence covers 50,000 people and 2019–2026.
-- [ ] Run the [population/year profiles](multirun/POPULATION_RESOURCES.md): fresh
-  20,000/50,000/100,000-person populations through 2070, sampled annual resources,
-  decade summaries and audited population counts. Then explicitly validate
-  proposed smaller allocations and shorter stopping horizons on laptop and VM;
-  observed demand alone does not certify minimum safe limits.
-- [ ] Calibrate Matteo's updated target: 100,000 people, 2019–2070, provisionally
+- [x] Complete the local [same-JVM memory matrix](multirun/MEMORY_TRIALS.md): all
+  six 2035/2070 smaller-heap/container cases passed two repetitions at 2 vCPUs on
+  20 October, with fixed limits, verified output, archived evidence and cleanup.
+- [ ] Test selected smaller profiles at 1/1.5 vCPUs with repeated
+  runs before deploying them at those quotas; preserve the fixed 2-processor JVM
+  setting until the separately planned automatic-detection comparison is qualified.
+- [ ] Calibrate Matteo's updated target: 100,000 people, 2019–2070,
   ten seed repetitions per configuration and up to four concurrent users. The
   [private one-repetition trial](multirun/VM.md#research-workload-calibration) and
   native follow-up cleanup passed on 10 October: 4 GiB heap/5 GiB container,
@@ -387,15 +539,13 @@ not install services, choose providers or change security settings.
   policies, kernel quota, hosted performance and four-user concurrency remain
   to measure. One seed cannot estimate uncertainty across repetitions. This does
   not widen the current 50,000-person/2026 service limits or adopt new defaults.
-  All fixed-memory A/B/C cases have also passed. C's 5 GiB heap/6 GiB container
-  is a candidate for hosted validation: its observed duration was 16.4% below B
-  with 0.42 GiB more sampled working RAM, while the admission allowance was the
-  same. Repeat B/C in alternating order and under hosted load before selecting
-  profiles or claiming a dependable speed benefit; keep production recovery
-  safeguards subject to capacity and agreed ceilings.
-  Ross reports other Codex CLI work during A/B and leaving C alone overnight;
-  competing host activity was not measured. This is an uncontrolled timing
-  comparison, so reduced background load could explain some or all of the change.
+  The original fixed-memory A/B/C cases and later quiet repeats passed. The
+  current large-workload starting candidate is 4 GiB heap/5 GiB container;
+  the earlier uncontrolled single C timing does not establish a benefit from a
+  larger heap/container. Fractional-CPU D/E trials also passed; use the
+  [CPU/memory interpretation](multirun/VISUALISER_PREPARATION.md) and hosted
+  mixed-load measurements to select throughput rather than assigning an optimum
+  from a single run. Growth/retry safeguards remain bounded by admitted capacity.
 - [ ] Execute the [hosted load-test plan](HOSTED_LOAD_TEST_PLAN.md): separate
   four-user access from admitted model concurrency, increase load in stages,
   include aggregation/downloads, and agree queue/completion-time expectations.
@@ -413,6 +563,38 @@ not install services, choose providers or change security settings.
   and retention from those measurements. Use isolated staging pools for calibration;
   set production capacity before admitting real users. Existing pool capacity cannot
   be silently rewritten, and accepted jobs must keep their frozen limits.
+- [ ] Install the opted-in parallel-preparation/handover configuration and
+  executor cgroup drop-in. Verify complete child groups remain inside admitted
+  CPU/RAM/scratch limits and that cancellation joins them before releasing
+  capacity. Test baseline-first fairness, ready-pair priority, compact fallback,
+  stopped-model handover, continuation and restarts under actual model/disk load.
+- [ ] Set independent raw/summary/chart retention and the Visualiser's total,
+  summary, scratch and entry budgets. Exercise 72-hour-unused pressure eviction,
+  suppression of automatic recreation, authorisation after routine raw expiry,
+  explicit revocation, live storage approval and warning thresholds on host files.
+- [x] Complete the three-round genuine scientific laptop monitoring comparison:
+  all nine jobs passed at a 15-second interval. Retain the checksum and bounded
+  export limitations recorded in the evidence table.
+- [ ] For the first VM trial, prepare and verify the Java observer for each
+  selected immutable model JAR, then enable external review and new-launch Java
+  review at 15 seconds before launching trial jobs. Record control acknowledgement
+  and actual Java launch receipts; a requested switch alone does not prove that
+  detailed collection started.
+- [x] Implement [scheduled admin monitoring exports](multirun/MONITORING_EXPORTS.md):
+  transactional preservation before age/row-cap pruning, bounded verified gzip
+  outbox, private daily delivery/retries and live controls. Initial native database
+  and runtime/online/offline recovery proofs passed; final evidence is in the guide.
+- [x] Implement and locally qualify [long-term collation](multirun/MONITORING_EXPORTS.md#offline-collation):
+  stable identities/revisions, numbered manifests and an offline SQLite/HTML/CSV
+  importer. Tests cover duplicates, reordering, missing/corrupt parts, cumulative
+  corrections, late observations and restore forks without silently adding totals.
+- [ ] Verify actual recipient/SMTP delivery, attachment volume, headroom and cost
+  of the new journal/mail worker on the chosen VM. Older quiet profiling results
+  predate this archive addition.
+- [ ] Complete VM mixed-load cost checks before deciding when optional review
+  should remain enabled. Confirm
+  live external acknowledgement, new-process Java selection, missing-counter
+  reporting and web/chart responsiveness. Keep emergency-memory loans disabled.
 - [ ] Before enabling automatic resource recovery, install the growth-capable
   quota broker and compatible schema/application, then test live growth and
   resource-specific retries on the selected host. Calibrate heap/native headroom,
@@ -470,13 +652,19 @@ not install services, choose providers or change security settings.
 
 - [ ] Test sign-in and job/administrator notices with the real SMTP account and
   recipient inboxes, including sender identity, TLS/authentication and failures.
-  Local SMTP acceptance alone does not prove inbox arrival.
+  Cover six-hour storage-delay/start notices, confirmed resource growth and
+  Visualiser pressure warnings. Local SMTP/captured-sender acceptance alone does
+  not prove inbox arrival.
 - [ ] Test warning deadlines, retries and deletion with disposable staging files.
   Enable automatic deletion for real users only after notice/recovery acceptance.
   Warnings start when recorded; an SMTP outage does not extend deletion deadlines.
 - [ ] Configure separate protected backup storage and the real pinned SFTP host.
   Verify encryption, independent key recovery, readback, remote retention and alerts.
   Protect the private decryption key separately from the service VM.
+  Include committed intermediate summaries, finished/indexed charts, independent
+  expiry/provenance, eviction/approved-budget state and preparation transfer
+  records. A provider disk snapshot is not evidence of this application's
+  consistent database-and-files capture or independent recovery.
 - [ ] Restore a downloaded recovery point on an independent inactive target with
   required images and signing/configuration artifacts. Verify original ownership,
   files, seeds, budgets and provider denials; isolate the source before activation.
@@ -490,8 +678,9 @@ not install services, choose providers or change security settings.
 ## Installation and validation order
 
 1. **Prepare the release record.** Keep the local evidence and record the selected
-   artifacts, data scope and outstanding checks. Provider/domain selection remains
-   deferred until requested; the preparation itself needs neither.
+   committed artifacts, dependency qualification, data scope and compatible
+   update/recovery procedure. The intended Contabo trial is recorded above;
+   domain and final installation details remain to choose.
 2. **Provision private staging.** Establish the host/service account, finite private
    storage, workspace enforcement, separate backup storage and host access rules.
    Fix paths and bounded staging budgets before accepting test work that binds to them.
@@ -523,9 +712,13 @@ private configuration separately from public assets.
 
 | Record | Value |
 | --- | --- |
+| Intended first trial | Contabo VPS 12 EU; provider/setup confirmation and actual provisioning not recorded |
+| Funding arrangement | Confirmed by Matteo on 14 October 2026; costs covered by Alliance for Microsimulation and Policy Analysis CIC |
 | Acceptance date and operator | Pending |
 | Installed source commits and artifacts | Pending |
 | Host specification and private storage/workspace enforcement | Pending |
+| Purchased versus observed provider capacities and component checks | Pending; dated order, byte/count inventory, bounded disk/network probes and evidence limits |
+| Repeated provider performance and reliability assessment | Pending; at least three UTC windows, matched artifacts/quotas, monitoring, all outcomes and observed service-target results |
 | HTTPS origins and installed service/configuration identities | Pending; record fingerprints/references, not credentials |
 | Supported profiles, data scope and Visualiser mode | Pending |
 | Measured capacity and frozen resource-policy settings | Pending |
@@ -552,9 +745,28 @@ maintained in JAS-mine-web's `deploy/simpaths/README.md`, `deploy/SESSION_SECURI
 `docs/vm-postgresql.md` and `docs/vm-deployment.md`; retain those documents with the
 selected frontend release.
 
-Later development remains separate: Reese's simultaneous-scenario charts and local
-set-folder support, the reviewed updated policy-impact calculations, optional
-prefilled experiment examples and the documentation-aware assistant. Mixed
-Online/local comparisons remain a notes-only idea with statistical comparability
-concerns. These are not completed capabilities or extra tasks to repeat from the
-older plans. Expanding data/chart scope requires its own integration validation.
+Simultaneous-scenario charts, maintained paired calculations, native local input
+and portable finished-comparison reopening are implemented with local evidence;
+do not carry them forward as unimplemented roadmap items. Optional prefilled
+experiment examples and the documentation-aware assistant remain separate later
+development. Mixed Online/local comparisons remain a notes-only idea with
+statistical comparability concerns. Wider provider/data/chart scope requires its
+own scientific and disclosure approval and integration validation.
+
+### Administrator monitoring archive deployment
+
+- [ ] Apply migration 032 with the reviewed private application release; model
+  images/JARs are unchanged. Enable archival before initial collection, then
+  verify the private recipient/SMTP settings before enabling daily delivery.
+- [ ] Use [MONITORING_EXPORTS.md](multirun/MONITORING_EXPORTS.md) to verify hourly
+  packing, a received multipart message, offline deduplication/completeness,
+  source lineage after recovery, and sufficient database/WAL/archive headroom.
+- [ ] Measure actual daily attachment volume and journal/mail overhead under VPS
+  mixed load. Previous quiet monitoring trials did not include this new archive.
+
+Administrator-export functional evidence (20 October):
+[69-check recovery/runtime proof](/tmp-codex/monitoring-exports-final-20261020-103414/model-proof/report.json)
+and [16-check final mail/control proof](/tmp-codex/monitoring-exports-mail-retry-20261020-104114/report.json)
+passed without failures; native harness cleanup was confirmed. The focused first
+PostgreSQL run passed 82 checks. Local frontend/adapter checks also pass; counts
+overlap. Captured senders were used, with no real mail or scientific runs.

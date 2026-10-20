@@ -155,6 +155,41 @@ dispatcher replacement on the original attempt, and cleanup. Its adjacent
 `qualification.json` records the exact release and checksum-linked evidence.
 The existing service default is unchanged; installed-host acceptance remains due.
 
+### Refreshed security candidate — 20 October 2026
+
+The refreshed private candidate is staged and locally qualified at
+`/tmp-codex/multirun-security-release-20261020-213051/state`:
+
+- Release: `release-e3362367233de7fbab0639889ea144ac80728c20f5a0cd23ed4133e74dc5801d`.
+- Runtime: `sha256:069b14bebe324c3f15a5fc106b7e7bab2f6930ccc0b0263d544ee533a7110a97`.
+- MultiRun JAR SHA-256: `e652f608c1862f78e9b7aef949a635595feab42713a84a138a28e1a0aa0f73bd`.
+
+Its JAR and 39 default workbooks come from the isolated qualified source clone,
+with hashes checked against the accepted source/build and final audit records.
+All 39,446 non-manifest JAR file entries match the qualified SingleRun JAR; the
+manifest selects `SimPathsMultiRun`. The retained preparation helper and runner
+match those qualified sources. The new runtime has the guarded Pebble exclusion
+and a fresh exact-ID scan. The original research JARs, prepared inputs, catalogue
+and existing service release selection are preserved.
+
+`qualification-plan.json` beside the private state freezes the release manifest,
+native proof sources/inputs, source commits, accepted artifacts and checksum-linked
+security evidence. The 71 local release/input/container guard checks pass.
+The native public-input/queued-preparation proof **passed** in `native-proof`
+at 21:39 UTC on 20 October, taking about eight minutes including disposable
+dependency/database setup. Both configurations completed seeds 606–608 on attempt
+1. Malformed-input rejection, provider raw-download denial, preparation dispatcher
+replacement on its original attempt, retained model/runner/policy and cleanup
+all passed. `qualification.json` links the frozen plan and native evidence by
+checksum. Proof source/input files and protected original artifacts still match.
+This local execution qualification does not approve production deployment.
+
+This candidate retains the version-1 technical-compatibility resource policy.
+It does not select new production workload profiles or establish throughput on
+the VPS. Run it outside quiet benchmarks. The proof checks 6 GiB free temporary
+storage and 7 GiB available RAM before starting, then checks Docker's installed
+image identity. No image/JAR rebuild is needed.
+
 ## Resource policy interface
 
 ### Tested starting-allocation profiles

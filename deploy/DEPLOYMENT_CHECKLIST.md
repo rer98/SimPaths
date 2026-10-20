@@ -58,16 +58,22 @@ and update reports below are not blanket acceptance of today's source tree.
 1. Preserve and review the completed [smaller-memory, same-JVM campaign](multirun/MEMORY_TRIALS.md):
    all six cases passed both repetitions at 2 vCPUs on 20 October. The genuine
    nine-job quiet monitoring comparison and both fictional quiet campaigns passed
-   too. The planned overnight campaigns are complete. Select workload-specific
+   too. The initial memory/monitoring campaigns are complete. Select workload-specific
    candidates for lower-CPU/hosted qualification; the 4 GiB heap / 5 GiB allowance
    remains available as the broader tested reference. Precise monitoring overhead,
-   ten-repetition stability and chosen-host mixed load remain unqualified.
-2. Close the [dependency release gates](../../solveit_SimPathsWeb/SECURITY_DEPENDENCY_TRIAGE_2026-10-15.md#follow-up-review--19-october-2026):
-   isolated Python/installer compatibility, patched image rebuild/qualification,
-   fresh exact-artifact scans and current Visualiser emitted-package inventory.
-   Perform installation/build/scan work outside quiet benchmarks. The old audit
-   command defaults select retired images and an older bundle; update target
-   selection before creating the next inventory.
+   ten-repetition stability and chosen-host mixed load remain unqualified. The
+   separate long Gini-on laptop benchmark is still available; no completion of
+   that campaign is implied here.
+2. Complete the remaining [dependency release gates](../../solveit_SimPathsWeb/SECURITY_DEPENDENCY_TRIAGE_2026-10-15.md#runtime-exclusion-and-smaller-compiler--20-october-2026).
+   Isolated Python/installer compatibility, patched image qualification, guarded
+   Pebble exclusion, exact-ID scans and the smaller Visualiser compiler's
+   emitted-package/browser acceptance are complete. The four derived images have
+   no high/critical findings and each retains 55 medium/low Ubuntu entries with
+   no fix recorded. Review their applicability and the remaining external-script
+   integrity work. The [refreshed MultiRun release](multirun/RELEASES.md#refreshed-security-candidate--20-october-2026)
+   passed native preparation/queue execution on 20 October. Perform further
+   installation/build/scan work outside quiet benchmarks; preserve the older
+   scientific references.
 3. Freeze a new release inventory and review its migration/rollback procedure.
    There are now **32 batch migrations**, including handover (030), detailed
    performance history (031) and administrator monitoring exports (032). The retained 22-migration update pair is historical;
@@ -330,6 +336,23 @@ downloads remain denied. Users may select their own locally saved raw files in t
 Visualiser. Those permissions must remain distinct during deployment acceptance.
 
 ## Prepare a candidate release record
+
+The refreshed 20 October candidate is staged at
+`/tmp-codex/multirun-security-release-20261020-213051/state`, with its immutable
+release ID, qualified JAR/runtime, 39 default workbooks and preparation adapters
+recorded in the adjacent `qualification-plan.json`. It binds the final hardened
+image scan and 538 proof source/input files. All 39,446 non-manifest JAR entries
+match the accepted SingleRun build. The 71 focused local guards and native
+public-input/queued-preparation proof **pass**. Both configurations completed
+seeds 606–608 on attempt 1; preparation survived dispatcher replacement on its
+original attempt. Invalid-input rejection, provider raw-download denial, retained
+model/runner/policy, original inputs and cleanup are verified. The adjacent
+`qualification.json` binds the plan and all native evidence by checksum. See the
+[current release checkpoint](multirun/RELEASES.md#refreshed-security-candidate--20-october-2026).
+Its private registry does not replace the current service selection or any
+scientific benchmark. Final release approval and installed-host checks remain due.
+
+### Earlier model and application update evidence
 
 The 14 October MultiRun security candidate is staged in
 `/tmp-codex/multirun-security-release-20261014-212942/state` with provenance in

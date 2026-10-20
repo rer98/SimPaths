@@ -69,8 +69,12 @@ and update reports below are not blanket acceptance of today's source tree.
    Pebble exclusion, exact-ID scans and the smaller Visualiser compiler's
    emitted-package/browser acceptance are complete. The four derived images have
    no high/critical findings and each retains 55 medium/low Ubuntu entries with
-   no fix recorded. Review their applicability and the remaining external-script
-   integrity work. The [refreshed MultiRun release](multirun/RELEASES.md#refreshed-security-candidate--20-october-2026)
+   no fix recorded. Review their applicability. The
+   [browser asset integrity review](../../solveit_SimPathsWeb/security-review/2026-10-20/BROWSER_ASSETS.md)
+   now verifies all 12 remote script/style responses and five local vendor files;
+   the screenshot loader's missing SRI is fixed and three Chromium acceptance
+   cases pass. Provider-managed Turnstile and referenced fonts remain documented
+   exceptions. The [refreshed MultiRun release](multirun/RELEASES.md#refreshed-security-candidate--20-october-2026)
    passed native preparation/queue execution on 20 October. Perform further
    installation/build/scan work outside quiet benchmarks; preserve the older
    scientific references.
@@ -78,6 +82,10 @@ and update reports below are not blanket acceptance of today's source tree.
    There are now **32 batch migrations**, including handover (030), detailed
    performance history (031) and administrator monitoring exports (032). The retained 22-migration update pair is historical;
    it does not qualify code-only rollback for the current release.
+   A separately frozen 32-migration pair passed 55 regressions, all seven native
+   stages, final integrity and cleanup on 20 October. Carry its exact selected
+   commits and the separate later browser-asset qualification into the inventory;
+   do not relabel an older report as acceptance of an unspecified new tree.
 4. Complete provider checks, provision private staging and execute the installed
    host, external privacy, recovery and mixed-load checks below. Funding is
    already agreed; provider suitability, billing/account setup and technical

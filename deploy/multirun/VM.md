@@ -78,18 +78,23 @@ certificate tooling and PostgreSQL client tools. Record the actual package/image
 versions in deployment evidence. In a fresh virtual environment install:
 
 ```bash
-/opt/simpaths-online/venv/bin/python -m pip install --upgrade pip==26.2
+/opt/simpaths-online/venv/bin/python -m pip install --upgrade \
+  -r /opt/simpaths-online/JAS-mine-web/requirements-installer.txt
 /opt/simpaths-online/venv/bin/python -m pip install \
   -r /opt/simpaths-online/JAS-mine-web/requirements-batch-web.txt \
   -r /opt/simpaths-online/SimPaths/deploy/multirun/requirements.txt
 ```
 
-The installer pin matches the reviewed frontend Dockerfile. Record the resolved
+The installer file is shared with the frontend Dockerfile and disposable proof
+bootstrap. The 20 October pip 26.2.2 / OAuthLib 4.0.0 pair passed isolated native
+qualification without upgrading the existing benchmark interpreter. The exact
+receipt and scope are in the frontend's `docs/python-runtime-qualification.md`.
+Record the resolved
 packages from the installed environment and scan them before public launch;
 the shared constraints include optional deployment profiles and are not an
 installed-package receipt. The 15 October dependency audit identifies an
-OAuthLib update and image-package fixes still requiring qualification; a passed
-functional model proof alone does not approve dependencies for deployment.
+image-package fixes still requiring qualification; the October 20 Python
+qualification does not approve model images or installed-host packages.
 
 Use a reviewed MultiRun JAR and parameter workbooks in the SimPaths checkout,
 matching the tested model build. Install the already tested user-input execution

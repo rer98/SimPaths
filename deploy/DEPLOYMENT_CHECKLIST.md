@@ -445,10 +445,16 @@ not install services, choose providers or change security settings.
   and Visualiser build/source manifest. The candidate tool above prepares this
   inventory; select committed sources and verify the installed artifacts/dependencies
   before completing this gate. Retain the previous usable builds/images.
-- [ ] Qualify the Python/installer update in an isolated environment, including
+- [x] Qualify the Python/installer update in an isolated environment, including
   FastHTML imports, sign-in/session/permission/browser workflows and resolved
-  installed versions. The shared OAuthLib pin is still 3.3.1; installer guidance
-  alone has not upgraded the test interpreter or disposable proof bootstrap.
+  installed versions. On 20 October, OAuthLib 4.0.0 / pip 26.2.2 passed 59
+  PostgreSQL/HTTP tests, 108 native unit checks, iterative/Visualiser browser
+  flows and separated SingleRun HTTPS/restarts. The fresh scan matches all 56
+  resolved package versions and reports no matching advisories. The shared
+  OAuthLib pin now selects 4.0.0. Disposable proof bootstrap and Docker use the
+  shared exact installer file; the existing benchmark interpreter is preserved.
+  See `JAS-mine-web/docs/python-runtime-qualification.md` for the receipt and
+  exact limitations. Verify the actual installed host separately.
 - [ ] Build, qualify and scan fresh model-image IDs with the recorded native
   fixes and current advisory databases. Prepare a new audit inventory with the
   selected qualification receipt and actual Visualiser build/lock directory;

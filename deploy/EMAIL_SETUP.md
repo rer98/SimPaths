@@ -13,8 +13,9 @@ SimPaths Online SMTP provider, administrator recipients and private deployment s
   that its current 300-email daily allowance is sufficient initially; usage from
   the other websites sharing that account must also fit within the allowance.
 - A separate SMTP key named **SimPaths Online** has been created in that account.
-- Use **r@ross-richardson.com** as the initial sending address and administrator
-  recipient. Sender credentials and recipient routing are separate settings.
+- The initial sending address and administrator recipient are saved in the
+  private configuration. Sender credentials and recipient routing are separate
+  settings; public examples below use reserved placeholder addresses.
 - The private local configuration is saved at
   `~/.config/simpaths-online/smtp.env`, outside the Git checkouts. Local checks
   confirmed the required settings and a nonempty key, file mode **0600** and
@@ -23,7 +24,9 @@ SimPaths Online SMTP provider, administrator recipients and private deployment s
 
 This guide records non-secret decisions. The SMTP key belongs only in private
 configuration or a password manager, never in Git, this guide or test reports.
-The actual Brevo SMTP login is retained in the private configuration too.
+Actual sender/recipient addresses and the Brevo SMTP login are retained in the
+private configuration too. Replace the public placeholders only in private
+deployment files.
 
 ## SMTP transport and address roles
 
@@ -36,7 +39,7 @@ No Brevo campaign templates or marketing automations are required for this route
 | `SMTP_HOST=smtp-relay.brevo.com` | Outgoing SMTP relay |
 | `SMTP_PORT=587` | SMTP submission port |
 | `SMTP_USE_TLS=true` | Upgrade the connection using STARTTLS |
-| `SMTP_FROM_EMAIL=r@ross-richardson.com` | Sender address shown on messages |
+| `SMTP_FROM_EMAIL=sender@example.invalid` | Placeholder for the sender address shown on messages |
 | `SMTP_LOGIN_EMAIL` | Brevo SMTP username from its SMTP settings |
 | `SMTP_PASSWORD` | The dedicated SimPaths Online SMTP key, not a Brevo API key |
 | `CONTACT_TO_EMAIL` | Contact-form recipient only; it does not select administrator recipients |
@@ -72,7 +75,7 @@ complete VM configuration:
 ```toml
 [notifications]
 enabled = true
-admin_email = "r@ross-richardson.com"
+admin_email = "admin@example.invalid"
 storage_wait_emails = true
 storage_wait_hours = 6
 
@@ -100,7 +103,7 @@ Backup alerts are separately enabled in `backup.toml`:
 ```toml
 [alerts]
 enabled = true
-recipient = "r@ross-richardson.com"
+recipient = "admin@example.invalid"
 ```
 
 Sharing the SMTP environment alone does not enable backup alerts. See the

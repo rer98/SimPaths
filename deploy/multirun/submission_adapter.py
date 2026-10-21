@@ -29,14 +29,52 @@ class SubmissionModel:
     def __init__(self, releases, *, max_repetitions=DEFAULT_MAX_REPETITIONS,
                  max_configurations=DEFAULT_MAX_CONFIGURATIONS):
         self.releases = releases
+        self.release_registry=getattr(releases,'registry',None)
         self.max_repetitions = deployment_repetition_limit(max_repetitions)
         self.max_configurations = deployment_configuration_limit(max_configurations)
         self.submission_limits = Limits(max_repetitions=self.max_repetitions,
                                        max_run_sets=self.max_configurations)
 
+    def release_availability(self):
+        return (self.release_registry.availability() if self.release_registry is not None
+                else {key:'available' for key in self.releases})
+
+    def experiment_release(self,specification):
+        versions={normalise(run['parameters']).as_dict()['model_release'] for run in specification['run_sets']}
+        if len(versions)!=1 or not versions<=self.releases.keys():
+            raise ArtifactError('The original experiment model release is unavailable or inconsistent')
+        return next(iter(versions))
+
+    def can_extend(self,specification):
+        return self.release_availability().get(self.experiment_release(specification)) in ('available','existing')
+
+    def validate_preparation(self,release,original=None):
+        availability=self.release_availability().get(release)
+        if original is not None:
+            if release!=self.experiment_release(original) or not self.can_extend(original):
+                raise ArtifactError('Prepare inputs with the original experiment’s supported model release')
+        elif availability!='available':
+            raise ArtifactError('This model release is retained for existing experiments or recovery; choose an available release')
+        if availability not in ('available','existing'):
+            raise ArtifactError('This model release is retained for recovery only')
+
+    def validate_new_experiment(self,specification,datasets):
+        if self.release_availability().get(self.experiment_release(specification))!='available':
+            raise ArtifactError('This model release is retained for existing experiments or recovery; choose an available release')
+        self.validate_extension(specification,specification,datasets)
+
+    def check_experiment_request(self,request,original=None):
+        """Reject unavailable versions before hashing large prepared inputs."""
+        release=normalise(request['configuration'],limits=self.submission_limits).as_dict()['model_release']
+        if original is None:
+            if self.release_availability().get(release)!='available':
+                raise ArtifactError('Choose a model release available for new experiments')
+        elif release!=self.experiment_release(original) or not self.can_extend(original):
+            raise ArtifactError('Added configurations must use the original experiment model release while it supports additions')
+
     def preparation(self, release, uploads, request):
         from jasmine_web.batch.policy import Resources
-        if release not in self.releases:
+        if release not in self.releases or release not in self.release_availability():
             raise ArtifactError('Select an available model release')
         configured = self.releases[release]
         image = configured['image']
@@ -80,6 +118,8 @@ class SubmissionModel:
             raise ArtifactError('Input dataset is unavailable')
         if len({self.model_identity(chosen) for chosen in choices.values()}) != 1:
             raise ArtifactError('All configurations must use inputs prepared for the same model version')
+        if config.as_dict()['model_release'] not in self.release_availability():
+            raise ArtifactError('This model release is archived; restore it or choose an available release')
         selected = self.releases.get(config.as_dict()['model_release'])
         if selected is None or fingerprint(selected['jar'])['sha256'] != self.model_identity(resolved):
             raise ArtifactError('Select inputs prepared for the configuration’s model version')
@@ -133,6 +173,44 @@ class SubmissionModel:
             return resolved['definition']['model']['release']['model']['sha256']
         return read_prepared(resolved['location'])['identity']['model']['sha256']
 
+    def validate_extension(self, original, incoming, datasets):
+        """Pin additions to the original release and trusted input provenance.
+
+        Called on review and again inside final submission. Read only small
+        checked receipts here; full input verification belongs to model review.
+        Legacy receipts may be reused only for the experiment's existing inputs.
+        """
+        previous=[normalise(run['parameters']).as_dict() for run in original['run_sets']]
+        releases={data['model_release'] for data in previous}
+        if len(releases)!=1 or not releases<=self.releases.keys():
+            raise ArtifactError('The original experiment model release is unavailable or inconsistent')
+        expected=next(iter(releases))
+        if self.release_availability().get(expected) not in ('available','existing'):
+            raise ArtifactError('This model release is retained for recovery only; no configurations can be added')
+        existing={data['dataset_revision'] for data in previous}
+        receipts={}
+        for run in incoming['run_sets']:
+            data=normalise(run['parameters']).as_dict()
+            if data['model_release']!=expected:
+                raise ArtifactError('Added configurations must use the original experiment model release')
+            execution=run.get('execution',incoming)
+            resolved=datasets.get(execution['dataset_id'])
+            if (resolved is None or resolved['dataset_id']!=data['dataset_revision']
+                    or execution['model_digest']!=resolved['model_digest']):
+                raise ArtifactError('Added configuration inputs do not match their reviewed identity')
+            if resolved.get('state')=='pending':
+                release=resolved['definition']['model']['release']['release']
+            else:
+                key=resolved['dataset_id']
+                if key not in receipts:
+                    receipt=read_prepared(resolved['location'])
+                    if receipt['sha256']!=resolved['prepared_fingerprint']:
+                        raise ArtifactError('Prepared dataset changed; review the addition again')
+                    receipts[key]=receipt['identity'].get('release',{}).get('id')
+                release=receipts[key]
+            if release!=expected and (release is not None or resolved['dataset_id'] not in existing):
+                raise ArtifactError('Prepare addition inputs with the original experiment model release')
+
     def bind_run(self, resolved, run, seeds):
         """Bind outside a review with fresh verification of every prepared byte."""
         receipt = None if resolved.get('state') == 'pending' else self._verified_prepared(resolved)
@@ -166,12 +244,17 @@ class SubmissionModel:
                     or common['population']>50000):
                 raise ArtifactError('Configuration must match the selected inputs and supported population/years')
             release=resolved['definition']['model']['release']
+            if release['release']!=data['model_release']:
+                raise ArtifactError('Select inputs prepared for the configuration’s model release')
             policy=release.get('resource_policy',LEGACY_POLICY)
             resources=simulation_resources(policy,**workload(data))
             result=dict(id=run['id'],parameters=config.editable_configuration())
         else:
             if receipt is None or receipt['sha256']!=resolved['prepared_fingerprint']:
                 raise ArtifactError('Prepared dataset changed')
+            release=receipt['identity'].get('release',{}).get('id')
+            if release is not None and release!=data['model_release']:
+                raise ArtifactError('Select inputs prepared for the configuration’s model release')
             args=container_submission(config.editable_configuration(),resolved['location'],resolved['model_digest'])
             result=args['run_sets'][0]
             selected=self.releases.get(data['model_release'],{})

@@ -5,6 +5,7 @@ Checks accepted reviews, waiting jobs, retries, ownership and version compatibil
 @author ross richardson
 """
 from copy import deepcopy
+from datetime import timedelta
 import io
 import os
 from pathlib import Path
@@ -30,6 +31,9 @@ from .artifacts import fingerprint
 from .browser_model import BrowserModel
 from .queue_adapter import read_prepared
 from .releases import ReleaseRegistry
+from .releases import utc_now
+from .release_retirement import ReleaseRetirement
+from . import release_archives
 from .resource_policy import DEFAULT_POLICY, LEGACY_POLICY
 from .submission_adapter import PreparationAdapter
 
@@ -81,11 +85,11 @@ class ReleaseRuntimeTests(unittest.TestCase):
         self.assertTrue(response.json()['authorised'])
         client.headers['X-CSRF-Token']=response.json()['csrf']
 
-    def upgrade(self, *, same_model=False):
+    def upgrade(self, *, same_model=False, same_image=False):
         if not same_model: self.jar.write_bytes(b'fictional model B')
         (self.defaults/'scenario_CPI.xlsx').write_bytes(b'fictional parameters B')
         policy=deepcopy(DEFAULT_POLICY); policy['simulation']['storage']['setup_mib']=11264
-        self.second=self.registry.register(image=IMAGE_B,name='Version B',jar=self.jar,
+        self.second=self.registry.register(image=IMAGE_A if same_image else IMAGE_B,name='Version B',jar=self.jar,
             defaults=self.defaults,policy=policy,make_default=True)
         self.restart()
         self.assertEqual(self.client.cookies.get(COOKIE),self.auth)
@@ -116,6 +120,141 @@ class ReleaseRuntimeTests(unittest.TestCase):
 
     def experiment_review(self,dataset,release):
         return self.client.post('/api/review-experiment',json=dict(dataset=dataset,form=self.form(release)))
+
+    def extension_form(self,release):
+        form=self.form(release)
+        form['run_sets'][0].update(id='addition',name='Added scenario',model_args=dict(savingRate=.06))
+        return form
+
+    def check_extension_release(self,*,same_model):
+        prep=self.submit(self.preparation_review(self.first)); original_data=self.pending_dataset(prep)
+        experiment=self.submit(self.experiment_review(original_data,self.first).json()['review'])
+        self.publish(self.q.claim('prepare-original'))
+        self.service.lifecycle.reconcile()
+        self.fixture.complete(self.q.claim('original-model'))
+        self.upgrade(same_model=same_model,same_image=True)
+        prep=self.submit(self.preparation_review(self.second)); data=self.pending_dataset(prep)
+        for state in ('pending','ready'):
+            with self.subTest(inputs=state):
+                if state=='ready':self.publish(self.q.claim('prepare-new'))
+                before={table:self.fixture.sql(f'SELECT count(*) AS n FROM {table}')[0]['n']
+                        for table in ('experiments','jobs','attempts','experiment_extensions')}
+                for release in ([self.second,self.first] if same_model else [self.second]):
+                    form=self.extension_form(release)
+                    response=self.client.post('/api/review-extension',json=dict(
+                        experiment=experiment,dataset=data,form=form))
+                    self.assertEqual(response.status_code,400,response.text)
+                    self.assertIn('model release',response.json()['error'])
+                    # An otherwise valid normal review models an old signed
+                    # extension ticket from before the final-submit check existed.
+                    normal=self.client.post('/api/review-experiment',json=dict(dataset=data,form=self.extension_form(self.second)))
+                    self.assertEqual(normal.status_code,200,normal.text)
+                    ticket=self.service.signer.loads(normal.json()['review'])
+                    payload=ticket['payload'];payload['extension']=experiment
+                    if release==self.first:
+                        for run in payload['spec']['run_sets']:
+                            run['parameters']['model_release']=self.first
+                        payload['spec']['browser_settings']['configuration']['model_release']=self.first
+                    review=self.service._ticket(ticket['owner'],'simulation',payload)
+                    response=self.client.post('/api/submit',json=dict(key=uuid4().hex,review=review))
+                    self.assertEqual(response.status_code,400,response.text)
+                    self.assertIn('original experiment model release',response.json()['error'])
+                after={table:self.fixture.sql(f'SELECT count(*) AS n FROM {table}')[0]['n'] for table in before}
+                self.assertEqual(after,before)
+
+    def test_extensions_reject_different_jars_sharing_a_runtime_at_review_and_submit(self):
+        self.check_extension_release(same_model=False)
+
+    def test_extensions_reject_new_defaults_or_policy_disguised_as_original_release(self):
+        self.check_extension_release(same_model=True)
+
+    def test_original_extension_review_survives_default_change_and_preparation_completion(self):
+        prep=self.submit(self.preparation_review(self.first)); data=self.pending_dataset(prep)
+        experiment=self.submit(self.experiment_review(data,self.first).json()['review'])
+        before=self.fixture.sql('SELECT * FROM experiments WHERE id=%s',(experiment,))[0]
+        response=self.client.post('/api/review-extension',json=dict(experiment=experiment,
+            dataset=data,form=self.extension_form(self.first)))
+        self.assertEqual(response.status_code,200,response.text)
+        review=response.json()['review']
+        self.upgrade(same_image=True)
+        self.publish(self.q.claim('prepare-original'))
+        payload=dict(key=uuid4().hex,review=review)
+        for _ in range(2):
+            response=self.client.post('/api/submit',json=payload)
+            self.assertEqual(response.status_code,201,response.text)
+            self.assertEqual(response.json()['id'],experiment)
+        self.assertEqual(before,self.fixture.sql('SELECT * FROM experiments WHERE id=%s',(experiment,))[0])
+        link=self.fixture.sql('SELECT * FROM experiment_extensions')[0]
+        added=self.fixture.sql('SELECT specification FROM experiments WHERE id=%s',(link['experiment_id'],))[0]['specification']
+        self.assertEqual(added['run_sets'][0]['parameters']['model_release'],self.first)
+        self.assertEqual(added['model_digest'],IMAGE_A)
+        self.assertEqual(added['seeds'],before['specification']['seeds'])
+        self.assertEqual(len(self.fixture.sql('SELECT * FROM jobs WHERE experiment_id=%s',(link['experiment_id'],))),1)
+
+    def test_live_restrictions_recheck_signed_work_but_preserve_accepted_jobs(self):
+        preparation_review=self.preparation_review(self.first)
+        prep=self.submit(preparation_review);data=self.pending_dataset(prep)
+        original_review=self.experiment_review(data,self.first).json()['review']
+        experiment=self.submit(original_review)
+        self.upgrade(same_image=True)
+        self.registry.set_availability(self.first,'existing')
+        self.assertNotIn(self.first,[r['id'] for r in self.client.get('/api/dashboard').json()['form']['releases']])
+        for review in (preparation_review,original_review):
+            denied=self.client.post('/api/submit',json=dict(key=uuid4().hex,review=review))
+            self.assertEqual(denied.status_code,400,denied.text)
+        review=self.client.post('/api/review-extension',json=dict(experiment=experiment,
+            dataset=data,form=self.extension_form(self.first)))
+        self.assertEqual(review.status_code,200,review.text)
+        extension_review=review.json()['review']
+        added=self.submit(extension_review);self.assertEqual(added,experiment)
+        request=dict(release=self.first,upload_ids=self.uploads,dataset_name='More original inputs',
+            selection=dict(year=2019,schedule=[['policy.txt','2019','2019','Baseline']]),experiment=experiment)
+        context=self.client.post('/api/review-preparation',json=request)
+        self.assertEqual(context.status_code,200,context.text)
+        self.access.approve_email('bob@example.org')
+        other=TestClient(create_app(self.service,origin=ORIGIN),base_url=ORIGIN,headers={'Origin':ORIGIN})
+        self.addCleanup(other.close);self.login(other,'bob@example.org')
+        self.assertEqual(other.post('/api/review-preparation',json=request).status_code,403)
+        before=self.fixture.sql('SELECT id,state,model_digest,execution_run FROM jobs ORDER BY id')
+        self.registry.set_availability(self.first,'recovery')
+        for review in (extension_review,context.json()['review']):
+            denied=self.client.post('/api/submit',json=dict(key=uuid4().hex,review=review))
+            self.assertEqual(denied.status_code,400,denied.text)
+        self.assertEqual(before,self.fixture.sql('SELECT id,state,model_digest,execution_run FROM jobs ORDER BY id'))
+        self.assertFalse(self.client.get('/api/experiments/'+experiment).json()['extension_available'])
+        self.publish(self.q.claim('accepted-preparation'))
+        self.service.lifecycle.reconcile()
+        lease=self.q.claim('accepted-original-model')
+        self.assertIsNotNone(lease)
+        self.assertEqual(lease.specification['run_sets'][0]['parameters']['model_release'],self.first)
+        self.assertEqual(lease.specification['model_digest'],IMAGE_A)
+
+    def test_native_retirement_waits_for_work_and_inputs_then_restores_the_archive(self):
+        prep=self.submit(self.preparation_review(self.first));data=self.pending_dataset(prep)
+        experiment=self.submit(self.experiment_review(data,self.first).json()['review'])
+        self.upgrade(same_image=True)
+        self.jar.write_bytes(b'fictional model C')
+        third=self.registry.register(image=IMAGE_B,name='Version C',jar=self.jar,
+            defaults=self.defaults,make_default=True)
+        self.restart();self.registry.set_availability(self.first,'recovery')
+        retirement=ReleaseRetirement(self.q,self.registry.state)
+        now=utc_now()
+        self.assertTrue(retirement.tick(force=True,now=now)['releases'][self.first]['reasons'])
+        self.publish(self.q.claim('prepare-original'));self.service.lifecycle.reconcile()
+        self.fixture.complete(self.q.claim('finish-original'))
+        self.assertIn('retained prepared inputs',retirement.tick(force=True,now=now+timedelta(days=31))['releases'][self.first]['reasons'])
+        token=self.client.cookies.get(COOKIE);csrf=self.client.headers['X-CSRF-Token']
+        review=self.service.review_dataset(token,csrf,dataset=data,action='delete')
+        self.service.submit(token,csrf,uuid4().hex,review['review'])
+        self.service.lifecycle.retire(self.root/'artifacts')
+        self.assertEqual(retirement.tick(force=True,now=now+timedelta(days=32))['retired'],[])
+        result=retirement.tick(force=True,now=now+timedelta(days=63))
+        self.assertEqual(result['retired'],[self.first])
+        self.assertNotIn(self.first,self.registry.load())
+        release_archives.restore(self.registry,self.first)
+        self.assertEqual(self.registry.availability()[self.first],'recovery')
+        self.assertEqual(next(iter(self.registry.load())),third)
+        self.assertEqual(self.fixture.sql('SELECT count(*) AS n FROM attempts WHERE job_id IN (SELECT id FROM jobs WHERE experiment_id=%s)',(experiment,))[0]['n'],1)
 
     def publish(self,lease):
         """Exercise the real immutable file/publication adapter with synthetic output."""

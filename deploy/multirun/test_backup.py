@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from unittest.mock import Mock,patch
 from uuid import uuid4
 
@@ -113,6 +114,18 @@ class BackupFileTests(unittest.TestCase):
         (output/'manifest.json').write_bytes(original)
         tree=deepcopy(value['state_tree']); tree['files']['../outside']=dict(bytes=0,sha256='a'*64,mode=0o600)
         with self.assertRaises(ArtifactError):backup_files.check_tree(output/'state',tree)
+
+    def test_backup_checks_retired_archive_members_beyond_outer_tree_hashes(self):
+        from . import release_archives
+        registry=ReleaseRegistry(self.state)
+        entry=registry._catalogue()['entries'][self.release]
+        record=release_archives.create(registry,self.release,entry)
+        _,archive,metadata=release_archives.paths(registry,self.release)
+        with zipfile.ZipFile(archive,'a') as target:target.writestr('../outside',b'unsafe')
+        record['archive']=fingerprint(archive);atomic_json(metadata,record)
+        output,_=self.build_backup()
+        with self.assertRaisesRegex(ArtifactError,'archive members'):backup.verify(output)
+        self.assertFalse((self.root/'outside').exists())
 
     def test_file_verification_checks_counts_mode_and_checksum(self):
         output,value=self.build_backup()

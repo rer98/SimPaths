@@ -254,6 +254,7 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                     service.notifications.reconcile()
                     service.retention.reconcile()
                     service.completions.reconcile()
+                    service.release_retirement.tick()
                     for _ in range(5):
                         if stop.is_set():
                             break
@@ -407,6 +408,8 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
         sender=smtp_sender(os.environ['SMTP_FROM_EMAIL']) if args.notification_emails else None)
     service.completions=CompletionNotifications(service,origin=origin,
         sender=smtp_sender(os.environ['SMTP_FROM_EMAIL']) if args.notification_emails else None)
+    from .release_retirement import ReleaseRetirement
+    service.release_retirement=ReleaseRetirement(q,state,protected=(default,))
     service.retention.reconcile()
     service.completions.reconcile()
     print('Automatic expiry deletion: '+('enabled' if args.retention_cleanup else 'disabled; dates and notices recorded locally'),flush=True)

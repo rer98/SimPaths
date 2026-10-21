@@ -48,11 +48,21 @@ The backup contains:
   limits, permissions, retention dates and notification records.
 - The private MultiRun state: uploads, prepared datasets, retained output,
   per-run `options.txt`, bounded diagnostic files, the existing session secret,
-  release registry and retained JARs, workbooks and preparation/run scripts.
+  release registry and retained JARs, workbooks and preparation/run scripts,
+  plus retired-release recovery ZIPs/receipts and live retirement controls.
 - Every distinct registered prepared-input directory outside the state directory,
   once, including imported training snapshots.
 - A private manifest recording source locations, required immutable Docker image
   IDs, PostgreSQL major version, file checksums and hashes/counts of all table rows.
+
+Retired release archives receive member/path/type/size/hash validation before
+backup publication and during backup verification. Both online and offline
+restoration retain their exact bytes; explicit release restoration registers a
+verified bundle as `recovery`, without selecting it or approving new work. Active
+runtime IDs are required at backup activation. Archived runtime IDs are recorded
+in the recovery receipts and required when those bundles are reused; the image
+bytes themselves still need separate protected storage. A bundle archive is not
+a Docker image backup. See [release retention](RELEASES.md#retention-image-protection-and-backups).
 
 Committed per-seed Visualiser summaries and ready publications/indexed chart
 sections are included with their checksums, provenance and fixed expiry records.

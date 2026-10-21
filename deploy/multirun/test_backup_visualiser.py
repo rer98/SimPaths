@@ -170,6 +170,20 @@ class NativeVisualiserRestoreTests(unittest.TestCase):
         key=v.request(auth['token'],auth['csrf'],self.f.completed.job_id)['id'];v.tick()
         original=v.data_bytes(auth['token'],key)
         q=self.f.q
+        from .releases import ReleaseRegistry, utc_now
+        from .release_retirement import ReleaseRetirement
+        from . import release_archives
+        from datetime import timedelta
+        registry=ReleaseRegistry(self.f.state)
+        original_default=next(iter(registry.load()))
+        jar=self.f.root/'retired-model.jar';jar.write_bytes(b'fictional retired model')
+        old=registry.register(image='sha256:'+'e'*64,name='Retired recovery fixture',jar=jar,
+            defaults=registry.load()[original_default]['defaults'])
+        registry.set_availability(old,'recovery')
+        retirement=ReleaseRetirement(q,self.f.state);now=utc_now()
+        retirement.tick(force=True,now=now)
+        self.assertEqual(retirement.tick(force=True,now=now+timedelta(days=31))['retired'],[old])
+        archive_identity=release_archives.verify(registry,old)['archive']
         source_row=self.f.f.sql('SELECT identity FROM visualiser_sources WHERE attempt_id=%s',
                                 (self.f.completed.attempt_id,))[0]
         cache=SummaryCache(v.root/'summaries')
@@ -201,6 +215,9 @@ class NativeVisualiserRestoreTests(unittest.TestCase):
         self.assertEqual(manifest['visualiser']['evictions'],1 if evicted else 0)
         backup.restore(self.f.target_q,self.f.backup,self.f.target,self.f.target_tools)
         backup.activate(self.f.target_q,self.f.backup,self.f.target,image_check=lambda _:None,source_isolated=online)
+        restored_registry=ReleaseRegistry(self.f.target)
+        self.assertEqual(release_archives.verify(restored_registry,old)['archive'],archive_identity)
+        self.assertNotIn(old,restored_registry.load())
         restored=self.service(self.f.target_q,self.f.target)
         self.assertEqual(budget(restored.visualiser.root),approved)
         with patch.object(restored.visualiser.backend,'process',side_effect=AssertionError('Restore must not recalculate')):

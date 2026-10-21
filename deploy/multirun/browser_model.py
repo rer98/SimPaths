@@ -19,18 +19,24 @@ from .schema import COLLECTOR_FIELDS, REQUIRED_OUTPUT, ConfigurationError, Deplo
 
 
 class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
+    def browser_release(self,key):
+        value=self.releases[key]
+        return dict(id=key,name=value.get('name','SimPaths UK — uploaded inputs'),
+                    workbooks=list(public_workbooks(value['defaults'])),
+                    availability=self.release_availability().get(key,'recovery'))
+
     def configuration_name(self, run):
         data = normalise(run['parameters']).as_dict()
         return next(item['name'] for item in data['run_sets'] if item['id'] == run['id'])
 
     def browser_form(self):
         repetition_word='repetition' if self.max_repetitions==1 else 'repetitions'
+        available=self.release_availability()
         return dict(title='SimPaths Online', subtitle='UK MultiRun',
             max_configurations=self.max_configurations, configuration_ceiling=Limits().max_run_sets,
             max_repetitions=self.max_repetitions, max_yaml_bytes=Limits().max_bytes,
             yaml=True, sweeps=True, first_seed='606',
-            releases=[dict(id=k, name=v.get('name','SimPaths UK — uploaded inputs'),
-                workbooks=list(public_workbooks(v['defaults']))) for k,v in self.releases.items()],
+            releases=[self.browser_release(k) for k in self.releases if available.get(k)=='available'],
             common=[dict(id='population',label='Simulated population',kind='int',default=20000,min=1,max=50000),
                     dict(id='start_year',label='First year',kind='int',default=2019,min=2011,max=2024),
                     dict(id='end_year',label='Last year',kind='int',default=2020,min=2011,max=2026)],
@@ -51,14 +57,20 @@ class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
 
     def browser_workbook(self, release, name):
         """Only public parameter defaults, never prepared/provider microdata."""
-        if type(release) is not str or release not in self.releases:
+        if (type(release) is not str or release not in self.releases
+                or self.release_availability().get(release) not in ('available','existing')):
             raise ArtifactError('Select an available model release')
         allowed = public_workbooks(self.releases[release]['defaults'])
         if name not in allowed:
             raise ArtifactError('Select an existing replacement parameter workbook')
         return allowed[name]
 
-    def describe_dataset(self, resolved):
+    def describe_dataset(self,resolved):
+        result=self._describe_dataset(resolved)
+        result['release_availability']=self.release_availability().get(result['model_release'],'recovery')
+        return result
+
+    def _describe_dataset(self, resolved):
         if resolved.get('state')=='pending':
             definition=resolved['definition'];model=definition['model'];year=model['selection']['year']
             return dict(id=resolved['dataset_id'],name=resolved.get('display_name') or 'Your pending UK inputs',
@@ -83,7 +95,8 @@ class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
         release=identity.get('release',{}).get('id')
         if release is None:
             release=next((key for key,entry in self.releases.items()
-                          if (entry['identity']['model'] if 'identity' in entry else fingerprint(entry['jar']))==identity['model']),None)
+                          if key in self.release_availability() and
+                          (entry['identity']['model'] if 'identity' in entry else fingerprint(entry['jar']))==identity['model']),None)
         return dict(id=resolved['dataset_id'],name=resolved.get('display_name') or name,values=values,
                     model_release=release,
                     inputs=dict(fingerprint=receipt['sha256'],comparison_state='prepared',

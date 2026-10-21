@@ -298,17 +298,31 @@ def visualiser_build(root, source, source_commit, reader):
 
 def catalogue(path, selected_model, selected_image, reader):
     path = ordinary(path); value, fp = reader.json(path)
-    if (type(value) is not dict or set(value) != {'format', 'default', 'entries'}
-            or value['format'] != 'simpaths.multirun.releases.v1'
+    versioned=type(value) is dict and value.get('format')=='simpaths.multirun.releases.v2'
+    if (type(value) is not dict or set(value) != ({'format','default','rollback','entries'} if versioned else {'format','default','entries'})
+            or value['format'] not in ('simpaths.multirun.releases.v1','simpaths.multirun.releases.v2')
             or type(value['entries']) is not dict or not 1 <= len(value['entries']) <= 100
             or value['default'] not in value['entries']):
         raise RecordError('Invalid retained-release catalogue')
+    if versioned and value['rollback'] is not None and value['rollback'] not in value['entries']:
+        raise RecordError('Rollback release is absent from the catalogue')
     entries = {}
     for key, item in value['entries'].items():
+        fields=({'legacy','manifest','availability','registered_at','status_changed_at','unreferenced_since'}
+                if versioned else {'legacy','manifest'})
         if (not re.fullmatch(r'(?:release-[a-f0-9]{64}|local-[a-f0-9]{16})', key)
-                or type(item) is not dict or set(item) != {'legacy', 'manifest'}
+                or type(item) is not dict or set(item) != fields
                 or type(item['legacy']) is not bool or item['legacy'] != key.startswith('local-')):
             raise RecordError('Invalid retained-release catalogue entry')
+        if versioned:
+            if (item['availability'] not in ('available','existing','recovery')
+                    or key==value['default'] and item['availability']!='available'):
+                raise RecordError('Invalid retained-release availability')
+            for field in ('registered_at','status_changed_at','unreferenced_since'):
+                if field=='unreferenced_since' and item[field] is None:continue
+                try:
+                    if datetime.fromisoformat(item[field]).tzinfo is None:raise ValueError()
+                except (TypeError,ValueError):raise RecordError('Invalid release lifecycle timestamp') from None
         fingerprint_value(item['manifest'])
         file = path.parent.parent/'release/release.json' if item['legacy'] else path.parent/key/'release.json'
         release, release_fp = reader.json(file)
@@ -332,8 +346,11 @@ def catalogue(path, selected_model, selected_image, reader):
                         'identity_sha256':digest(identity), 'default':key == value['default'],
                         'matches_selected_model':identity['model'] == selected_model,
                         'matches_selected_image':identity['image'] == selected_image}
-    return {'manifest':fp, 'default':value['default'], 'entries':entries,
+        if versioned:entries[key].update({name:item[name] for name in fields-{'legacy','manifest'}})
+    result={'manifest':fp, 'default':value['default'], 'entries':entries,
             'scope':'Read-only catalogue/manifest identity checks; retained bundle contents and daemon not revalidated.'}
+    if versioned:result.update(format=value['format'],rollback=value['rollback'])
+    return result
 
 
 def evidence(path, reader):

@@ -7,17 +7,27 @@ SimPaths Online deployment readiness, verified local evidence and installation o
 
 # SimPaths Online deployment readiness
 
-**Reviewed:** 20 October 2026. **Deployment status:** the intended first trial is
+**Reviewed:** 21 October 2026. **Deployment status:** the intended first trial is
 Contabo Cloud VPS 12 in the EU. Matteo confirmed funding on 14 October through
 Alliance for Microsimulation and Policy Analysis CIC and requested that project
-accounts refer to that entity. No installed/accepted VM, selected domain or
-completed provider CPU-use/account-arrangement checks are recorded here.
+accounts refer to that entity. Ross confirmed on 21 October that the Contabo
+account has not yet been created. Account setup and ordering remain to do; no
+installed/accepted VM, selected domain or completed provider CPU-use checks are
+recorded here.
 
 Use this checklist to prepare and validate the first SimPaths Online installation,
 covering SingleRun, UK MultiRun and the Policy Impact Visualiser connection.
 The evidence table records passing local tests. The unchecked items require the
 actual deployment configuration, host or external service. Older dated plans
 retain the development history; this checklist supplies the current deployment order.
+
+The first VM deployment uses the selected, currently released and qualified
+artifacts. Unpublished dependency, library or model fixes remain tracked
+follow-up work and do not postpone installation while waiting for publication.
+Record the deployed versions and open findings, perform the installed-host
+acceptance checks, and use the [maintainer update workflow](MAINTAINER_GUIDE.md#updates-after-the-first-vm-deployment)
+for subsequent releases. Review available updates according to their impact;
+neither this first installation nor a later version freeze ends maintenance.
 
 ## Current implementation and next work
 
@@ -62,15 +72,37 @@ and update reports below are not blanket acceptance of today's source tree.
    candidates for lower-CPU/hosted qualification; the 4 GiB heap / 5 GiB allowance
    remains available as the broader tested reference. Precise monitoring overhead,
    ten-repetition stability and chosen-host mixed load remain unqualified. The
-   separate long Gini-on laptop benchmark is still available; no completion of
-   that campaign is implied here.
+   long Gini-on attempt reached 2069 before its runtime deadline; its retained
+   observations are sufficient for preliminary planning. Another quiet laptop
+   rerun is optional. Defer full-horizon Gini-on completion, final output checks
+   and repeated-JVM acceptance to the VPS, with a separately reviewed longer
+   runtime budget. See the [Gini planning decision](multirun/OUTPUT_TRIALS.md#planning-value-and-whether-to-repeat-the-quiet-run);
+   the incomplete campaign remains failed.
 2. Complete the remaining [dependency release gates](../../solveit_SimPathsWeb/SECURITY_DEPENDENCY_TRIAGE_2026-10-15.md#runtime-exclusion-and-smaller-compiler--20-october-2026).
    Isolated Python/installer compatibility, patched image qualification, guarded
    Pebble exclusion, exact-ID scans and the smaller Visualiser compiler's
    emitted-package/browser acceptance are complete. The four derived images have
    no high/critical findings and each retains 55 medium/low Ubuntu entries with
-   no fix recorded. Review their applicability. The
-   [browser asset integrity review](../../solveit_SimPathsWeb/security-review/2026-10-20/BROWSER_ASSETS.md)
+   no fix recorded. The [21 October applicability review](../../solveit_SimPathsWeb/security-review/2026-10-21/UBUNTU_APPLICABILITY.md)
+   records every entry: five advisory IDs have absent prerequisites in the
+   reviewed setup, nine native-library paths remain open, and thirty have no
+   matching exposed path found. The latter does not establish safety or a fix.
+   Exact-image native inspection passed for all four images: matching package
+   versions, ELF64 headers, selected utilities, local Xvfb sockets and cleanup
+   are verified. Installed-host applicability and the vendor security assessment
+   of Java's bundled native code remain separate review items. The
+   [offline native/JRE inventory](../../solveit_SimPathsWeb/security-review/2026-10-21/NATIVE_LIBRARIES.md)
+   now verifies all 33 saved layers and the selected bundled declarations. It
+   confirms Temurin 25.0.4+7. Record the selected version and track the newer
+   Java 25 security baseline as follow-up work; qualify a separate pinned
+   replacement when available before activating that later release. Unpublished
+   vendor updates do not delay today's VM deployment. Historical OS/Maven scan
+   counts do not cover the complete JRE.
+   The runtime metadata checker is prepared; today's two vendor API responses
+   agree on 25.0.4.1, below the reviewed 25.0.5 floor. Its plan remains
+   `waiting_vendor_release` for the optional future refresh; it does not block
+   installation of the current qualified release or approve a replacement.
+   The [browser asset integrity review](../../solveit_SimPathsWeb/security-review/2026-10-20/BROWSER_ASSETS.md)
    now verifies all 12 remote script/style responses and five local vendor files;
    the screenshot loader's missing SRI is fixed and three Chromium acceptance
    cases pass. Provider-managed Turnstile and referenced fonts remain documented
@@ -78,6 +110,13 @@ and update reports below are not blanket acceptance of today's source tree.
    passed native preparation/queue execution on 20 October. Perform further
    installation/build/scan work outside quiet benchmarks; preserve the older
    scientific references.
+   The 21 October certificate-store follow-up also passed: certifi 2026.10.19 /
+   OAuthLib 4.0.0 / pip 26.2.2 completed 59 database/HTTP cases, 123 native checks,
+   both compiled browser proofs and the SingleRun HTTPS/restart workflow. Trivy
+   matched all 56 resolved packages with no findings using that day's database.
+   The shared certifi pin now selects the tested version; fresh installed-host
+   verification remains due. See the
+   [certificate-store qualification](../../solveit_SimPathsWeb/security-review/2026-10-21/CERTIFI_UPDATE.md).
 3. Freeze a new release inventory and review its migration/rollback procedure.
    There are now **32 batch migrations**, including handover (030), detailed
    performance history (031) and administrator monitoring exports (032). The retained 22-migration update pair is historical;
@@ -519,12 +558,31 @@ not install services, choose providers or change security settings.
   selected qualification receipt and actual Visualiser build/lock directory;
   the old audit defaults and retired image receipts cannot close this gate.
   Record remaining findings and the Pebble component decision individually.
+- [ ] Record the actual installed Java runtime and its available/unpublished
+  update follow-ups. The 21 October offline inventory confirms Temurin 25.0.4+7
+  in the selected candidates. Unpublished updates do not block initial
+  installation. Qualify a replacement, including its bundled native libraries,
+  entrypoint/Pebble handling and affected workflows, before activating a later
+  release; retain benchmark runtimes and separate Java/vendor advisory coverage.
 - [ ] Review emitted dependencies for the selected browser/calculation/helper
   bundle; the October 15 `cache-b` assessment does not certify later bundle bytes.
 - [ ] Select and rehearse a compatible update/rollback pair for the current
   migration and retained-file formats, preserving a verified backup/inactive-
   restore route across incompatible schema changes. Apply all 32 reviewed batch
   migrations on the fresh installation before sharing its pool with SingleRun.
+- [ ] Deploy matching frontend/model lifecycle support and verify live release
+  restrictions on the installed host. Catalogue v2 reads existing v1 state but
+  older v1-only hosting code cannot read v2 after a lifecycle write; include that
+  compatibility in the selected rollback/restore route. Confirm current/previous
+  rollback protection, the default hourly/30-day retirement policy and recovery
+  archive backups. Retain shared Docker image IDs and separate image archives.
+  The final local lifecycle/archive-safety proof passed all 205 native checks
+  without failures, errors or skips at
+  `/tmp-codex/release-lifecycle-final-20261021-171303`; disposable database cleanup
+  passed. The earlier 200-check proof remains historical evidence. The
+  read-only deployment inventory accepts v1/v2 and
+  records lifecycle/rollback metadata, with all 26 inventory checks passing.
+  See [release lifecycle](multirun/RELEASES.md#live-availability-controls).
 - [ ] Verify licences, notices and permitted redistribution for the selected
   model, dependencies, Visualiser and training inputs before publishing artifacts.
 - [ ] Set the initial data/profile scope and account approval rules. Retain the
@@ -539,6 +597,9 @@ not install services, choose providers or change security settings.
 
 ### Host storage and capacity
 
+- [ ] Create the Contabo project account and order the agreed trial after the
+  provider/account arrangements below are settled. Account setup is still pending
+  as confirmed by Ross on 21 October; funding approval is already recorded.
 - [ ] Record Contabo's response on sustained scientific CPU use and the project
   account/billing/administration arrangements before ordering the intended trial.
   Funding is agreed; this is the remaining provider/setup check, not a new request
@@ -777,7 +838,7 @@ private configuration separately from public assets.
 
 | Record | Value |
 | --- | --- |
-| Intended first trial | Contabo VPS 12 EU; provider/setup confirmation and actual provisioning not recorded |
+| Intended first trial | Contabo VPS 12 EU; account not yet created (Ross, 21 October); ordering and provisioning pending |
 | Funding arrangement | Confirmed by Matteo on 14 October 2026; costs covered by Alliance for Microsimulation and Policy Analysis CIC |
 | Acceptance date and operator | Pending |
 | Installed source commits and artifacts | Pending |

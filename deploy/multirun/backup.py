@@ -118,7 +118,10 @@ def create(queue, state, destination, tools):
         if (state/GATE).exists():
             raise ArtifactError('Activate or finish the previous restore before taking another backup')
         processor_guards(state,stack)
-        releases=ReleaseRegistry(state).inventory()
+        registry=ReleaseRegistry(state)
+        releases=registry.inventory()
+        from .release_archives import inventory as archived_inventory
+        archived_inventory(registry)
         with frozen_database(queue) as (c,snapshot):
             version=tools.check(c)
             bound=c.execute(sql.SQL('SELECT identity FROM {} WHERE pool_id=%s').format(
@@ -258,7 +261,10 @@ def verify(backup):
     if sorted(p.name for p in (backup/'prepared').iterdir())!=[f'{i:04d}' for i in range(len(manifest['prepared']))]:
         raise ArtifactError('Prepared backup inventory differs')
     for root in manifest['prepared']: check_tree(backup/root['directory'],root['tree'])
-    retained=ReleaseRegistry(backup/'state').inventory()
+    registry=ReleaseRegistry(backup/'state')
+    retained=registry.inventory()
+    from .release_archives import inventory as archived_inventory
+    archived_inventory(registry)
     if list(retained)!=manifest['release_ids'] or next(iter(retained))!=manifest['default_release']:
         raise ArtifactError('Retained release inventory differs')
     return manifest

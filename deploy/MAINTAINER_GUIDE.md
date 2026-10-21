@@ -20,6 +20,85 @@ The [deployment readiness checklist](DEPLOYMENT_CHECKLIST.md) records the passin
 local evidence and remaining host-specific checks for both services. No production
 VM has been provisioned; use that checklist for installation and validation order.
 
+## Updates after the first VM deployment
+
+The first deployment is a recorded, tested starting release. Use the selected
+qualified artifacts and keep unresolved advisories and unpublished fixes as
+maintenance follow-ups. Waiting for a vendor to publish a future update does
+not postpone the initial VM deployment. Review updates that are already
+available according to their applicability and the affected workflows.
+
+The existing tools support subsequent releases:
+
+| Change | Update route | Effect on accepted work |
+| --- | --- | --- |
+| Website code or Python dependencies | Stage the selected source and pinned environment; use the [application update/rollback runbook](multirun/VM.md#local-application-update-and-rollback-rehearsal) and relevant HTTP/browser checks | Public gateways can restart independently of private executors. Private-service/environment changes require the corresponding tested restart/recovery procedure |
+| SimPaths, JAS-mine-core or embedded Java dependencies | Build new JARs and affected SingleRun images; qualify preparation, execution and outputs; [register a separate MultiRun release](multirun/RELEASES.md) | Existing prepared datasets, reviews, queued work and retries retain their original JAR, runtime image, runner and resource policy |
+| Java runtime or model-image OS libraries | Pin and qualify a new immutable image; retain model/input identities where unchanged; register a new runtime-backed release | Existing containers and retained datasets keep their original image. A selected new default applies to new input preparations; SingleRun image changes apply to new sessions |
+| Database or retained-file formats | Apply reviewed migrations with a verified backup and compatible application pair | Compatibility determines whether code rollback is sufficient or an inactive restore and maintenance period are needed |
+| Host OS, Docker or PostgreSQL packages | Use the host's supported update procedure and installed-host checks | Some updates need process restarts or a reboot; schedule the required drain or maintenance period |
+
+For each release:
+
+1. Select exact source/dependency versions and classify the affected components.
+   Build candidates in an isolated workspace. Reuse prepared populations only
+   when construction/serialization compatibility is established; input or
+   population-construction changes may require fresh preparation.
+2. Run checks appropriate to the change, including affected model/browser
+   workflows, permissions, limits and cleanup. Scan the resulting exact artifacts
+   and review relevant vendor advisories. Record scientific compatibility checks
+   when model or calculation dependencies change.
+3. Stage the candidate without changing the active catalogue/default. Retain
+   the previous code, pinned environment, images and release manifests. Take and
+   verify the backup required by the selected update procedure.
+4. Activate the qualified candidate using the application and model-release
+   runbooks. A running service loads a selected MultiRun default on restart;
+   changing the registry alone does not hot-swap it. Accepted work stays pinned.
+5. Verify sign-in, existing results, new submissions, reservations and service
+   responsiveness. Keep the previous release for rollback and keep every image
+   referenced by the retained registry available for startup/preflight.
+6. Roll back through the reviewed compatible route if acceptance fails. A schema
+   or retained-format change can require an inactive backup restore; an older
+   application must not be forced to open an unsupported database.
+7. Update the deployment inventory, acceptance evidence and maintenance list.
+   Recheck unpublished fixes during later release preparation and qualify them
+   when available. Do not rewrite old evidence or patch frozen job artifacts.
+
+The 20 October rehearsal already verified public-only restarts, compatible
+update/rollback and preservation of running containers, queued work, ownership,
+reservations and results for its exact selected pair. The
+[deployment checklist](DEPLOYMENT_CHECKLIST.md#earlier-model-and-application-update-evidence)
+retains the evidence and limitations. That proof does not qualify arbitrary new
+dependencies, scientific models or the eventual installed host. The existing
+procedures provide the workflow; each later candidate supplies its own evidence.
+
+### MultiRun version availability and retirement
+
+Deploy the matching frontend and model adapter together. The
+[release runbook](multirun/RELEASES.md#live-availability-controls) separates live
+new-work approval from immutable execution identities. `available` permits new
+experiments; `existing` permits only additions/preparation within original owned
+experiments; `recovery` closes both while preserving already accepted work and
+eligible retries. Select another available default before restricting the current
+one. Default selection alone does not withdraw the old version.
+
+The private runtime checks unused `recovery` bundles hourly. It protects the
+current/rollback/loaded release, unfinished work and retained inputs, waits at
+least 30 continuously unreferenced days, and verifies a recovery archive before
+removing the active bundle. Availability and retirement controls can change
+without interrupting jobs. New registration/default selection/restoration still
+needs the reviewed application restart to load the new inventory. Archives are
+included in online/offline backups; restoring one explicitly starts it in
+`recovery`, without approving new work or selecting it as default.
+
+The mutable catalogue format is now `simpaths.multirun.releases.v2`. V1 catalogues
+remain readable; lifecycle writes upgrade control metadata only. Older v1-only
+hosting code rejects v2, so include this file-format compatibility when choosing
+an update/rollback pair. Use a compatible reader or the verified inactive restore
+route. Shared Docker runtimes are not automatically pruned; preserve exact IDs
+from active releases and archived recovery receipts and archive image bytes
+separately. See the runbook for commands, references, limits and native evidence.
+
 ## 1. Checkouts and tools
 
 Use Linux, Java 25/JDK, Maven, local Docker, Python 3.11+ and Chromium via

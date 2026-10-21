@@ -7,6 +7,13 @@ Attribution scope and non-commentable/generated artifacts.
 
 # Attribution
 
+The MultiRun release-lifecycle controls, private reference-aware retirement,
+verified recovery archives and regression/proof scripts carry inline notices.
+Generated catalogue/control metadata, archive receipts, recovery ZIP inventories
+and fictional lifecycle/backup evidence are (C) Copyright 2026, by Ross Richardson;
+@author ross richardson. Copied model JARs, workbooks, runtime images and upstream
+components retain their original ownership, notices and licences.
+
 The hosted Visualiser integration manifest
 `deploy/multirun/visualiser/package.json` and its generated dependency lock are
 attributed here without inserting invalid JSON comments. Authored integration

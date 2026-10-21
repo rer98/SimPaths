@@ -121,10 +121,13 @@ condition.** Native cancellation cleanup can remove that workspace. A completed
 earlier condition already verified and archived remains preserved, but the two
 repetitions within one condition must both finish to obtain its full archive.
 
-## Two-repetition overnight laptop test
+## Optional two-repetition laptop reference
 
-The agreed next test is **50,000 people, 2019–2070, Gini on, two sequential
-repetitions in the same JVM**, fixed 2 vCPUs, 3 GiB heap and 4 GiB container.
+The earlier proposed laptop test is **50,000 people, 2019–2070, Gini on, two
+sequential repetitions in the same JVM**, fixed 2 vCPUs, 3 GiB heap and 4 GiB
+container. Following the 21 October partial-run review, a further quiet laptop
+run is optional; full completion and repetition acceptance are deferred to the
+VPS. See the [planning decision below](#planning-value-and-whether-to-repeat-the-quiet-run).
 It uses the normal model Gini flag and MultiRun seed plan, with the existing
 passive year/resource probe. No output hashing, CSV scanning, file copying or
 forced GC is inserted between repetitions. The full output audits and Gini
@@ -138,14 +141,15 @@ TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 \
   --runtime-from /tmp-codex/research-prepared-100000-20261009-232734/package \
   --population 50000 --end-year 2070 \
   --modes on --rounds 1 --repetitions 2 \
-  --repetition-seconds 28800 \
+  --repetition-seconds 43200 \
   --output "/tmp-codex/optional-gini-50k-2070-two-reps-$(date +%Y%m%d-%H%M%S)"
 ```
 
-Budget roughly **10–12 hours**, potentially longer: extrapolating three measured
-Gini-on years gives about 5.2 hours per repetition, but changing population/yearly
-work and laptop conditions make that provisional. The explicit deadline is
-**15 setup minutes + 2 × 8 hours = 16 hours 15 minutes** for the model condition,
+The original **10–12-hour** estimate was too low. The incomplete long run below
+now suggests roughly **18–20 hours** for two Gini-on repetitions, provisionally;
+neither repetition sequence nor its completion time has been qualified. The
+command above now uses a larger explicit deadline:
+**15 setup minutes + 2 × 12 hours = 24 hours 15 minutes** for the model condition,
 plus 30 minutes of proof/cleanup allowance. This is a cumulative condition budget,
 not a separate per-repetition kill timer. The overall campaign also includes
 preparation, dependency/database/browser setup and audits outside the Java timer.
@@ -266,3 +270,103 @@ time increased by 397.2% (4.97 times), with 935.665 extra seconds. Gini values
 were checked for all three years; annual exported person-row counts matched.
 The complete campaign took 38 minutes 44 seconds including preparation/audits.
 This is one short matched pair, not qualification of 2070 or ten repetitions.
+
+## Long Gini-on attempt stopped at its deadline — 21 October 2026
+
+The first 50,000-person, 2019–2070 pair selected **on, then off**, one seed 606
+per condition, fixed 2 vCPUs, 3 GiB heap and 4 GiB container. The original
+failed campaign is retained at
+`/tmp-codex/optional-gini-50k-2070-pair-20261021-004933`.
+Its attempt history and exit diagnostics classify the stop as **`time_limit`**:
+the original 15-minute setup + eight-hour repetition budget expired after
+29,700.6 seconds. The return code 137 does not by itself identify an OOM kill;
+the classified outcome here is the configured deadline. Gini-off never started.
+The model and disposable database cleanup records report completion.
+
+The passive year stream contains 50 closed annual intervals, 2019–2068, and
+part of 2069. **This run did not complete**; it does not establish a passing
+memory profile, final Gini output or full-horizon on/off overhead. Its retained
+partial observations are nevertheless useful:
+
+| Observation | Value |
+| --- | ---: |
+| Last completely closed year | 2068 |
+| Last observed year | 2069 |
+| Actual people observed at the 2068 finish boundary | 59,249 |
+| First complete annual interval, 2019 | 4.99 minutes |
+| Complete annual interval, 2035 | 9.35 minutes |
+| Complete annual interval, 2068 | 12.12 minutes |
+| Median duration of the last five complete annual intervals | 12.03 minutes |
+| Sampled Java heap peak, two-second stream | 2.18 GiB |
+| Sampled working-memory peak, two-second stream | 2.76 GiB |
+| Peak charged container memory, including file cache | 4.00 GiB |
+| Peak workspace recorded by the harness | 5.88 GiB |
+| Cumulative GC collection-time counter | 125.27 seconds; 0.42% of observed wall time |
+
+The console's `year_finish` boundary marks the native model message, not the
+end of all collector/output processing. In 2068, a further 11.37 minutes elapsed
+before `year_closed`; that interval includes collector work and is not an
+isolated Gini measurement. The original 6–7-hour campaign estimate extrapolated
+too optimistically from the short test. Later annual intervals became materially
+slower, with a larger observed population and potentially changed eligible sets
+and machine conditions; the original pairwise Gini implementation remains costly.
+
+The partial derivation and source hashes are retained separately at
+`/tmp-codex/gini-time-limit-analysis-20261021/report.json`. No original report or
+sample was rewritten or relabelled as passed. Extrapolating the last five closed
+years suggests roughly **8.6 hours for the Gini-on JVM**, with shutdown and
+changed conditions still uncertain. Budget approximately **10–11 hours for the
+whole on/off campaign**, including the off condition, preparation and audits.
+
+### Planning value and whether to repeat the quiet run
+
+The stopped run provides enough preliminary evidence to plan the next hosted
+tests without requiring another full quiet Gini-on run. It covers 50 complete
+annual intervals and the start of 2069, establishes substantial Gini/collector
+CPU cost, and retains sampled memory and workspace observations. The earlier
+completed Gini-off 50,000/2070 campaign already ran seeds 606 and 607 in one JVM
+at the same 3 GiB heap / 4 GiB container; the short matched Gini pair establishes
+the direction and scale of the optional calculation cost. A fresh long off
+condition is useful for a tighter timing comparison, not necessary to establish
+that Gini is expensive.
+
+Use 3 GiB heap / 4 GiB container and the existing 8 GiB one-repetition workspace
+allowance as provisional candidates, not measured minimum requirements. The
+5.88 GiB workspace peak predates final completion/audit staging, and working RAM
+does not include all charged file cache. Final output validity, exact whole-run
+time, completion/shutdown peaks, repeated Gini-on JVM use and hosted concurrent
+behaviour remain unverified. Keep the original failed status. Complete those
+acceptance checks on the VPS before relying on the long Gini-enabled workload
+for users; repeating the whole laptop run solely for a completed report is
+optional and is not a prerequisite to starting VM qualification.
+
+### Optional quiet rerun command
+
+If a later complete quiet reference is wanted, keep the same CPU, heap and
+container allowances and increase only the repetition runtime allowance to
+**43,200 seconds (12 hours)**.
+With the setup allowance, each condition then has 12 hours 15 minutes, plus the
+existing separate proof/cleanup grace. A timeout alone is not evidence to raise
+the memory allocation. The coarse duration-bounded resource stream may use a
+longer sample interval under this larger allowance; the two-second annual stream
+and scientific calculation remain unchanged. Both conditions use the same
+selected allowance and observer.
+
+```bash
+cd ~/git/SimPathsWeb/SimPaths &&
+TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 \
+~/simpaths-browser-tests/venv/bin/python \
+  deploy/multirun/research_output_trials.py \
+  --frontend "$HOME/git/JAS-mine/JAS-mine-web" \
+  --runtime-from /tmp-codex/research-prepared-100000-20261009-232734/package \
+  --population 50000 --end-year 2070 \
+  --modes on off --rounds 1 --repetitions 1 \
+  --repetition-seconds 43200 \
+  --output "/tmp-codex/optional-gini-50k-2070-pair-retry-$(date +%Y%m%d-%H%M%S)"
+```
+
+Use a fresh directory and keep the failed campaign. The current initial disk/RAM
+guards still apply; do not rerun the image-archival helper as part of this retry.
+The previously archived qualified images remain recoverable through the receipt
+at `/tmp-codex/gini-image-recovery-20261021-004326/report.json`; the original
+scientific runtime remains the selected reference.

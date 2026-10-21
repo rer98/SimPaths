@@ -12,6 +12,7 @@ from unittest.mock import Mock, patch
 
 from . import test_browser_model
 from .configuration import normalise
+from .artifacts import ArtifactError
 
 
 class BrowserCopyTests(unittest.TestCase):
@@ -38,6 +39,78 @@ class BrowserCopyTests(unittest.TestCase):
 
     def copy(self,spec,**kwargs):
         return self.model.browser_copy(spec,replacements=kwargs.get('replacements',{}),auto_retry=kwargs.get('auto_retry',True))
+
+    def extension(self):
+        original=self.specification()
+        incoming=deepcopy(original)
+        incoming['run_sets']=[deepcopy(original['run_sets'][0])]
+        incoming['run_sets'][0]['id']='addition'
+        incoming['run_sets'][0]['parameters']['run_sets'][0]['id']='addition'
+        data=normalise(incoming['run_sets'][0]['parameters']).as_dict()
+        incoming.update(model_digest=self.fixture.resolved['model_digest'])
+        datasets={data['dataset_revision']:dict(self.fixture.resolved,state='pending',
+            definition=dict(model=dict(release=dict(release='approved'))))}
+        return original,incoming,datasets
+
+    def test_extension_keeps_original_release_after_default_selection_changes(self):
+        original,incoming,datasets=self.extension()
+        self.model.releases={'new-default':self.model.releases['approved'],**self.model.releases}
+        before=deepcopy((original,incoming,datasets))
+        self.model.validate_extension(original,incoming,datasets)
+        self.assertEqual((original,incoming,datasets),before)
+
+    def test_extension_rejects_another_release_even_when_runtime_and_jar_match(self):
+        original,incoming,datasets=self.extension()
+        self.model.releases['new-release']=dict(self.model.releases['approved'])
+        incoming['run_sets'][0]['parameters']['model_release']='new-release'
+        with self.assertRaisesRegex(ArtifactError,'original experiment model release'):
+            self.model.validate_extension(original,incoming,datasets)
+
+    def test_extension_checks_every_existing_and_incoming_configuration(self):
+        original,incoming,datasets=self.extension()
+        self.model.releases['new-release']=dict(self.model.releases['approved'])
+        original['run_sets'][-1]['parameters']['model_release']='new-release'
+        with self.assertRaisesRegex(ArtifactError,'unavailable or inconsistent'):
+            self.model.validate_extension(original,incoming,datasets)
+        original['run_sets'][-1]['parameters']['model_release']='approved'
+        other=deepcopy(incoming['run_sets'][0]);other['id']='other'
+        other['parameters']['run_sets'][0]['id']='other'
+        other['parameters']['model_release']='new-release'
+        incoming['run_sets'].append(other)
+        with self.assertRaisesRegex(ArtifactError,'original experiment model release'):
+            self.model.validate_extension(original,incoming,datasets)
+
+    def test_extension_rejects_input_release_hidden_behind_original_configuration_release(self):
+        original,incoming,datasets=self.extension()
+        next(iter(datasets.values()))['definition']['model']['release']['release']='other-release'
+        with self.assertRaisesRegex(ArtifactError,'Prepare addition inputs'):
+            self.model.validate_extension(original,incoming,datasets)
+
+    def test_extension_checks_ready_receipt_release_and_rejects_changed_receipt(self):
+        original,incoming,datasets=self.extension()
+        resolved=next(iter(datasets.values()));resolved.pop('state')
+        receipt=dict(sha256=resolved['prepared_fingerprint'],identity=dict(release=dict(id='approved')))
+        with patch('deploy.multirun.submission_adapter.read_prepared',return_value=receipt) as read:
+            self.model.validate_extension(original,incoming,datasets)
+            self.assertEqual(read.call_count,1)
+            receipt['identity']['release']['id']='other-release'
+            with self.assertRaisesRegex(ArtifactError,'Prepare addition inputs'):
+                self.model.validate_extension(original,incoming,datasets)
+            receipt['sha256']='0'*64
+            with self.assertRaisesRegex(ArtifactError,'Prepared dataset changed'):
+                self.model.validate_extension(original,incoming,datasets)
+
+    def test_legacy_inputs_remain_extendable_but_unidentified_new_inputs_are_rejected(self):
+        original,incoming,datasets=self.extension()
+        resolved=next(iter(datasets.values()));resolved.pop('state')
+        # Read the actual older training receipt, which has no retained release ID.
+        self.model.validate_extension(original,incoming,datasets)
+        changed='new-legacy-inputs'
+        resolved['dataset_id']=changed
+        incoming['dataset_id']=changed
+        incoming['run_sets'][0]['parameters']['dataset_revision']=changed
+        with self.assertRaisesRegex(ArtifactError,'Prepare addition inputs'):
+            self.model.validate_extension(original,incoming,{changed:resolved})
 
     def test_new_submission_restores_default_inheritance_overrides_and_retry_preference(self):
         spec=self.specification();before=deepcopy(spec)

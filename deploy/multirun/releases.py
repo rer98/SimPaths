@@ -6,6 +6,7 @@ Retains legacy release IDs and never updates jobs, datasets, images or credentia
 """
 import argparse
 from contextlib import contextmanager
+from datetime import datetime, timezone
 import fcntl
 import json
 import os
@@ -21,9 +22,48 @@ from .schema import OUTPUT_CONTRACT, PROFILE_VERSION, SCHEMA_VERSION
 
 ROOT = Path(__file__).resolve().parents[2]
 FORMAT = 'simpaths.multirun.release.v1'
-CATALOGUE_FORMAT = 'simpaths.multirun.releases.v1'
+CATALOGUE_FORMAT = 'simpaths.multirun.releases.v2'
+LEGACY_CATALOGUE_FORMAT = 'simpaths.multirun.releases.v1'
+AVAILABILITY = ('available', 'existing', 'recovery')
 CONTRACT = dict(configuration=SCHEMA_VERSION, profile=PROFILE_VERSION, output=OUTPUT_CONTRACT)
 IDENTIFIER = re.compile(r'(?:release-[a-f0-9]{64}|local-[a-f0-9]{16})')
+
+
+def utc_now():
+    return datetime.now(timezone.utc)
+
+
+class RegisteredReleases(dict):
+    """Immutable bundles plus a private handle to their live availability rules."""
+    def __init__(self, values, registry):
+        super().__init__(values)
+        self.registry=registry
+
+
+def lifecycle_record(record, now=None):
+    now=(now or utc_now()).isoformat()
+    return dict(record,availability='available',registered_at=now,status_changed_at=now,
+                unreferenced_since=None)
+
+
+def check_entry(key, record, *, legacy=False):
+    fields=({'legacy','manifest'} if legacy else
+        {'legacy','manifest','availability','registered_at','status_changed_at','unreferenced_since'})
+    if (not isinstance(key,str) or not IDENTIFIER.fullmatch(key) or type(record) is not dict
+            or set(record)!=fields or type(record['legacy']) is not bool
+            or record['legacy']!=key.startswith('local-')):
+        raise ArtifactError('Invalid release catalogue entry')
+    from .prepared_dataset import check_manifest
+    check_manifest({'release.json':record['manifest']})
+    if legacy:return
+    if record['availability'] not in AVAILABILITY:raise ArtifactError('Invalid release availability')
+    for field in ('registered_at','status_changed_at','unreferenced_since'):
+        stamp=record[field]
+        if stamp is None and field=='unreferenced_since':continue
+        try:
+            parsed=datetime.fromisoformat(stamp)
+            if parsed.tzinfo is None:raise ValueError()
+        except (TypeError,ValueError):raise ArtifactError('Invalid release lifecycle timestamp') from None
 
 
 def private_directory(path):
@@ -108,17 +148,19 @@ class ReleaseRegistry:
     def _catalogue(self):
         if self.catalogue.exists() or self.catalogue.is_symlink():
             value = read_json(self.catalogue)
-            if (type(value) is not dict or set(value) != {'format', 'default', 'entries'}
-                    or value['format'] != CATALOGUE_FORMAT or type(value['entries']) is not dict
+            legacy=value.get('format')==LEGACY_CATALOGUE_FORMAT if type(value) is dict else False
+            if (type(value) is not dict or set(value) != ({'format','default','entries'} if legacy else {'format','default','rollback','entries'})
+                    or value['format'] not in (CATALOGUE_FORMAT,LEGACY_CATALOGUE_FORMAT) or type(value['entries']) is not dict
                     or not 1 <= len(value['entries']) <= 100 or value['default'] not in value['entries']):
                 raise ArtifactError('Invalid release catalogue; restore its verified metadata')
             for key, record in value['entries'].items():
-                if (not IDENTIFIER.fullmatch(key) or type(record) is not dict
-                        or set(record) != {'legacy', 'manifest'} or type(record['legacy']) is not bool
-                        or record['legacy'] != key.startswith('local-')):
-                    raise ArtifactError('Invalid release catalogue entry')
-                from .prepared_dataset import check_manifest
-                check_manifest({'release.json': record['manifest']})
+                check_entry(key,record,legacy=legacy)
+            if legacy:
+                value=dict(format=CATALOGUE_FORMAT,default=value['default'],rollback=None,
+                           entries={key:lifecycle_record(record) for key,record in value['entries'].items()})
+            if (value['rollback'] is not None and value['rollback'] not in value['entries']
+                    or value['entries'][value['default']]['availability']!='available'):
+                raise ArtifactError('Default/rollback release is unavailable')
             return value
         return None
 
@@ -167,7 +209,7 @@ class ReleaseRegistry:
         # Default comes first for old callers/browser drafts. Retained versions
         # are always available for accepted preparation, retry, copying and YAML.
         order = [catalogue['default'], *sorted(set(catalogue['entries'])-{catalogue['default']})]
-        return {key: self._entry(key, catalogue['entries'][key]) for key in order}
+        return RegisteredReleases({key:self._entry(key,catalogue['entries'][key]) for key in order},self)
 
     def _legacy(self):
         path = self.state/'release'/'release.json'
@@ -177,9 +219,9 @@ class ReleaseRegistry:
         if type(info) is not dict or set(info) != {'image','model','defaults'}:
             raise ArtifactError('Invalid legacy release metadata')
         key = 'local-'+info['model']['sha256'][:16]
-        record = dict(legacy=True, manifest=fingerprint(path))
+        record = lifecycle_record(dict(legacy=True, manifest=fingerprint(path)))
         self._entry(key, record)
-        catalogue = dict(format=CATALOGUE_FORMAT, default=key, entries={key: record})
+        catalogue = dict(format=CATALOGUE_FORMAT, default=key, rollback=None, entries={key: record})
         atomic_json(self.catalogue, catalogue)
         return catalogue
 
@@ -264,9 +306,13 @@ class ReleaseRegistry:
                             raise ArtifactError('Unregistered release bundle differs; inspect retained state')
                     else:
                         staging.rename(target)
-                    catalogue = catalogue or dict(format=CATALOGUE_FORMAT, default=key, entries={})
-                    catalogue['entries'][key] = dict(legacy=False, manifest=fingerprint(target/'release.json'))
-                if make_default: catalogue['default'] = key
+                    catalogue = catalogue or dict(format=CATALOGUE_FORMAT, default=key, rollback=None, entries={})
+                    catalogue['entries'][key] = lifecycle_record(dict(legacy=False, manifest=fingerprint(target/'release.json')))
+                if make_default:
+                    if catalogue['default']!=key:catalogue['rollback']=catalogue['default']
+                    catalogue['default'] = key
+                    catalogue['entries'][key]['availability']='available'
+                    catalogue['entries'][key]['unreferenced_since']=None
                 atomic_json(self.catalogue, catalogue)
                 return key
             finally:
@@ -278,8 +324,30 @@ class ReleaseRegistry:
             if catalogue is None or key not in catalogue['entries']:
                 raise ArtifactError('Select an existing verified release ID')
             self._load(catalogue)
+            if catalogue['entries'][key]['availability']!='available':
+                raise ArtifactError('Make this release available before selecting it as default')
+            if catalogue['default']!=key:catalogue['rollback']=catalogue['default']
             catalogue['default'] = key
             atomic_json(self.catalogue, catalogue)
+
+    def availability(self):
+        """Cheap read of atomic control metadata; no model files are rehashed."""
+        value=self._catalogue()
+        if value is None:
+            return {key:'available' for key in self.inventory()}
+        return {key:record['availability'] for key,record in value['entries'].items()}
+
+    def set_availability(self,key,value):
+        if value not in AVAILABILITY:raise ArtifactError('Choose available, existing or recovery')
+        with self.locked():
+            catalogue=self._catalogue() or self._legacy()
+            if catalogue is None or key not in catalogue['entries']:raise ArtifactError('Release is unavailable')
+            if key==catalogue['default'] and value!='available':
+                raise ArtifactError('Select another available default before restricting this release')
+            record=catalogue['entries'][key]
+            if record['availability']!=value:
+                record.update(availability=value,status_changed_at=utc_now().isoformat(),unreferenced_since=None)
+            atomic_json(self.catalogue,catalogue)
 
 
 def installed_image(image):
@@ -291,7 +359,7 @@ def installed_image(image):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('list', 'register', 'select'))
+    parser.add_argument('command', choices=('list', 'register', 'select', 'availability', 'restore', 'archives'))
     parser.add_argument('--state', type=Path, default=Path.home()/'simpaths-multirun-local')
     parser.add_argument('--image', help='Already installed sha256: image ID; no pulls or model execution')
     parser.add_argument('--name', help='Human-readable approved release name')
@@ -300,6 +368,7 @@ def main(argv=None):
     parser.add_argument('--resource-policy', type=Path, help='Optional versioned operator JSON policy')
     parser.add_argument('--make-default', action='store_true')
     parser.add_argument('--release', help='Existing ID for select')
+    parser.add_argument('--availability',choices=AVAILABILITY,help='Live new-work policy, separate from immutable model bytes')
     args = parser.parse_args(argv)
     registry = ReleaseRegistry(args.state)
     if args.command == 'register':
@@ -317,9 +386,25 @@ def main(argv=None):
         installed_image(releases[args.release]['image'])
         registry.select(args.release)
         print('Selected default. Restart the service to apply it; accepted work remains pinned.')
+    elif args.command=='restore':
+        if not args.release:parser.error('Restore requires --release')
+        from .release_archives import restore
+        restore(registry,args.release)
+        print('Verified bundle restored for recovery. Install its recorded runtime before starting; make it available explicitly before new work.')
+    elif args.command=='archives':
+        from .release_archives import verify
+        for path in sorted((registry.root/'retired').glob('*.json')):
+            record=verify(registry,path.stem)
+            print(record['id']+' | '+record['image']+' | '+str(record['archive']['bytes'])+' archived bytes')
+    elif args.command=='availability':
+        if not args.release or not args.availability:parser.error('Availability requires --release and --availability')
+        registry.set_availability(args.release,args.availability)
+        print('Release availability updated; new requests use it immediately. Accepted work remains pinned.')
     else:
         releases = registry.load()
+        availability=registry.availability()
         for index, (key, entry) in enumerate(releases.items()):
+            print('availability='+availability[key])
             storage=entry['resource_policy']['simulation']['storage']
             profiles=entry['resource_policy'].get('profiles')
             if profiles:

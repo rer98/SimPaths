@@ -15,8 +15,9 @@ in the interactive catalogue; SingleRun sessions already retain their chosen ima
 
 ## What is retained
 
-`STATE/releases/catalogue.json` records a default ID and fingerprints of all
-registered manifests. Each `release-<sha256>` directory contains:
+`STATE/releases/catalogue.json` records a default ID, the previous selected
+default as rollback, live availability rules and fingerprints of all registered
+manifests. Each `release-<sha256>` directory contains:
 
 | File | Purpose |
 | --- | --- |
@@ -414,31 +415,239 @@ peaks in the report occur independently and must not be added to calculate a
 workspace peak. These sampled measurements do not cover other workloads or
 replace production filesystem quota acceptance.
 
+## User version selection and experiment additions
+
+The input-preparation form already lists registered releases by their recorded
+names, with the selected default first. Preparing new inputs under that release
+does not change existing inputs. A newly submitted configuration uses its chosen
+prepared dataset's model/runtime, rather than whichever release became the
+default most recently. Queued work and retries retain their accepted identities.
+SingleRun catalogue changes similarly affect new sessions, not existing ones.
+
+An experiment-addition draft copies the original model release and seed plan.
+**Implemented 21 October 2026:** review and final submission both invoke the
+model-owned addition validator. It checks every original and incoming
+configuration's complete release ID, including when different JARs share a Java
+runtime or only defaults/resource policy change. It also checks actual input
+provenance from pending preparations or ready receipts; naming the original
+release cannot disguise inputs prepared under a different release. New model
+reviews/bindings likewise reject a declared release that differs from versioned
+input provenance. Earlier signed addition tickets receive the same final check
+before any new work is enqueued. Existing submissions and their frozen artifacts
+are not rewritten.
+
+Older ready receipts without a full release ID remain usable for additions when
+they are the experiment's original inputs. New inputs without an identifiable
+release must be prepared under the original release first. Models without an
+addition validator cannot offer or accept experiment additions; copying/importing
+a separate experiment remains available.
+
+Local validation: 77 model/registry/browser-copy checks, three frontend boundary
+checks and six remote-facade checks pass. The disposable PostgreSQL/HTTP proof in `release_proof.py`
+also covers pending and ready inputs, changed JARs sharing a runtime,
+defaults/policy changes with an unchanged JAR/runtime, rejection of old signed
+tickets without creating jobs, and successful original-release additions after
+default selection and input publication. The initial native run at
+`/tmp-codex/experiment-release-enforcement-20261021-133757` passed all 21 generic
+queue/HTTP checks and 151 of 153 release-proof checks. Two new fixtures omitted
+the coordinator's `lifecycle.reconcile()` after preparation, so they stopped
+before their release assertions; that fixture step is corrected. Both original
+reports and cleanup evidence are retained. The corrected native proof at
+`/tmp-codex/experiment-release-enforcement-retry-20261021-144117` passed all 153
+checks with no failures, errors or skips. Its outer report confirms successful
+cleanup. Release enforcement is locally verified; installed-host acceptance
+remains part of deployment validation.
+
+Additions use the original full release. Testing a new scientific version creates
+a separate experiment. The browser offers operator-approved versions in the new
+input-preparation form, with the loaded default selected initially. Availability
+is enforced privately at review and final submission, including earlier signed
+reviews; changing a browser selection cannot bypass it.
+
+### Live availability controls
+
+Implemented 21 October 2026, independently of immutable bundle identities:
+
+| Operator state | New experiments and input preparation | Additions to an existing experiment | Accepted work and eligible retries |
+| --- | --- | --- | --- |
+| `available` | Allowed | Original release only | Original frozen release |
+| `existing` | Not offered or accepted | Allowed on the original release, including new input preparation in that owned experiment's context | Original frozen release |
+| `recovery` | Not offered or accepted | Not accepted | Original frozen release |
+| Archived | Not in active registry | Not accepted | Retirement requires no unfinished/recoverable work; explicit restore is required before reuse |
+
+Selecting a different default alone leaves the previous version's availability
+unchanged. Restrict it explicitly when appropriate. The current registry default
+must remain `available`; select another approved default before restricting it.
+Availability changes apply to new requests immediately, without restarting
+services or changing accepted jobs. A page already open may show stale choices;
+the private service still enforces the current state.
+
+```bash
+~/simpaths-browser-tests/venv/bin/python -m deploy.multirun.releases availability \
+  --state "$HOME/simpaths-multirun-local" \
+  --release RELEASE_ID_FROM_LIST --availability existing
+```
+
+Use `--availability recovery` to close future additions and permit reference-aware
+retirement, or `available` to approve new work again. Input preparation for an
+`existing` release must identify an experiment owned by that user and using that
+release. Another user's experiment ID provides no authority. Existing inputs
+remain recorded, but cannot be used to start a new experiment under a restricted
+release. The experiment-addition form retains its original version even when
+that version is absent from the new-work choices.
+
+Registration, restoration and default selection still require an application
+restart to load the changed bundle inventory/default. Live availability changes
+do not hot-load new model code. A restored release starts as `recovery` and needs
+explicit operator approval before new work.
+
+The mutable catalogue is now `simpaths.multirun.releases.v2`. The new reader accepts
+v1 without rewriting it on inventory reads; a registry update upgrades the control
+metadata. Immutable release manifests, prepared receipts, scientific settings and
+database rows are not migrated. Older v1-only hosting code rejects a v2 catalogue.
+Rollback therefore requires a v2-compatible application pair or the separately
+verified inactive restoration of an older matching state; do not force an older
+reader to open the new catalogue.
+The read-only `deploy/release_record.py` inventory accepts both formats and records
+v2 availability, lifecycle dates and rollback ID. All 26 inventory checks pass,
+including invalid v2 metadata and preservation of v1 read-only behavior.
+
 ## Retention, image protection and backups
 
-There is no automatic release or image retirement in this feature. Retain all
-registered bundles and image IDs, including older prepared-training source images.
-An old version becoming non-default does not make it unused. Do not delete
-`release/`, individual release directories, prepared JARs or run scripts to force
-an upgrade. Do not run broad image pruning as an upgrade step. Existing catalogue
-promotion/retirement tooling needs explicit `--keep-image` protection for MultiRun
-runtime and prepared-image IDs; its catalogue/rollback checks alone cannot discover
-every queued MultiRun dependency.
+The private runtime checks retirement once an hour, retiring at most one unused
+bundle per pass. A release must be `recovery` and continuously unreferenced for
+at least 30 days. Being old or non-default is insufficient. The check protects:
+
+- The registry default, its previous default/rollback, the default loaded by the
+  running runtime, and the configured operator release.
+- Every unfinished or recoverable job, including preparations, queued work and
+  retries, across the queue schema.
+- Retained prepared datasets. Missing or unverifiable old provenance conservatively
+  protects releases sharing that runtime image.
+- All versions still `available` or `existing`, so results expiry cannot silently
+  end the ability to add configurations to an experiment.
+
+Any reference resets the full grace period. Closing future additions requires the
+operator to change the version to `recovery`; there is no automatic expiry of an
+otherwise extensible experiment. A separate security response is needed to cancel
+accepted work; the `recovery` flag itself preserves accepted execution.
+
+Before removal, the service writes and verifies a compressed recovery ZIP and
+receipt under `STATE/releases/retired/`. It validates member names, ordinary-file
+types, counts, sizes and hashes, and checks the current source against any reused
+archive. Compression is outside the queue lock. A second reference check runs
+immediately before catalogue removal; a newly discovered reference cancels the
+retirement. Only then is the original bundle removed. Interrupted removal is
+completed on a later pass. Hourly cleanup reads small receipts for settled
+archives; it does not repeatedly decompress them. Backup and registry fences
+prevent conflicting capture or operator mutation.
+
+Inspect or disable this policy live, using the private service identity and its
+matching Python environment:
+
+```bash
+~/simpaths-browser-tests/venv/bin/python -m deploy.multirun.release_retirement status \
+  --state "$HOME/simpaths-multirun-local"
+~/simpaths-browser-tests/venv/bin/python -m deploy.multirun.release_retirement policy \
+  --state "$HOME/simpaths-multirun-local" --enabled false --grace-days 30
+```
+
+Use `--enabled true` to resume. The grace can be increased, but cannot be set below
+30 days. Private `release-retirement.json` records the last pass and protection
+reasons; `release-retirement-policy.json` stores the live controls. The `sweep`
+subcommand runs a checked pass with `JASMINE_BATCH_DSN` and the recorded operator
+pool/schema; it still respects the grace, references and backup fence.
+
+List and recover an archived bundle:
+
+```bash
+~/simpaths-browser-tests/venv/bin/python -m deploy.multirun.releases archives \
+  --state "$HOME/simpaths-multirun-local"
+~/simpaths-browser-tests/venv/bin/python -m deploy.multirun.releases restore \
+  --state "$HOME/simpaths-multirun-local" --release ARCHIVED_RELEASE_ID
+```
+
+Recovery verifies the ZIP and exact restored bundle before atomically registering
+it as `recovery`. It does not select it as default, approve new work, launch Java
+or install its Docker runtime. Recovery archives have no automatic expiry; retain
+them under the project's reproducibility/backup policy.
+
+**Docker image bytes are not automatically deleted.** A runtime can be shared by
+multiple MultiRun releases, SingleRun or another project. Bundle retirement does
+not establish that those image layers are disposable. Preserve the exact image
+IDs recorded in active releases and recovery receipts, including prepared-training
+source images. Existing catalogue promotion/retirement commands need explicit
+`--keep-image` protection for these IDs; their SingleRun catalogue/rollback checks
+cannot discover every MultiRun or archived dependency. Do not run broad image
+pruning or delete bundle files to force an upgrade. Any later image reclamation
+needs a separately verified image archive and a complete reference check.
 
 Backups must include `releases/`, any legacy `release/`, private prepared datasets
 and their scripts, plus the matching PostgreSQL state and existing credentials.
 The [backup and restore commands](BACKUP.md) save this complete retained inventory
-and registered external prepared inputs, with native PostgreSQL row verification.
+including retired ZIPs/receipts and live retirement policy, and registered external
+prepared inputs, with native PostgreSQL row verification. Archive members are
+validated before publishing a backup and when verifying it for restoration.
 Restore explicitly relocates prepared locations to a new private state; frozen
 model/settings identities stay unchanged. Required Docker image IDs are recorded
 and checked at activation, but image bytes need separate protected storage.
+Archived runtime IDs remain in their recovery receipts; reusing an archived bundle
+also requires its exact runtime to be installed. An unavailable archived runtime
+does not prevent restoring unrelated active versions.
 `ReleaseRegistry.inventory()` returns the verified default-first inventory without
 creating files or upgrading legacy catalogues; operator status and backup reuse
-this inventory rather than parse human-readable `list` output. Future
-release retirement must inspect queued/running/retry/preparation/dataset references
-before reclaiming bundles or images. It is deliberately outside default selection.
+this inventory rather than parse human-readable `list` output.
+
+### Measured storage
+
+The locally qualified 20 October MultiRun bundle occupies 72,147,590 logical
+bytes (68.81 MiB), including a 65,452,076-byte JAR and 6,683,146 bytes of defaults.
+That bundle is separate from Docker, prepared databases and simulation outputs.
+Multiple model JAR releases can reuse one compatible runtime image; release
+registration nevertheless copies each bundle's ordinary files.
+
+The 21 October Docker inventory recorded 2.63 GB for the qualified user-data
+runtime image and approximately 2.00–3.58 GB per qualified SingleRun image. Those
+displayed sizes include shared layers and must not be added as incremental disk
+costs. The four exact qualified images together have a verified 2,276,907,132-byte
+compressed recovery archive (2.12 GiB); loaded Docker storage has different
+accounting and can be substantially larger. Measure unique/reclaimable layers
+before retirement. Runtime/base-library changes and prepared-data layers can
+cost much more than a new model JAR. Idle retained releases consume storage,
+not a running simulation's CPU/RAM allowance.
 
 ## Disposable transition proof
+
+The lifecycle/backup proof is:
+
+```bash
+cd ~/git/JAS-mine/JAS-mine-web
+TMPDIR=/tmp-codex ~/simpaths-browser-tests/venv/bin/python scripts/test_batch_queue.py \
+  --proof-only \
+  --proof-script "$HOME/git/SimPathsWeb/SimPaths/deploy/multirun/release_lifecycle_proof.py" \
+  --proof-requirements "$HOME/git/SimPathsWeb/SimPaths/deploy/multirun/requirements-backup-proof.txt" \
+  --output "/tmp-codex/release-lifecycle-$(date +%Y%m%d-%H%M%S)"
+```
+
+The first native run at `/tmp-codex/release-lifecycle-native-20261021-152754`
+passed all 200 checks with no skips, and its outer report confirms cleanup. It
+covers live restrictions, older signed reviews, accepted-job preservation,
+same-release additions, 30-day/reference protection, archive recovery and
+online/offline backups containing archives. The final archive-safety review adds
+regressions for changed source bundles, safe cleanup paths and settled-archive
+I/O, live disable/re-enable, and semantic archive verification within backups.
+All 109 local checks pass. The final native proof at
+`/tmp-codex/release-lifecycle-final-20261021-171303` passed all **205 tests** in
+151.883 seconds with zero failures, errors or skips. The outer campaign completed
+in about 2 minutes 48 seconds and confirms disposable PostgreSQL cleanup.
+Root receipt SHA-256:
+`bdefa2629642ec394b2e50f7ebad7ed7db25e0db06e968ca818eca30eb6737b7`.
+Its `model-proof/report.json` SHA-256 is
+`0715f14f9126064f55c8175afb71d44bf2e5d47c35f819087c429140c05d286b`.
+No scientific simulations or real emails were used. These local implementation
+checks are complete; installed-host policy and recovery acceptance remain due.
+
+The earlier transition-only proof is also available:
 
 ```bash
 cd ~/git/JAS-mine/JAS-mine-web

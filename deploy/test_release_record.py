@@ -213,6 +213,32 @@ class ReleaseRecordTests(unittest.TestCase):
         save(self.catalogue, self.catalogue_value)
         self.assertIn(key, self.capture()['inventory']['retained_releases']['entries'])
 
+    def lifecycle_catalogue(self):
+        value=copy.deepcopy(self.catalogue_value)
+        stamp='2026-10-21T12:00:00+00:00'
+        value.update(format='simpaths.multirun.releases.v2',rollback=self.release_id)
+        value['entries'][self.release_id].update(availability='available',registered_at=stamp,
+            status_changed_at=stamp,unreferenced_since=None)
+        return value
+
+    def test_v2_lifecycle_catalogue_is_read_only_and_records_policy(self):
+        value=self.lifecycle_catalogue();save(self.catalogue,value)
+        original=self.catalogue.read_bytes()
+        record=self.capture()
+        retained=record['inventory']['retained_releases']
+        self.assertEqual(retained['rollback'],self.release_id)
+        self.assertEqual(retained['entries'][self.release_id]['availability'],'available')
+        self.assertEqual(self.catalogue.read_bytes(),original)
+        self.assertEqual(tool.verify(self.output/'record.json'),record)
+
+    def test_invalid_v2_default_rollback_and_timestamps_are_rejected(self):
+        for label in ('restricted-default','missing-rollback','naive-time'):
+            value=self.lifecycle_catalogue()
+            if label=='restricted-default':value['entries'][self.release_id]['availability']='recovery'
+            elif label=='missing-rollback':value['rollback']='release-'+'f'*64
+            else:value['entries'][self.release_id]['registered_at']='2026-10-21T12:00:00'
+            with self.subTest(label=label):self.rejects(lambda:save(self.catalogue,value))
+
     def test_record_integrity_and_later_evidence_changes_are_detected(self):
         self.capture()
         value = json.loads((self.output/'record.json').read_text())

@@ -858,7 +858,9 @@ capacity, original seeds and output after input-copy reclamation.
 
 Install the SMTP environment from `vm/smtp.env.example` as a root-readable **0600**
 file. Use STARTTLS and the real sending address/credentials; implicit TLS on port
-465 is not implemented by the shared sender. Email verification is always real on
+465 is not implemented by the shared sender. The initial Brevo account/key,
+administrator recipient and installation status are recorded in
+[the email setup guide](../EMAIL_SETUP.md). Email verification is always real on
 this VM route: there is no console-code option. Job completion/problem/expiry emails
 remain separately configurable and default disabled. Automatic expiry deletion also
 defaults disabled and requires notification delivery to be enabled. Configure an

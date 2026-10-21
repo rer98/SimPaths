@@ -29,6 +29,15 @@ acceptance checks, and use the [maintainer update workflow](MAINTAINER_GUIDE.md#
 for subsequent releases. Review available updates according to their impact;
 neither this first installation nor a later version freeze ends maintenance.
 
+### Email provider and administrator inbox
+
+The [email setup guide](EMAIL_SETUP.md) records the agreed initial Brevo Free
+account, dedicated `SimPaths Online` SMTP key, sending/admin address and separate
+notification/export/backup controls. The populated private configuration is saved
+outside Git; required settings and local permissions have been checked. SMTP
+authentication, sender/domain status, real inbox/attachment delivery and VM
+configuration remain installation acceptance tasks. No SMTP key is stored here.
+
 ## Current implementation and next work
 
 The following capabilities are implemented and have local/native fixture evidence;

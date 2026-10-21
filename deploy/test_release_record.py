@@ -53,7 +53,10 @@ class ReleaseRecordTests(unittest.TestCase):
         put(self.repos['core']/'license.txt', 'Fictional licence fixture\n')
         put(self.repos['frontend']/'LICENCE', 'Fictional licence fixture\n')
         put(self.repos['frontend']/'requirements-vm.txt', 'example==1.0\n')
+        put(self.repos['frontend']/'constraints-runtime.txt', 'example==1.0\n')
         put(self.repos['simpaths']/'deploy/multirun/requirements.txt', 'example==2.0\n')
+        put(self.repos['simpaths']/'deploy/multirun/visualiser/package.json', '{"name":"compiler-fixture"}\n')
+        put(self.repos['simpaths']/'deploy/multirun/visualiser/package-lock.json', '{"lockfileVersion":3}\n')
         put(self.repos['visualiser']/'package.json', '{"name":"fixture"}\n')
         for name in tool.ADAPTERS:
             put(self.repos['simpaths']/'deploy/multirun/visualiser'/name, '// tiny integration fixture\n')
@@ -169,6 +172,55 @@ class ReleaseRecordTests(unittest.TestCase):
         self.rejects(lambda:put(self.build/'visualiser.js', '// changed bundle\n'))
         put(self.build/'visualiser.js', '// compiled fixture\n')
         self.rejects(lambda:put(self.build/'private.env', 'SECRET_'))
+
+    def compiler_metadata(self):
+        compiler=self.repos['simpaths']/'deploy/multirun/visualiser'
+        self.build_value.update(dependency_lock=dict(package_json_sha256=fp(compiler/'package.json')['sha256'],
+            package_lock_sha256=fp(compiler/'package-lock.json')['sha256'],lockfile_version=3,locked_packages=1),
+            emitted_packages={'visualiser.js':[dict(name='@fixture/chart',version='1.0.0',path='@fixture/chart')]})
+        save(self.build/'build.json',self.build_value)
+
+    def test_compiler_manifest_is_preserved_and_changed_metadata_invalidates_verification(self):
+        self.compiler_metadata();record=self.capture()
+        self.assertEqual(record['inventory']['visualiser']['identity'],self.build_value)
+        self.assertEqual(tool.verify(self.output/'record.json'),record)
+        self.build_value['dependency_lock']['locked_packages']=2
+        save(self.build/'build.json',self.build_value)
+        with self.assertRaises(tool.RecordError):tool.verify(self.output/'record.json')
+
+    def test_incomplete_unknown_or_malformed_compiler_metadata_is_rejected_before_output(self):
+        self.compiler_metadata();good=copy.deepcopy(self.build_value)
+        cases=[]
+        missing=copy.deepcopy(good);missing.pop('emitted_packages');cases.append(missing)
+        unknown=copy.deepcopy(good);unknown['unreviewed_field']=True;cases.append(unknown)
+        for key,bad in [('package_lock_sha256','invalid'),('locked_packages',True),('lockfile_version',2)]:
+            value=copy.deepcopy(good);value['dependency_lock'][key]=bad;cases.append(value)
+        unlisted=copy.deepcopy(good);unlisted['emitted_packages']['missing.js']=[];cases.append(unlisted)
+        for value in cases:
+            with self.subTest(value=value):self.rejects(lambda:save(self.build/'build.json',value))
+
+    def test_emitted_packages_reject_unsafe_paths_duplicates_and_unbounded_lists(self):
+        self.compiler_metadata();good=copy.deepcopy(self.build_value)
+        package=good['emitted_packages']['visualiser.js'][0]
+        bad_lists=[[dict(package,path='../outside')],[dict(package,name='bad name')],
+            [package,package],[package]*2001]
+        for packages in bad_lists:
+            value=copy.deepcopy(good);value['emitted_packages']['visualiser.js']=packages
+            with self.subTest(packages=len(packages)):
+                self.rejects(lambda:save(self.build/'build.json',value))
+
+    def test_runtime_constraints_and_compiler_locks_are_fingerprinted_even_when_already_dirty(self):
+        names=[('frontend','constraints-runtime.txt'),
+            ('simpaths','deploy/multirun/visualiser/package.json'),
+            ('simpaths','deploy/multirun/visualiser/package-lock.json')]
+        for repo,name in names:put(self.repos[repo]/name,'uncommitted first value\n')
+        record=self.capture()
+        for repo,name in names:
+            self.assertEqual(record['inventory']['repositories'][repo]['dependency_declarations'][name],fp(self.repos[repo]/name))
+            path=self.repos[repo]/name
+            put(path,'uncommitted other value\n')
+            with self.subTest(file=name),self.assertRaises(tool.RecordError):tool.verify(self.output/'record.json')
+            put(path,'uncommitted first value\n')
 
     def test_build_revision_and_current_commit_stay_distinct(self):
         put(self.repos['visualiser']/'README.md', 'Later documentation-only commit\n')

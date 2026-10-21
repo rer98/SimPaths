@@ -216,9 +216,11 @@ def git_state(repo):
 
 def repository(name, repo, reader):
     root = ordinary(repo); result = git_state(root)
-    dependency_names = ['pom.xml', 'package.json', 'package-lock.json', 'pyproject.toml']
+    dependency_names = ['pom.xml', 'package.json', 'package-lock.json', 'pyproject.toml',
+                        'constraints-runtime.txt']
     dependency_names += [p.name for p in root.glob('requirements*.txt')]
-    if name == 'simpaths':dependency_names += ['deploy/multirun/requirements.txt', 'deploy/acceptance/requirements.txt']
+    if name == 'simpaths':dependency_names += ['deploy/multirun/requirements.txt', 'deploy/acceptance/requirements.txt',
+        'deploy/multirun/visualiser/package.json', 'deploy/multirun/visualiser/package-lock.json']
     if len(dependency_names) > 32:raise RecordError('Too many dependency declarations')
     result['dependency_declarations'] = {n:reader.file(root/n, limit=MAX_JSON)
         for n in sorted(set(dependency_names)) if (root/n).exists() or (root/n).is_symlink()}
@@ -262,7 +264,9 @@ def prepared_package(root, selected_model, reader):
 def visualiser_build(root, source, source_commit, reader):
     root = ordinary(root); value, fp = reader.json(root/'build.json')
     fields = {'format', 'revision', 'mode', 'transport', 'source_hashes', 'dependencies', 'toolchain', 'files'}
-    if (type(value) is not dict or set(value) != fields or value.get('format') != 'simpaths.visualiser.build.v1'
+    compiler_fields={'dependency_lock','emitted_packages'}
+    if (type(value) is not dict or set(value) not in (fields,fields|compiler_fields)
+            or value.get('format') != 'simpaths.visualiser.build.v1'
             or not re.fullmatch('[a-f0-9]{40}', str(value.get('revision')))
             or type(value.get('files')) is not dict or not 1 <= len(value['files']) <= 100
             or type(value.get('source_hashes')) is not dict or not 1 <= len(value['source_hashes']) <= 100):
@@ -276,6 +280,32 @@ def visualiser_build(root, source, source_commit, reader):
                        or type(v) is not str or not re.fullmatch('[a-zA-Z0-9.+_-]{1,100}', v)
                        for k, v in value[key].items())):
             raise RecordError('Invalid declared dependency/toolchain versions')
+    if compiler_fields <= set(value):
+        lock=value['dependency_lock']
+        if (type(lock) is not dict or set(lock)!={'package_json_sha256','package_lock_sha256',
+                'lockfile_version','locked_packages'} or type(lock['lockfile_version']) is not int
+                or lock['lockfile_version']!=3 or type(lock['locked_packages']) is not int
+                or not 0<=lock['locked_packages']<=10000):
+            raise RecordError('Invalid Visualiser compiler lock identity')
+        sha(lock['package_json_sha256']);sha(lock['package_lock_sha256'])
+        emitted=value['emitted_packages']
+        if (type(emitted) is not dict or not 1<=len(emitted)<=100
+                or any(name not in value['files'] for name in emitted)):
+            raise RecordError('Invalid Visualiser emitted-package inventory')
+        for packages in emitted.values():
+            if type(packages) is not list or len(packages)>2000:
+                raise RecordError('Invalid Visualiser emitted-package list')
+            seen=set()
+            for package in packages:
+                if (type(package) is not dict or set(package)!={'name','version','path'}
+                        or type(package['name']) is not str or len(package['name'])>214
+                        or not re.fullmatch(r'(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*',package['name'])
+                        or type(package['version']) is not str
+                        or not re.fullmatch('[a-zA-Z0-9.+_-]{1,100}',package['version'])):
+                    raise RecordError('Invalid Visualiser emitted package')
+                path=relative(package['path'])
+                if path in seen:raise RecordError('Duplicate Visualiser emitted package path')
+                seen.add(path)
     original = reader.directory(root)
     if set(original) != set(value['files']) | {'build.json'}:
         raise RecordError('Visualiser bundle contains missing or unmanifested files')

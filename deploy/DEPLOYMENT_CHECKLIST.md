@@ -195,9 +195,10 @@ MultiRun tests do not establish interactive observer/chart memory or latency.
    verification remains due. See the
    [certificate-store qualification](../../solveit_SimPathsWeb/security-review/2026-10-21/CERTIFI_UPDATE.md).
 3. Freeze a new release inventory and review its migration/rollback procedure.
-   There are now **33 batch migrations**, including handover (030), detailed
+   There are now **34 batch migrations**, including handover (030), detailed
    performance history (031), administrator monitoring exports (032) and idle
-   SingleRun CPU recall (033). The retained 22-migration update pair is historical;
+   SingleRun CPU recall (033) and approved live CPU/RAM pool increases (034).
+   The retained 22-migration update pair is historical;
    it does not qualify code-only rollback for the current release.
    A separately frozen 32-migration pair passed 55 regressions, all seven native
    stages, final integrity and cleanup on 20 October. Carry its exact selected
@@ -857,6 +858,11 @@ not install services, choose providers or change security settings.
   and retention from those measurements. Use isolated staging pools for calibration;
   set production capacity before admitting real users. Existing pool capacity cannot
   be silently rewritten, and accepted jobs must keep their frozen limits.
+- [ ] Install [CPU/RAM capacity detection and approvals](multirun/COMPUTE_CAPACITY.md)
+  with a verified common execution cgroup and retained system/PostgreSQL headroom.
+  Confirm unchanged VPS 12 budgets, administrator inbox delivery, hot-added host
+  capacity and reviewed live increases under mixed load. Detection/approval does
+  not imply a provider upgrade avoids reboot or establishes dedicated CPU access.
 - [ ] Install the opted-in parallel-preparation/handover configuration and
   executor cgroup drop-in. Verify complete child groups remain inside admitted
   CPU/RAM/scratch limits and that cancellation joins them before releasing

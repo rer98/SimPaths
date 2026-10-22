@@ -160,6 +160,15 @@ def render(report):
             '  Available to batch: '+allocation(pool['available_for_batch']),
             '  Interactive holdback: '+allocation(pool['interactive_holdback'])]
         loan=pool.get('idle_interactive_cpu')
+        compute=pool.get('compute_capacity',{})
+        if compute.get('enabled'):
+            lines.append('  Live CPU/RAM approvals: enabled; new admissions '+
+                ('allowed' if compute['admission_allowed'] else 'paused for host capacity review'))
+            observation=compute['observation']
+            if observation.get('host'):
+                host=observation['host']
+                lines.append(f"    Detected common execution capacity: {host['cpu_millis']/1000:g} CPU; {host['memory_mib']/1024:.2f} GiB RAM")
+            lines.append(f"    Outside-pool headroom: {compute['headroom']['cpu_millis']/1000:g} CPU; {compute['headroom']['memory_mib']/1024:.2f} GiB RAM")
         if loan:
             lines.append('  Idle SingleRun CPU loans: '+('enabled' if loan['enabled'] else 'disabled')+
                 f"; borrowed {loan['borrowed_millis']/1000:g} CPU; recall "+

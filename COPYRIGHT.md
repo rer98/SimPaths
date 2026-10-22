@@ -7,6 +7,11 @@ Attribution scope and non-commentable/generated artifacts.
 
 # Attribution
 
+The live CPU/RAM capacity operator, deployment guide and recovery proofs carry
+inline notices. Generated capacity proposals, numeric observations and fictional
+test evidence are (C) Copyright 2026, by Ross Richardson; @author ross richardson.
+This does not claim ownership of user data or third-party software.
+
 The direct encrypted backup stream, bounded SSH readback, compact scheduler
 compatibility checks and native recovery proof carry inline attribution.
 Generated archive inventories, checksum receipts and fictional proof evidence

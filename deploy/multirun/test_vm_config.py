@@ -26,6 +26,15 @@ TEMPLATE = Path(__file__).with_name('vm')/'multirun.toml.example'
 
 
 class VMConfigTests(unittest.TestCase):
+    def test_compute_capacity_configuration_is_explicit_and_preserves_host_scope(self):
+        self.assertFalse(self.config().compute_capacity['enabled'])
+        block='\n[compute_capacity]\nenabled = true\ncgroup = "/sys/fs/cgroup/system.slice"\nreserve_cpu_millis = 0\nreserve_memory_mib = 0\n'
+        self.assertTrue(self.config(self.text+block).compute_capacity['enabled'])
+        for old,new in (('enabled = true','enabled = 1'),('reserve_cpu_millis = 0','reserve_cpu_millis = -1'),
+                        ('reserve_memory_mib = 0','reserve_memory_mib = true'),
+                        ('/sys/fs/cgroup/system.slice','/tmp/untrusted')):
+            with self.subTest(new=new),self.assertRaises(ValueError):self.config(self.text+block.replace(old,new))
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)

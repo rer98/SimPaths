@@ -28,6 +28,15 @@ sample_seconds = 15
 retention_days = 30
 max_rows = 20000
 
+[compute_capacity]
+# Detect installed capacity every five minutes, independently of monitoring.
+# Initial zero values preserve the current host-minus-pool service headroom.
+# This never approves an increase. Review preview/apply over administrator SSH.
+enabled = true
+cgroup = "/sys/fs/cgroup/system.slice"
+reserve_cpu_millis = 0
+reserve_memory_mib = 0
+
 [pool]
 # 8 CPUs/30 GiB for models, 2 CPUs/5 GiB for SingleRun, 1 CPU/2.5 GiB
 # for primary chart preparation, and 2 GiB shared model-growth headroom.

@@ -18,6 +18,8 @@ from .resource_recovery_settings import DEFAULTS as RECOVERY_DEFAULTS, validate 
 DEFAULTS = {
     'rpc': {'socket': '/run/simpaths-executor/control.sock', 'frontend_user': 'simpaths-web'},
     'monitoring': {'enabled': False, 'sample_seconds': 15, 'retention_days': 30, 'max_rows': 20000},
+    'compute_capacity': {'enabled': False, 'cgroup': '/sys/fs/cgroup/system.slice',
+                         'reserve_cpu_millis': 0, 'reserve_memory_mib': 0},
     'monitoring_exports': {'enabled': False, 'mail_enabled': False, 'archive_seconds': 3600,
         'delivery_seconds': 86400, 'journal_mib': 64, 'journal_rows': 100000,
         'archive_mib': 512, 'archive_days': 30, 'part_mib': 2},
@@ -147,6 +149,12 @@ def load_config(path):
     if not limits['max_configurations'] <= limits['max_unfinished_jobs'] <= limits['pool_unfinished_jobs']:
         raise ValueError('Configuration and unfinished-job allowances must increase in that order')
     pool = sections['pool']
+    compute = sections['compute_capacity']
+    scope = absolute(compute['cgroup'],'compute_capacity.cgroup')
+    if not scope.is_relative_to('/sys/fs/cgroup') or len(scope.parts)>20:
+        raise ValueError('Use the common execution cgroup below /sys/fs/cgroup')
+    for key in ('reserve_cpu_millis','reserve_memory_mib'):
+        number(compute[key],'compute_capacity.'+key,0,2**31-1)
     for key, minimum in (('cpu_millis', 2000), ('memory_mib', 5120), ('storage_mib', 12288)):
         number(pool[key], 'pool.'+key, minimum, 2**31-1)
     for key, minimum in (('cpu_millis', 2000), ('memory_mib', 5120), ('storage_mib', 12288)):
@@ -249,6 +257,7 @@ def load_config(path):
     if not re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}',sections['rpc']['frontend_user']):
         raise ValueError('rpc.frontend_user must name a dedicated Linux account')
     options = SimpleNamespace(rpc_socket=rpc_socket,rpc_frontend_user=sections['rpc']['frontend_user'],**limits, **paths, **service, image=image,
+        compute_capacity=dict(compute),
         monitoring_exports=dict(export),operational_metrics=monitoring['enabled'],metrics_sample_seconds=monitoring['sample_seconds'],
         metrics_retention_days=monitoring['retention_days'],metrics_max_rows=monitoring['max_rows'],
         **{'recovery_'+key:value for key,value in sections['recovery'].items()},

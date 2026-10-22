@@ -102,6 +102,7 @@ def create_registry(args,q,state,send_mail,*,capacity=Resources(2000,5120,12288)
     q.create_pool(capacity,holdback=getattr(args,'holdback',None),policy=Policy(per_user_active=per_user_active,
         per_user_unfinished=args.max_unfinished_jobs,pool_unfinished=args.pool_unfinished_jobs),
         update_admission_limits=True,
+        allow_compute_budget=True,
         **({'storage_budget_mib':storage_override} if storage_override is not None else {}))
     protected=(Resources(getattr(args,'visualiser_cpu_millis',1000),args.visualiser_memory_mib,
                          getattr(args,'visualiser_storage_mib',512))
@@ -109,6 +110,8 @@ def create_registry(args,q,state,send_mail,*,capacity=Resources(2000,5120,12288)
     q.configure_processing(protected,growth_memory_mib=getattr(args,'growth_memory_mib',0))
     from jasmine_web.batch.idle_interactive_cpu import configure as configure_idle_cpu
     configure_idle_cpu(q,getattr(args,'lend_idle_interactive_cpu',False))
+    from .compute_capacity import bootstrap as compute_bootstrap
+    compute_bootstrap(args,q,capacity)
     access=Access(q,secret_file(state/'session-secret'),send_mail)
     datasets=Datasets(q,state/'uploads',owner_limit=args.upload_allowance_gib << 30)
     preparations=Preparations(datasets)
@@ -261,8 +264,11 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
         thread=threading.Thread(target=dispatch,name='multirun-dispatcher',daemon=True)
         thread.start()
         def notify():
+            from jasmine_web.batch.compute_capacity import Monitor
+            capacity_monitor=Monitor(q)
             while not stop.is_set():
                 try:
+                    capacity_monitor.tick()
                     service.notifications.reconcile()
                     service.retention.reconcile()
                     service.completions.reconcile()

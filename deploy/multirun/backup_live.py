@@ -95,7 +95,28 @@ def selected_files(c, queue, state):
     return keys,roots
 
 
-def create(queue, state, destination, tools, *, after_snapshot=None, single_capture=None, minimum_free_gib=1):
+def create(queue, state, destination, tools, **kwargs):
+    from . import backup
+    manifest=_capture(queue,state,destination,tools,**kwargs)
+    return backup.summary(manifest,'backup',online=True,
+        interrupted_attempts=len(manifest['recovery']['interrupted_attempts']),
+        singlerun_sessions=sum(len(v['sessions']) for v in manifest['vm'].values()))
+
+
+def create_encrypted(queue, state, destination, tools, *, public_key, recipient, **kwargs):
+    """Capture directly into the existing encrypted format, with small scratch."""
+    from .backup_stream import Archive
+    from .backup_transport import seal_stream
+    destination=Path(destination).absolute()
+    def write(archive):
+        return _capture(queue,state,destination.parent/'unused-stream-destination',tools,
+                        stream=Archive(archive),**kwargs)
+    with reserve_space(kwargs.get('minimum_free_gib',1)*1024**3):
+        return seal_stream(destination,write,public_key=public_key,recipient=recipient)
+
+
+def _capture(queue, state, destination, tools, *, after_snapshot=None, single_capture=None,
+             minimum_free_gib=1, stream=None):
     from jasmine_web.batch.backup import online_database, table_inventory
     from jasmine_web.batch.backup_guard import file_guard
     from . import backup
@@ -156,30 +177,45 @@ def create(queue, state, destination, tools, *, after_snapshot=None, single_capt
                         keys.update(folder+'/'+k for k,v in scan(state/folder).items()
                             if stat.S_ISREG(v[2]) and not any(p.startswith('.pending-') for p in Path(k).parts))
                 for key in ('session-secret','training-imports.json','.performance-fingerprint-key','performance-platform.json',
-                            'release-retirement-policy.json','release-retirement.json'):
+                            'release-retirement-policy.json','release-retirement.json',
+                            'storage-budget.json','storage-budget-status.json'):
                     if (state/key).exists(): keys.add(key)
                 estimate=sum((state/k).stat().st_size for k in keys)
                 estimate+=sum(v[3] for p in roots for v in scan(p['source']).values() if stat.S_ISREG(v[2]))
-                if not has_space(parent,estimate):
+                if not has_space(parent,estimate if stream is None else 0):
                     raise ArtifactError('Insufficient free space for the complete online backup')
                 tools.dump(staging/'database.dump',schema=[queue.schema,*vm_schemas],snapshot=snapshot)
-                tree=copy_selected(state,staging/'state',keys)
+                if stream is None: tree=copy_selected(state,staging/'state',keys)
+                else:
+                    (staging/'state').mkdir(mode=0o700)
+                    if 'training-imports.json' in keys:
+                        # Validate the exact captured import metadata later, not
+                        # a second read of a potentially newer live file.
+                        file_hash(state,'training-imports.json',destination=staging/'state/training-imports.json')
+                        keys.remove('training-imports.json')
+                    tree=stream.copy_selected(state,'state',keys)
                 from .backup_visualiser import capture as capture_visualiser,inventory as visualiser_inventory
-                visualiser=capture_visualiser(state,staging/'state',c,queue)
+                visualiser=capture_visualiser(state,staging/'state',c,queue,stream=stream)
                 for key in ('uploads','artifacts','execution'):
                     (staging/'state'/key).mkdir(mode=0o700,exist_ok=True)
+                    if stream is not None: stream.mkdir('state/'+key)
                     if key not in tree['directories']: tree['directories'].append(key)
                 tree['directories'].sort()
                 (staging/'prepared').mkdir(mode=0o700)
-                for root in roots: root['tree'],_=copy_tree(Path(root['source']),staging/root['directory'])
+                if stream is not None: stream.mkdir('prepared')
+                for root in roots:
+                    if stream is None: root['tree'],_=copy_tree(Path(root['source']),staging/root['directory'])
+                    else: root['tree']=stream.copy_tree(Path(root['source']),root['directory'])
                 images={r['image'] for r in releases.values()}
                 images.update(r['model_digest'] for r in rows(c,queue,'SELECT model_digest FROM {}',['prepared_locations']))
                 for schema in vm_schemas:
-                    vm[schema].update((single_capture or capture)(c,queue.dsn,schema,staging/'state',state))
+                    options=dict(stream=stream) if stream is not None and single_capture is None else {}
+                    vm[schema].update((single_capture or capture)(c,queue.dsn,schema,staging/'state',state,**options))
                     images.update(vm[schema]['images'])
                 # SingleRun exports are new backup-owned files, so inventory them
                 # after capture without following unselected live container paths.
-                tree=visualiser_inventory(staging/'state')
+                if stream is None: tree=visualiser_inventory(staging/'state')
+                else: tree=stream.copy_tree(staging/'state','state')
                 manifest=dict(format=FORMAT,id=uuid4().hex,created_at=backup.utc(),pool_id=queue.pool_id,
                     schema=queue.schema,postgres_major=version,state_source=str(state),state_tree=tree,
                     prepared=roots,database=database,dump=file_hash(staging,'database.dump'),images=sorted(images),
@@ -191,8 +227,13 @@ def create(queue, state, destination, tools, *, after_snapshot=None, single_capt
                 write_attribution(staging); (staging/'COPYRIGHT.md').chmod(0o600)
                 manifest['attribution']=file_hash(staging,'COPYRIGHT.md')
                 atomic_json(staging/'manifest.json',manifest)
-                backup.verify(staging); sync_tree(staging); publish(staging,destination)
-        return backup.summary(manifest,'backup',online=True,interrupted_attempts=len(active),singlerun_sessions=sum(len(v['sessions']) for v in vm.values()))
+                if stream is None:
+                    backup.verify(staging); sync_tree(staging); publish(staging,destination)
+                else:
+                    for key in ('database.dump','COPYRIGHT.md','manifest.json'):
+                        stream.add_file(staging/key,key)
+                    stream.check(manifest)
+        return manifest
     finally:
         if staging.exists(): shutil.rmtree(staging)
 

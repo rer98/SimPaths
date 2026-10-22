@@ -117,6 +117,17 @@ def capture_backup(config, destination):
     return create(queue,state,destination,tools,minimum_free_gib=config['backup']['minimum_free_gib'])
 
 
+def capture_encrypted_backup(config, destination):
+    from .backup_live import create_encrypted
+    from .backup_files import reserve_space
+    queue,state,tools=source_queue(config)
+    policy=config['backup']
+    with reserve_space(policy['minimum_free_gib']*1024**3):
+        return create_encrypted(queue,state,destination,tools,
+            public_key=policy['public_key'],recipient=policy['recipient'],
+            minimum_free_gib=policy['minimum_free_gib'])
+
+
 def send_alert(config, incident, *, recovered=False):
     from .vm_web import check_smtp
     check_smtp(os.environ)
@@ -184,7 +195,14 @@ def discard_incomplete(storage, job):
     """Only this private, serialized job owns these interrupted staging files."""
     from .backup_files import scan
     if job['stage']=='capturing' and not (storage/'plain').exists():
-        prefixes=('.backup-incomplete-',)
+        prefixes=('.backup-incomplete-','.encrypting-','.backup-public-key-')
+        marker=storage/'recovery.tar.gpg.json'
+        if marker.exists() and not (storage/'recovery.tar.gpg').exists():
+            receipt=read_metadata(marker)
+            if (receipt.get('format')!='simpaths.backup.encrypted.v1' or
+                    not re.fullmatch('[a-f0-9]{32}',str(receipt.get('backup_id')))):
+                raise ArtifactError('Invalid interrupted streaming receipt')
+            marker.unlink()
     elif job['stage']=='sealing' and not (storage/'recovery.tar.gpg').exists():
         prefixes=('.encrypting-','.backup-public-key-')
         marker=storage/'recovery.tar.gpg.json'
@@ -208,7 +226,8 @@ def discard_incomplete(storage, job):
             path.unlink()
 
 
-def run(config, *, now=None, capture=capture_backup, encrypt=seal, transport=None, alert=send_alert):
+def run(config, *, now=None, capture=capture_backup, encrypt=seal, transport=None, alert=send_alert,
+        capture_encrypted=capture_encrypted_backup):
     root=existing_directory(config['backup']['directory'])
     from deploy._workflow import frontend_path
     source=config['source']
@@ -242,6 +261,14 @@ def run(config, *, now=None, capture=capture_backup, encrypt=seal, transport=Non
             plain=storage/'plain'; cipher=storage/'recovery.tar.gpg'
             try:
                 discard_incomplete(storage,job)
+                if (job['stage']=='capturing' and not plain.exists()
+                        and capture is capture_backup and encrypt is seal):
+                    # A completed ciphertext/receipt survives a lost journal
+                    # acknowledgement. Reuse it instead of taking a newer SQL
+                    # snapshot. Legacy pending plaintext jobs still resume below.
+                    receipt=sealed(cipher,recipient=policy['recipient']) if cipher.exists() else capture_encrypted(config,cipher)
+                    job.update(stage='copying',backup_id=receipt['backup_id'],sha256=receipt['sha256'])
+                    atomic_json(root/'status.json',status)
                 if job['stage']=='capturing':
                     if plain.exists():
                         from .backup import verify, summary

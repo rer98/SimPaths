@@ -89,6 +89,16 @@ def collect(queue, state, *, limit=20, read_database=True):
         result.update(storage=None,complete=False)
         result['warnings'].append('storage_inventory_unavailable')
     from .visualiser_cache_usage import statistics
+    from jasmine_web.batch.storage_budget import read_control as budget_control, read_status as budget_status
+    try:
+        result['storage_budget']=dict(control=budget_control(state, queue=queue), status=budget_status(state))
+        if result['storage_budget']['status'].get('allowed') is False:
+            result['complete']=False
+            result['warnings'].append('storage_budget_waiting_for_operator')
+    except Exception:
+        result['storage_budget']=dict(available=False)
+        result['complete']=False
+        result['warnings'].append('storage_budget_status_unavailable')
     result['summary_cache_usage'] = statistics(Path(state)/'execution/visualiser-cache/summaries')
     if result['summary_cache_usage']['recorded'] and not result['summary_cache_usage']['available']:
         result['complete'] = False
@@ -201,6 +211,19 @@ def render(report):
                          f"; {cache['expired']} expired receipt(s), {cache['invalid']} invalid")
     else:
         lines.append('Storage measurements: unknown')
+    budget=report.get('storage_budget',{})
+    control=budget.get('control')
+    if control:
+        lines.append('Scheduler storage budget: '+control['mode']+
+                     f"; {control['headroom_mib']/1024:g} GiB filesystem headroom; "+
+                     (f"{control['ceiling_mib']/1024:g} GiB ceiling" if control['ceiling_mib'] else 'no configured ceiling'))
+        status=budget['status']
+        if status.get('recorded'):
+            lines.append('  Last budget check: '+status['checked_at']+
+                         ('; new batch admissions paused ('+status['last_error']+')' if not status['allowed'] else '; valid'))
+    else:
+        lines.append('Scheduler storage budget: '+('unavailable' if budget.get('available') is False
+                     else 'fixed startup configuration; live control not enabled'))
     usage = report.get('summary_cache_usage', {})
     if usage.get('available'):
         counters = usage['counters']

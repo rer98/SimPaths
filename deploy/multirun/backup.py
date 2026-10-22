@@ -201,6 +201,11 @@ def create(queue, state, destination, tools):
 def load_manifest(backup):
     backup=existing_directory(backup)
     value=read_metadata(backup/'manifest.json')
+    return validate_manifest(value)
+
+
+def validate_manifest(value):
+    """Validate the common recovery contract before directory or stream publication."""
     fields={'format','id','created_at','pool_id','schema','postgres_major','state_source','state_tree',
         'prepared','database','dump','images','default_release','release_ids','omitted_caches','attribution'}
     if isinstance(value,dict) and value.get('format') in LIVE_FORMATS:

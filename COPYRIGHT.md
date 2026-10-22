@@ -7,6 +7,12 @@ Attribution scope and non-commentable/generated artifacts.
 
 # Attribution
 
+The direct encrypted backup stream, bounded SSH readback, compact scheduler
+compatibility checks and native recovery proof carry inline attribution.
+Generated archive inventories, checksum receipts and fictional proof evidence
+are (C) Copyright 2026, by Ross Richardson; @author ross richardson. Scientific
+data and third-party software retain their existing ownership and licences.
+
 The MultiRun release-lifecycle controls, private reference-aware retirement,
 verified recovery archives and regression/proof scripts carry inline notices.
 Generated catalogue/control metadata, archive receipts, recovery ZIP inventories
@@ -401,3 +407,10 @@ monitoring attachments, manifests, SQLite records, control/status JSON, labelled
 HTML/CSV reports and fictional proof evidence are
 (C) Copyright 2026, by Ross Richardson; @author ross richardson. This attribution
 does not claim ownership of scientific records or third-party software.
+
+The live scheduler storage-budget controls, native admission/recovery proof and
+operator guide carry attribution in their headers. Generated private budget
+control/status JSON, bounded growth history and fictional proof evidence are
+(C) Copyright 2026, by Ross Richardson; @author ross richardson. Scientific
+records and existing third-party components retain their original attribution
+and licences.

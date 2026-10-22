@@ -7,13 +7,24 @@ SimPaths Online deployment readiness, verified local evidence and installation o
 
 # SimPaths Online deployment readiness
 
-**Reviewed:** 21 October 2026. **Deployment status:** the intended first trial is
-Contabo Cloud VPS 12 in the EU. Matteo confirmed funding on 14 October through
-Alliance for Microsimulation and Policy Analysis CIC and requested that project
-accounts refer to that entity. Ross confirmed on 21 October that the Contabo
-account has not yet been created. Account setup and ordering remain to do; no
-installed/accepted VM, selected domain or completed provider CPU-use checks are
-recorded here.
+**Reviewed:** 22 October 2026. **Deployment status:** Ross supplied the provisioning
+notice for a Contabo Cloud VPS 12 (2026), Hub Europe, on 21 October. Account creation
+and the initial order have therefore progressed to a provisioned VPS. Matteo
+confirmed funding on 14 October through Alliance for Microsimulation and Policy
+Analysis CIC and requested that project accounts refer to that entity. The first
+root SSH inventory succeeded on 21 October: Ubuntu 24.04.5 LTS, 12 guest vCPUs,
+50,514,526,208 bytes of RAM (47.045 GiB), a 429,496,729,600-byte virtual disk
+(400 GiB), an ext4 root filesystem and cgroup v2. Dedicated-key root SSH access
+and a fresh separate administrator login with password-authenticated sudo were
+verified on 22 October. The initial key-only SSH restrictions and IPv4/IPv6 UFW
+rules passed a separate fresh IPv4 administrator connection and effective-policy
+checks; the temporary rollback timer was cancelled. The initial Ubuntu update
+review found no eligible upgrades and three phased updates. Initial SSH/firewall
+settings and administrator/sudo access also passed after a verified reboot.
+External IPv6 checks, quota-compatible storage, final billing/administration
+arrangements, domain and provider CPU-use checks remain to verify. These initial
+checks are not installed-host acceptance; keep addresses, credentials and detailed
+host evidence outside this public document.
 
 Use this checklist to prepare and validate the first SimPaths Online installation,
 covering SingleRun, UK MultiRun and the Policy Impact Visualiser connection.
@@ -38,6 +49,16 @@ outside Git; required settings and local permissions have been checked. SMTP
 authentication, sender/domain status, real inbox/attachment delivery and VM
 configuration remain installation acceptance tasks. No SMTP key is stored here.
 
+### Backup arrangement for the initial trial
+
+Ross agreed on 21 October to omit Contabo Auto Backup from the initial order.
+Use the application's encrypted backups with a separate provider; the destination
+has not yet been selected or tested. Keep deployment configuration, secrets and
+required software/images separately recoverable. Configure and test remote backup
+and independent restoration before accepting real users' data. The included
+snapshots can provide additional rollback points. Auto Backup remains an optional
+later addition. See the [backup plan](multirun/BACKUP.md#initial-deployment-backup-decision).
+
 ## Current implementation and next work
 
 The following capabilities are implemented and have local/native fixture evidence;
@@ -60,6 +81,10 @@ their installation-specific acceptance is still open:
   recovery with [pending/adopted preparation transfers](multirun/HANDOVER_RECOVERY.md).
 - Storage-aware queue admission, administrator incidents, optional one-off owner
   email after six hours of persistent storage delay and a subsequent start notice.
+- [Live scheduler storage budgets](multirun/STORAGE_BUDGET.md), with filesystem
+  growth tracking, reserved headroom, optional ceilings, fixed increases and
+  restart/backup preservation. The 124 passing native cases and corrected
+  seven-case rerun qualify the fixture scope; mounted-host growth remains open.
 - [Optional performance review](multirun/PERFORMANCE_REVIEW.md), with live external
   controls, launch-selected detailed Java observations, bounded timelines and
   workload/pipeline reports. Optional review defaults remain off; safety checks
@@ -157,6 +182,14 @@ orchestration and other service work. If the provider's 48 GB is decimal, it is
 about 44.7 GiB before guest/system effects; measure actual available memory.
 The CPU/RAM allowances are admission budgets, not a guarantee of dedicated cores.
 Do not infer final concurrency from advertised specifications alone.
+
+The first guest inventory reports 47.045 GiB total RAM, leaving approximately
+7.545 GiB outside this 39.5 GiB common pool for system and shared services. It
+reports no swap. The complete 400 GiB virtual disk is already partitioned, mainly
+as the ext4 root filesystem; inspect and arrange the required XFS storage before
+installing model workspace quotas or SingleRun writable-layer limits. The guest
+CPU count and generic AMD EPYC identity do not establish sustained throughput or
+exclusive access to physical cores.
 
 The candidate retains one protected preparation allowance and permits two
 independently admitted groups. A group can use two seed tasks within a total
@@ -606,16 +639,77 @@ not install services, choose providers or change security settings.
 
 ### Host storage and capacity
 
-- [ ] Create the Contabo project account and order the agreed trial after the
-  provider/account arrangements below are settled. Account setup is still pending
-  as confirmed by Ross on 21 October; funding approval is already recorded.
+- [x] Create the Contabo account and obtain the initial VPS. Ross supplied the
+  provisioning notice for Cloud VPS 12 (2026), Hub Europe, on 21 October.
+- [x] Complete first root SSH access and a read-only OS/CPU/RAM/storage inventory.
+  The cached Ed25519 host key matches the corrected console observation. The
+  21 October report records Ubuntu 24.04.5 LTS, 12 vCPUs, 47.045 GiB RAM, 400 GiB
+  virtual disk, ext4 root, no swap and cgroup v2. Detailed host evidence remains
+  private.
+- [x] Install the dedicated operator public key and verify root SSH access with
+  server-password and keyboard-interactive authentication disabled (22 October).
+  The operator key fingerprint was checked against the local public-key file;
+  keep that fingerprint and other host details in the private installation record.
+- [x] Establish and test key-based operator access with a separate administrator
+  account and sudo. A fresh key-only SSH login and password-authenticated sudo
+  succeeded on 22 October; retain the account details privately.
+- [x] Restrict root and password SSH access after the verified administrator login;
+  enable UFW with IPv4/IPv6 SSH rules and verify effective policy through a fresh
+  IPv4 key-only administrator connection. Confirmation passed and cancelled the
+  temporary rollback timer on 22 October.
+- [x] Refresh configured Ubuntu package catalogues and review proposed upgrades.
+  On 22 October, the preview proposed zero upgrades/installations/removals and three
+  phased updates; no manual holds were reported. No phased updates were forced.
+- [x] Verify initial SSH/firewall persistence through a controlled reboot. Changed
+  boot IDs, a fresh key-only administrator/sudo login, effective SSH restrictions
+  and active IPv4/IPv6 UFW rules passed on 22 October; SSH socket activation and
+  UFW are enabled. This is initial access acceptance, not application/storage recovery.
+- [ ] Verify external IPv6 filtering/reachability. Apply further reviewed host
+  updates when available and recheck access, firewall and CPU-mitigation status.
+- [x] Record the guest's CPU-mitigation observations after the Ubuntu package
+  review and controlled reboot. The SRSO/no-microcode warning remains unchanged;
+  guest inventory alone does not establish physical-host mitigation coverage.
+- [x] **Reminder requested by Ross on 21 October:** contact Contabo about SRSO
+  (CVE-2023-20569) after the Ubuntu update/recheck. Ross submitted a technical
+  support ticket on 22 October; the customer panel confirms it is open for the
+  selected VPS. Keep the ticket identifiers and screenshot in the private host record.
+- [ ] Obtain and review Contabo's host-specific response on the current guest CPU
+  mitigation warning, physical host firmware/hypervisor protections and correct
+  exposure of mitigation capabilities to the VM. Keep the response with private
+  host evidence and revisit this item during the pre-launch review. Private
+  installation with public/fictional fixtures can continue while this clarification
+  is pending. The 22 October package review left the warning unchanged; resolve and
+  review the host-specific explanation before accepting confidential/proprietary
+  data. The guest warning alone does not establish missing host mitigations or a
+  breach; CPU generation, hypervisor capabilities and the applicable protections
+  need a technical explanation from the provider.
 - [ ] Record Contabo's response on sustained scientific CPU use and the project
-  account/billing/administration arrangements before ordering the intended trial.
-  Funding is agreed; this is the remaining provider/setup check, not a new request
-  for reimbursement approval. Confirm the final one-month specification at order.
-- [ ] Provision the selected host/OS, private volume and domain. Install reviewed
-  artifacts with dedicated service identities and operator-controlled code/config;
-  keep host/Docker access private. Record actual usable RAM/disk and CPU sharing.
+  account/billing/administration arrangements. Funding is agreed; this remains a
+  provider/setup check. Preserve the final order specification, term and costs;
+  the provisioning notice alone does not establish those details.
+- [ ] Select and provision a reviewed storage layout from the actual partition
+  geometry. The initial ext4 root does not meet the current SingleRun/MultiRun
+  quota requirements: Docker needs classic `overlay2` on quota-enabled XFS, and
+  dedicated MultiRun workspaces need XFS project quotas and non-overlapping
+  project-ID allocation. Reserve explicit capacity for OS/PostgreSQL, Docker
+  images, private inputs/results/Visualiser data and a separate finite backup
+  filesystem sized for the selected backup mode. Scheduled direct capture needs
+  retained/new compressed encrypted archives, database/export scratch and headroom;
+  explicit directory captures and old pending jobs still need a full plaintext
+  copy. Streamed remote readback needs no archive-sized downloaded file. Measure
+  these peaks and set local retention before choosing application/backup volumes.
+  Verify mount dependencies and persistence before importing images or starting
+  services. Fresh Docker 29+ defaults to a different image store; select and
+  verify the backend required by the reviewed host verifier before use.
+- [ ] Enable and inspect the [live scheduler storage budget](multirun/STORAGE_BUDGET.md)
+  with reviewed non-job headroom before later private-filesystem growth. Its
+  disposable database/runtime/backup qualification passed after a fixture
+  correction; verify actual mounted-host growth, unchanged running jobs and
+  restart reuse. No physical resizing or
+  storage-budget reduction is performed by this controller.
+- [ ] Install reviewed artifacts with dedicated service identities and
+  operator-controlled code/config, and configure the selected domain. Keep
+  host/Docker access private. Record actual usable RAM/disk and CPU sharing.
 - [ ] Complete [provider delivery checks](HOSTED_LOAD_TEST_PLAN.md#provider-delivery-checks):
   preserve the dated order/specification and sustained-use clarifications; compare
   guest vCPU/RAM and device/partition/filesystem capacities with purchased values
@@ -794,6 +888,10 @@ not install services, choose providers or change security settings.
   Enable automatic deletion for real users only after notice/recovery acceptance.
   Warnings start when recorded; an SMTP outage does not extend deletion deadlines.
 - [ ] Configure separate protected backup storage and the real pinned SFTP host.
+  Select and test an external provider; Contabo Auto Backup is omitted from the
+  initial order by agreement on 21 October. Confirm the destination supports the
+  runner's SFTP hard-link publication, bounded read-only SSH `cat` verification
+  over the same pinned endpoint, and independently protected retention.
   Verify encryption, independent key recovery, readback, remote retention and alerts.
   Protect the private decryption key separately from the service VM.
   Include committed intermediate summaries, finished/indexed charts, independent
@@ -847,11 +945,13 @@ private configuration separately from public assets.
 
 | Record | Value |
 | --- | --- |
-| Intended first trial | Contabo VPS 12 EU; account not yet created (Ross, 21 October); ordering and provisioning pending |
+| Initial trial VPS | Contabo Cloud VPS 12 (2026), Hub Europe; provisioning notice supplied by Ross on 21 October. Separate administrator/sudo, key-only SSH restrictions and IPv4/IPv6 UFW rules verified through fresh IPv4 connections before and after reboot on 22 October. No eligible Ubuntu upgrades at initial review; external IPv6 checks and remaining hardening pending. |
+| Selected order specification | Checkout screenshots supplied on 21 October show a one-month term, 12 vCPUs, 48 GB RAM, 400 GB SSD, Ubuntu 24.04, three snapshots and an 800 Mbit/s port; £29.28/month including 20% VAT, no setup fee. Retain the actual invoice privately. |
 | Funding arrangement | Confirmed by Matteo on 14 October 2026; costs covered by Alliance for Microsimulation and Policy Analysis CIC |
 | Acceptance date and operator | Pending |
 | Installed source commits and artifacts | Pending |
-| Host specification and private storage/workspace enforcement | Pending |
+| Initial guest specification | Ubuntu 24.04.5 LTS; kernel 6.8.0-147-generic; 12 KVM guest vCPUs; 50,514,526,208 bytes RAM (47.045 GiB); 429,496,729,600-byte disk (400 GiB); ext4 root; no swap; cgroup v2. Observed 21 October; throughput and physical-host mitigation coverage unqualified. |
+| Private storage/workspace enforcement | Pending; the initial ext4 layout does not establish the required XFS-backed quota and Docker writable-layer limits. |
 | Purchased versus observed provider capacities and component checks | Pending; dated order, byte/count inventory, bounded disk/network probes and evidence limits |
 | Repeated provider performance and reliability assessment | Pending; at least three UTC windows, matched artifacts/quotas, monitoring, all outcomes and observed service-target results |
 | HTTPS origins and installed service/configuration identities | Pending; record fingerprints/references, not credentials |
@@ -860,6 +960,7 @@ private configuration separately from public assets.
 | External privacy and browser/download evidence | Pending |
 | Boot/outage/update recovery evidence | Pending |
 | Real mail/retention evidence | Pending |
+| Backup arrangement | Encrypted application backups to a separate provider planned; destination and independent restore pending. Contabo Auto Backup omitted from the initial order (Ross, 21 October). |
 | Remote backup retrieval and independent restore evidence | Pending |
 | Remaining issues or deliberately disabled features | Pending |
 | Access opened by and date | Pending |

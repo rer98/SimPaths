@@ -131,6 +131,25 @@ class OperatorTests(unittest.TestCase):
         result=json.loads(output.getvalue()); self.assertFalse(result['complete'])
         self.assertNotIn('secret',output.getvalue()); self.assertNotIn('/private',output.getvalue())
 
+    def test_storage_budget_status_is_read_only_and_reports_paused_batch_admissions(self):
+        from jasmine_web.batch.storage_budget import StorageBudget
+        controller=StorageBudget(self.queue,self.state,self.root,dedicated=False,
+            reader=lambda:dict(capacity_mib=50000,device=1,inode=2,total_bytes=50000*1024**2,
+                               reserved_bytes=0,free_bytes=2000*1024**2))
+        with patch('jasmine_web.batch.storage_budget.current',return_value=40000), \
+                patch('jasmine_web.batch.storage_budget.resize',return_value=dict(
+                    previous_mib=40000,storage_mib=40000,changed=False)):
+            controller.configure('follow')
+        with patch('jasmine_web.batch.storage_budget.resize',side_effect=RuntimeError('PRIVATE_DSN')):
+            self.assertFalse(controller.tick(force=True))
+        before=self.contents()
+        report=collect(self.queue,self.state,read_database=False)
+        self.assertIn('storage_budget_waiting_for_operator',report['warnings'])
+        self.assertIn('Scheduler storage budget: follow',render(report))
+        self.assertIn('new batch admissions paused (RuntimeError)',render(report))
+        self.assertNotIn('PRIVATE_DSN',json.dumps(report))
+        self.assertEqual(before,self.contents())
+
     def test_summary_dependency_snapshot_is_numeric_read_only_and_reports_capacity_pressure(self):
         from .visualiser_summary_cache import SummaryCache
         cache=SummaryCache(self.state/'execution/visualiser-cache/summaries',maximum_entries=2)

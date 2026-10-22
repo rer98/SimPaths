@@ -97,9 +97,12 @@ async def private_processors(service, stop):
 @maintenance_guard
 def create_registry(args,q,state,send_mail,*,capacity=Resources(2000,5120,12288),per_user_active=1):
     q.backup_state=state
+    from .storage_budget import bootstrap as storage_budget
+    storage_override=storage_budget(args,q,state)
     q.create_pool(capacity,holdback=getattr(args,'holdback',None),policy=Policy(per_user_active=per_user_active,
         per_user_unfinished=args.max_unfinished_jobs,pool_unfinished=args.pool_unfinished_jobs),
-        update_admission_limits=True)
+        update_admission_limits=True,
+        **({'storage_budget_mib':storage_override} if storage_override is not None else {}))
     protected=(Resources(getattr(args,'visualiser_cpu_millis',1000),args.visualiser_memory_mib,
                          getattr(args,'visualiser_storage_mib',512))
                if getattr(args,'visualiser_protected',False) else None)
@@ -179,11 +182,15 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
     executor=DockerExecutor(execution,approved_images=images,workspace_quotas=quotas,
         input_roots=[execution,state/'artifacts',*[Path(p['location']) for p in locations]])
     stop=threading.Event()
+    from .storage_budget import controller as storage_controller
+    storage_budget=storage_controller(args,q,state)
     health={'message':'Dispatcher is starting.'}
     fatal=threading.Event()
     def dispatch():
         try:
             def before_claim():
+                if not storage_budget.tick():
+                    return False
                 service.attempt_cleanup.retire()
                 retire_finished(q,executor)
                 service.retention.retire()

@@ -66,8 +66,8 @@ class Chunks(io.RawIOBase):
         finally: super().close()
 
 
-def container_tree(container, source, target):
-    """Unpack ordinary Docker files only; every private path stays below target."""
+def container_files(container, source, receive):
+    """Read validated Docker members under before/after source identity checks."""
     def inventory():
         result=container.exec_run(['find',source,'-printf','%P\0%y\0%D\0%i\0%s\0%T@\0%C@\0'])
         if result.exit_code or len(result.output)>8*1024**2:
@@ -75,7 +75,6 @@ def container_tree(container, source, target):
         return result.output
     before=inventory()
     chunks,_=container.get_archive(source,chunk_size=1024**2)
-    target.mkdir(mode=0o700)
     count=0; seen=set()
     with io.BufferedReader(Chunks(chunks),buffer_size=1024**2) as stream, tarfile.open(fileobj=stream,mode='r|') as archive:
         for member in archive:
@@ -86,21 +85,62 @@ def container_tree(container, source, target):
                     key.as_posix() in seen):
                 raise ArtifactError('Invalid linked or special SingleRun backup file')
             seen.add(key.as_posix())
-            path=target/Path(*key.parts)
-            path.parent.mkdir(mode=0o700,parents=True,exist_ok=True)
-            if member.isdir(): path.mkdir(mode=0o700,exist_ok=True); continue
-            if not has_space(target,member.size):
-                raise ArtifactError('Insufficient free space for SingleRun exports')
-            with archive.extractfile(member) as incoming, path.open('xb') as output:
-                os.chmod(path,0o400)
-                remaining=member.size
-                while remaining:
-                    block=incoming.read(min(1024**2,remaining))
-                    if not block: raise ArtifactError('Truncated SingleRun export')
-                    output.write(block); remaining-=len(block)
-                output.flush(); os.fsync(output.fileno())
+            if member.isdir(): receive(key,member,None)
+            else:
+                with archive.extractfile(member) as incoming: receive(key,member,incoming)
     if inventory()!=before:
         raise ArtifactError('SingleRun files changed during capture; no backup was published')
+
+
+def copy_member(incoming, output, size):
+    remaining=size
+    while remaining:
+        block=incoming.read(min(1024**2,remaining))
+        if not block: raise ArtifactError('Truncated SingleRun export')
+        output.write(block); remaining-=len(block)
+
+
+def container_tree(container, source, target, *, stream=None, prefix=None):
+    """Capture ordinary Docker files to a directory or the encrypted stream."""
+    if stream is None: target.mkdir(mode=0o700)
+    def receive(key,member,incoming):
+        if stream is not None:
+            path=prefix+'/'+key.as_posix()
+            if incoming is None: stream.mkdir(path)
+            else: stream.add_stream(path,incoming,member.size)
+            return
+        path=target/Path(*key.parts)
+        path.parent.mkdir(mode=0o700,parents=True,exist_ok=True)
+        if incoming is None: path.mkdir(mode=0o700,exist_ok=True); return
+        if not has_space(target,member.size):
+            raise ArtifactError('Insufficient free space for SingleRun exports')
+        with path.open('xb') as output:
+            os.chmod(path,0o400); copy_member(incoming,output,member.size)
+            output.flush(); os.fsync(output.fileno())
+    container_files(container,source,receive)
+
+
+def container_zip(container, source, destination):
+    """Compress each Docker member directly; never unpack the raw export tree."""
+    class CheckedFile:
+        def __init__(self, output): self.output=output
+        def __getattr__(self, key): return getattr(self.output,key)
+        def write(self, data):
+            if not has_space(destination.parent,len(data)):
+                raise ArtifactError('Insufficient free space for compressed SingleRun exports')
+            return self.output.write(data)
+    with destination.open('xb') as output:
+        os.chmod(destination,0o400)
+        with zipfile.ZipFile(CheckedFile(output),'w',compression=zipfile.ZIP_DEFLATED,
+                             compresslevel=1,allowZip64=True) as archive:
+            def receive(key,member,incoming):
+                if incoming is not None:
+                    with archive.open(key.as_posix(),'w',force_zip64=True) as zipped:
+                        copy_member(incoming,zipped,member.size)
+            container_files(container,source,receive)
+        output.flush(); os.fsync(output.fileno())
+    with zipfile.ZipFile(destination) as archive:
+        if archive.testzip(): raise ArtifactError('Invalid SingleRun backup archive')
 
 
 def saved_zip(directory, destination):
@@ -127,7 +167,7 @@ def json_get(http, host, secret, endpoint, *, forbidden=False):
     return value
 
 
-def capture(c, dsn, schema, destination, source):
+def capture(c, dsn, schema, destination, source, *, stream=None):
     from psycopg import sql
     from jasmine_web.container_identity import container_labels_match_session,private_container_host
     from jasmine_web.session_security import network_name
@@ -153,7 +193,8 @@ def capture(c, dsn, schema, destination, source):
                 recovery=detail['recovery']; origin=Path(recovery['directory'])
                 from .backup_files import copy_tree
                 target=destination/saved['directory']; target.parent.mkdir(mode=0o700,parents=True,exist_ok=True)
-                copy_tree(origin,target)
+                if stream is None: copy_tree(origin,target)
+                else: stream.copy_tree(origin,'state/'+saved['directory'])
                 saved.update(archives=recovery['archives'],parameters=recovery.get('parameters'),
                              download_allowed=recovery['download_allowed'],expires_at=recovery['expires_at'])
                 sessions.append(saved); continue
@@ -187,10 +228,16 @@ def capture(c, dsn, schema, destination, source):
             for index,stamp in enumerate(stamps):
                 temporary=target/'.capturing'
                 try:
-                    container_tree(container,'/app/output/'+stamp,temporary)
-                    archive=target/f'output-{index:04d}.zip'; saved_zip(temporary,archive)
+                    archive=target/f'output-{index:04d}.zip'
+                    if stream is None:
+                        container_tree(container,'/app/output/'+stamp,temporary)
+                        saved_zip(temporary,archive)
+                    else: container_zip(container,'/app/output/'+stamp,archive)
                     saved['archives'].append(dict(id=f'output-{index:04d}',timestamp=stamp,
                         file=saved['directory']+'/'+archive.name,**file_hash(target,archive.name)))
+                    if stream is not None:
+                        stream.add_file(archive,'state/'+saved['directory']+'/'+archive.name)
+                        archive.unlink()
                 finally:
                     if temporary.exists(): shutil.rmtree(temporary)
             # Original uploaded text/workbooks can reconstruct user inputs. An
@@ -208,7 +255,8 @@ def capture(c, dsn, schema, destination, source):
                 for index,item in enumerate(names):
                     name(item)
                     temporary=inputs/('source-'+hashlib.sha256((base+'/'+item).encode()).hexdigest())
-                    container_tree(container,base+'/'+item,temporary)
+                    container_tree(container,base+'/'+item,temporary,stream=stream,
+                        prefix='state/'+temporary.relative_to(destination).as_posix() if stream is not None else None)
                     input_sources.append(dict(source=base+'/'+item,directory=temporary.relative_to(target).as_posix()))
             atomic_json(target/'capture.json',dict(status=status,model_id=record['model_id'],image=image,
                 active_output_omitted=saved['active_output_omitted'],inputs='original text/workbooks only; no open H2 database',input_sources=input_sources))

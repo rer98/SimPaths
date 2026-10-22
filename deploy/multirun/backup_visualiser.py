@@ -94,7 +94,7 @@ def known_source(c,queue,owner,attempt,identity=None):
     return bool(row and (identity is None or row['identity']==identity))
 
 
-def capture(state,destination,c=None,queue=None):
+def capture(state,destination,c=None,queue=None,*,stream=None):
     from jasmine_web.batch.downloads import lock
     root=Path(state)/ROOT
     result=dict(format=FORMAT,publications=0,summaries=0,evictions=0)
@@ -142,8 +142,14 @@ def capture(state,destination,c=None,queue=None):
                     read_metadata(summaries/name);keys.add('summaries/'+name)
         destination=Path(destination)/ROOT
         destination.parent.mkdir(mode=0o700,parents=True,exist_ok=True)
-        copy_selected(root,destination,keys)
-        verify(Path(destination).parents[1],result)
+        if stream is None:
+            copy_selected(root,destination,keys)
+            verify(Path(destination).parents[1],result)
+        else:
+            # Keep the same publication/summary locks through the actual reads.
+            # Source receipts above and the streamed file hashes describe exactly
+            # these committed entries; no plaintext copy is created.
+            stream.copy_selected(root,'state/'+ROOT,keys)
     return result
 
 

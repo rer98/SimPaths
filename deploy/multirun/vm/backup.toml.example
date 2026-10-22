@@ -18,7 +18,9 @@ minimum_free_gib = 1
 
 # Optional. Remove this section until a separate protected backup host is chosen.
 # The host key must be verified independently before installing known_hosts.
-# Its SFTP service must support atomic hard-link publication.
+# Its SFTP service must support atomic hard-link publication, and the same
+# pinned SSH endpoint must permit read-only cat for streamed verification.
+# Hetzner Storage Box supplies these operations on SSH port 23.
 [remote]
 host = "backup-host.example.invalid"
 user = "simpaths-backup"

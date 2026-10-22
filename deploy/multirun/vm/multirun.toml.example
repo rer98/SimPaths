@@ -51,6 +51,8 @@ max_rows = 20000
 # it joins this common pool, increasing totals and choosing interactive holds.
 cpu_millis = 3000
 memory_mib = 6144
+# Startup fallback. Enable the private live controller after reviewing filesystem
+# headroom to follow later growth without restarting jobs; see STORAGE_BUDGET.md.
 storage_mib = 13312
 per_user_active = 1
 

@@ -40,6 +40,11 @@ class MemorySFTP(transport.SFTP):
         self.directory='/backups'; self.remote={}; self.modes={}; self.commands=[]
         self.corrupt=False; self.lost_ack=False; self.fail=False
         self.interrupt_next_put=False; self.deny_chmod=False; self.deny_remove=False
+    def remote_hash(self, remote, receipt):
+        if self.fail: raise ArtifactError('Fictional remote outage')
+        if remote not in self.remote: return None
+        data=self.remote[remote]
+        return dict(bytes=len(data),sha256=hashlib.sha256(data).hexdigest())
     def batch(self, commands):
         self.commands+=commands
         if self.fail: return False

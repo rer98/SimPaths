@@ -13,6 +13,7 @@ import tarfile
 import sys
 from types import SimpleNamespace
 import unittest
+import zipfile
 from unittest.mock import patch
 
 from . import backup_single as single
@@ -54,7 +55,7 @@ class SingleCaptureTests(unittest.TestCase):
     def setUp(self):
         temporary=tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
         self.root=Path(temporary.name); self.container=Container()
-    def capture(self, *, running=True, allowed=True):
+    def capture(self, *, running=True, allowed=True, stream=None):
         from jasmine_web import vm_state
         versions=[dict(version=i,checksum=hashlib.sha256(Path(vm_state.__file__).with_name(n).read_bytes()).hexdigest())
             for i,n in enumerate(('vm_state_schema.sql','vm_state_002_shared_pool.sql'),1)]
@@ -80,7 +81,23 @@ class SingleCaptureTests(unittest.TestCase):
             from contextlib import nullcontext
             stack.enter_context(patch('docker.DockerClient',return_value=nullcontext(docker)))
             stack.enter_context(patch('httpx.Client',return_value=nullcontext(SimpleNamespace(get=request))))
-            return single.capture(SimpleNamespace(execute=query),'unused','fictional_vm',self.root,self.root)
+            return single.capture(SimpleNamespace(execute=query),'unused','fictional_vm',self.root,self.root,stream=stream)
+
+    def test_direct_stream_preserves_inputs_and_closed_zip_without_raw_staging(self):
+        from .backup_stream import Archive
+        content=io.BytesIO()
+        with tarfile.open(fileobj=content,mode='w|') as tar:
+            stream=Archive(tar)
+            value=self.capture(stream=stream)
+            stream.copy_tree(self.root,'state')
+        self.assertFalse(any(p.suffix in ('.csv','.xlsx','.zip') for p in self.root.rglob('*')))
+        with tarfile.open(fileobj=io.BytesIO(content.getvalue())) as tar:
+            names=tar.getnames()
+            self.assertTrue(any(n.endswith('/scenario.xlsx') for n in names))
+            self.assertTrue(any(n.endswith('/population.csv') for n in names))
+            zipped='backup/state/'+value['sessions'][0]['archives'][0]['file']
+            with tar.extractfile(zipped) as incoming, zipfile.ZipFile(io.BytesIO(incoming.read())) as archive:
+                self.assertEqual(archive.read('20261001_120000/csv/Person.csv'),b'closed fictional CSV')
 
     def test_running_output_is_omitted_but_closed_export_settings_and_original_inputs_survive(self):
         value=self.capture()

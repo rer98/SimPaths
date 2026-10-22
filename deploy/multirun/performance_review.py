@@ -19,7 +19,7 @@ def application_fingerprint():
     try:
         for name in ('runtime.py','container_adapter.py','submission_adapter.py','queue_adapter.py',
                      'configuration.py','schema.py','resource_policy.py','visualiser_backend.py',
-                     'java_review.py','performance_review.py','monitoring_exports.py','container_run.sh'):
+                     'java_review.py','performance_review.py','monitoring_exports.py','storage_budget.py','container_run.sh'):
             digest.update(name.encode());digest.update(Path(__file__).with_name(name).read_bytes())
     except OSError:return None
     return digest.hexdigest()

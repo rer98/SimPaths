@@ -59,6 +59,17 @@ Use the actual installed config path if it differs from the example.
 
 ## Output
 
+### Live scheduler storage budget
+
+The report includes private `storage_budget` policy/status, with the actual
+database allowance in `database.resources.capacity.storage_mib`. Once enabled,
+follow mode checks mounted filesystem growth every 30 seconds, preserving
+headroom and any chosen ceiling. Fixed increases and freezing the current budget
+also work without restarting model jobs. See [storage-budget controls](STORAGE_BUDGET.md)
+for enablement, backup/recovery behavior and the disposable native proof.
+Unsafe or unavailable measurements pause new batch admissions and appear as a
+status warning; existing jobs retain their allocations and continue being polled.
+
 ### Live performance review
 
 The separate [performance review](PERFORMANCE_REVIEW.md) records absolute sampled

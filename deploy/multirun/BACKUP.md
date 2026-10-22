@@ -14,6 +14,28 @@ Capture/verify/restore/activate never starts simulations or sends email. The sep
 scheduled runner can send explicitly enabled operator alerts and retire its own old
 completed encrypted copies.
 
+## Initial deployment backup decision
+
+On 21 October 2026, Ross chose to omit Contabo Auto Backup from the first VPS trial
+and instead configure and test encrypted application backups with a separate
+provider. The external destination is not yet selected or connected. Hetzner
+Storage Box is a candidate, subject to verification of the required SFTP operations,
+including hard-link publication, and a complete transfer/retrieval/restore trial.
+
+Before accepting real users' data, verify scheduled capture, encryption, off-machine
+transfer, independent key recovery, remote retention and restoration on an isolated
+target. Preserve the deployment configuration, secrets, software/build artifacts
+and Docker images separately as described under [What is saved](#what-is-saved).
+Initial installation checks may use disposable staging data while this is set up.
+
+The included Contabo snapshots can serve as additional rollback points around
+installation and updates. Contabo Auto Backup remains an optional later addition;
+the application backup workflow does not depend on it. See Contabo's
+[Auto Backup documentation](https://docs.contabo.com/docs/servers-hosting/vps-auto-backup/)
+for the provider's current options.
+
+## Backup modes
+
 Choose the appropriate mode:
 
 | Mode | Source during capture | Recovery coverage |
@@ -73,6 +95,12 @@ ZIPs are omitted. Maintenance locks and an inactive restore marker are not sourc
 payload. The updated tool still reads old offline `v1`/online `v2` backups, which
 do not contain a retained Visualiser payload; schema compatibility still applies.
 
+Private [live scheduler storage-budget controls](STORAGE_BUDGET.md) and their
+latest status are included. Online capture excludes concurrent control changes.
+After recovery, startup validates the restored allowance against the target's
+mounted filesystem and headroom. It cannot silently reduce a budget to fit a
+smaller target; provision sufficient capacity or plan a separate drained migration.
+
 **Keep deployment artifacts separately:** the installed hosting checkouts/venv,
 VM TOML, PostgreSQL connection files, SMTP configuration, Visualiser build, proxy
 and systemd configuration, and every required Docker image. The backup records
@@ -80,8 +108,11 @@ image IDs but does not export, pull or rebuild images. Use the normal trusted im
 distribution or a separately protected `docker save` archive. Activation requires
 all recorded images to be installed, including older training-source images.
 
-The database dump is compressed. Private data files are copied without compression;
-allow room for a complete second copy and the dump on the destination filesystem.
+The database dump is compressed. The explicit directory-based `backup create`
+commands copy private files without compression; allow room for a complete second
+copy and the dump when using those commands. The scheduled encrypted runner uses
+direct archive capture instead, as described below, and does not create that
+second uncompressed MultiRun/Visualiser tree.
 File inventories are bounded to 100,000 entries per tree and 64 MiB of metadata.
 Exceeding a bound or running out of space fails without publishing a backup.
 
@@ -213,14 +244,27 @@ inputs are checked for changes before/after streaming. A live input H2 database 
 excluded; an already closed saved export can contain its original input copy.
 The source API's detailed-output denial remains recorded in the recovery copy.
 
-Use a **separate backup filesystem** so copying cannot consume the live model's
-reserved working space or fill Docker/PostgreSQL storage. Reserve room for the
-verified plaintext snapshot, encrypted copy and SFTP readback copy. Per-file space
-checks retain `minimum_free_gib` (default 1 GiB); this is a safety floor, not a disk
-quota or a shared reservation. Size it and the backup volume from measured peaks.
-Capture is bounded by file/metadata limits; a long exported snapshot can delay
-PostgreSQL vacuum reclamation. Test responsiveness and capture duration with the
-chosen staging volume and representative data before enabling the timer.
+Use a **separate backup filesystem** so backup work cannot consume the live
+model's reserved working space or fill Docker/PostgreSQL storage. For the scheduled
+runner, budget for existing retained encrypted archives, the new compressed and
+encrypted archive, the PostgreSQL dump, the largest SingleRun ZIP being generated,
+bounded metadata and headroom. A second uncompressed MultiRun/Visualiser tree and
+a complete downloaded readback file are no longer required. Compression ratio is
+workload-dependent; equal source/backup volume sizes are not a sizing rule.
+
+Explicit directory-based captures and legacy pending plaintext jobs still need
+their full selected uncompressed payload. Keep that distinction when choosing a
+command or resuming pre-update work. Space checks retain `minimum_free_gib`
+(default 1 GiB), including the encrypted-output pump; this is a safety floor, not
+a disk quota or shared reservation. Size volumes from measured peaks.
+
+Capture retains source/deletion fences and its matching exported SQL snapshot
+through compression. Running scientific engines and ordinary SQL writers continue;
+deletion/reconfiguration and some SingleRun controls may need to retry. A long
+exported snapshot can delay PostgreSQL vacuum reclamation. Network transfer happens
+after capture releases those fences, so slow remote copying does not extend them.
+Test responsiveness and capture duration on representative data before enabling
+the timer.
 
 ### Restoring an online recovery point
 
@@ -274,7 +318,12 @@ Templates in `vm/backup.toml.example`, `vm/simpaths-backup.service` and
 3. Select a separate protected backup host later. The optional `[remote]` section
    uses pinned-host OpenSSH SFTP with explicit identity, no agent/forwarding and
    strict host-key checking. Verify the host key independently before installing
-   the private `known_hosts` file. The destination must support SFTP hard links.
+   the private `known_hosts` file. The destination must support SFTP hard links
+   and read-only `cat` over the same pinned SSH endpoint for bounded streaming
+   verification. Hetzner Storage Box documents these operations on port 23;
+   enable its SSH access and external reachability, then prove them on the actual
+   chosen account. A restricted SFTP-only endpoint without SSH commands does not
+   satisfy the new readback requirement. There is no disk-spooling fallback.
    Remove `[remote]` until configured; local encryption alone is not off-machine
    disaster protection.
 4. Set operator alerts explicitly with `[alerts] enabled=true`, an operator-only
@@ -301,23 +350,126 @@ python -m deploy.multirun.backup_schedule status \
   --config /etc/simpaths-online/backup.toml
 ```
 
-The private durable journal separates capture, encryption and transfer. A failed
-transfer retries the **same verified encrypted snapshot**, without recapturing data
+The private durable journal records direct capture/encryption followed by transfer.
+The scheduled runner streams the selected files into the existing compressed,
+public-key-encrypted archive format. A failed transfer retries the **same verified
+encrypted snapshot**, without recapturing data
 or restarting simulations. Source identity includes the resolved VM settings and
 database endpoint, so editing a DSN/TOML at the same path cannot make an old pending
 snapshot count as protection for another source. Credential-only rotations do not
 change that identity. Finish pending work before changing the source or destination.
-The plaintext directory is erased only after a complete
-encrypted local file and checksum receipt exist. An interrupted encryption can be
-repeated from that verified plaintext. Abrupt interruption is recovered by the next
-runner; every stage remains unpublished/pending until its checks pass.
+The stream includes the same per-file checksums, permissions, prepared-input
+inventory, retained summaries/charts and matching PostgreSQL metadata as a normal
+online backup. Shared SingleRun closed exports are compressed directly from the
+validated Docker archive into one temporary ZIP at a time; original input files
+stream directly. Running output remains omitted. Only the database dump, small
+generated metadata and temporary compressed exports use capture scratch space.
+
+Interrupted capture discards its unpublished ciphertext and scratch before retry;
+a ciphertext already published with its checksum receipt survives a lost journal
+acknowledgement and is reused. Legacy pending directory captures/encryption jobs
+continue through their original stages: their plaintext directory is erased only
+after a complete encrypted file and receipt exist. Old encrypted bundles and their
+restore/unseal format remain supported. Abrupt interruption is recovered by the
+next runner; work remains pending until all checks pass.
 
 Only ciphertext and its small receipt leave the VM. SFTP uploads under a partial
 name, reads the encrypted bytes back to verify SHA-256, then creates the final
 name atomically without replacing an existing completed file. Lost publication
-acknowledgements are resolved by checking identical remote bytes. This readback
-costs another transfer and temporary local copy. A conflicting/corrupt file fails
+acknowledgements are resolved by checking identical remote bytes. Readback uses
+bounded SSH pipe buffers, byte counts and a SHA-256 digest, with the same pinned
+host, port and identity as upload. It still costs another transfer but creates no
+complete local download. Oversized, interrupted, timed-out or mismatching responses
+fail verification; the child process is stopped/joined before returning. A conflicting/corrupt file fails
 protection; no overwrite fallback is used. Receipt delivery must finish too.
+
+Local encrypted-copy retention remains independently configurable with
+`keep_days` and `keep_latest`. Defaults are unchanged (30 days, at least three
+completed copies); they are not a recommendation for a small VPS volume. For an
+initial one-copy daily local policy, an operator can select `keep_days=1` and
+`keep_latest=1`: a previous complete copy remains until a replacement completes
+and the age condition permits retirement. Pending remote transfers are retained.
+Remote expiry/history must be configured separately; the runner does not prune
+remote backups. A shorter local policy is an operator choice, not applied by this
+code change. Independent off-machine restore remains necessary.
+
+Even a one-copy local policy needs room for the previous completed archive and
+its replacement simultaneously, plus capture scratch and the free-space floor.
+Retirement runs after the capture/transfer attempt; a smaller `keep_latest` alone
+also does not override `keep_days`. With daily full backups and a 30-day local age
+floor, roughly a month of completed full archives can accumulate, regardless of
+the three-copy minimum. Include this history in capacity planning. A pending
+failed remote transfer is retried from the same local ciphertext before the
+runner starts another recovery point; it is not automatically discarded for space.
+
+Measure different payload types separately. Raw CSV compression does not establish
+the ratio for prepared H2 databases, retained release archives, SingleRun ZIPs or
+Visualiser files. Existing compressed payloads can need nearly their full size
+again inside each recovery archive. A compression-only counting probe can inform
+the budget without writing a large temporary archive, but it does not measure a
+complete encrypted backup's filesystem peak, capture duration or recovery.
+
+### Representative payload compression, 22 October 2026
+
+A local counting probe streamed the original, checksum-verified research files
+through the production `Archive` writer and GnuPG with `--no-options
+--compress-algo zlib --store`. The two configurations each contained two genuine
+repetitions with 100,000 initial people, covering 2019–2070. Existing recovery
+archives were read in bounded buffers, without extracting a second raw tree or
+saving the compressed output. Prepared-input hashes also matched their original
+receipt; both retained summary JSON hashes matched their fixture manifest.
+
+| Measured payload | Original size | Compressed store stream | Fraction retained |
+| --- | ---: | ---: | ---: |
+| Baseline, two repetitions | 6.930 GiB | 1.823 GiB | 26.31% |
+| Lower-saving-rate alternative, two repetitions | 6.931 GiB | 1.850 GiB | 26.69% |
+| One frozen prepared-input set | 1.806 GiB | 0.373 GiB | 20.63% |
+| Two representative per-seed summary JSON files | 61.3 MiB | 5.0 MiB | 8.10% |
+
+Scaling the measured output bytes to a baseline and two alternatives, each with
+ten repetitions, suggests approximately 104 GiB of raw output and 27.6 GiB of
+compressed output payload. Two overlapping local copies would occupy about
+55.2 GiB for that output alone. Prepared inputs, other users' retained results,
+Visualiser publications, release files, encryption/manifest overhead and capture
+scratch must be added. This is a projection from two real repetitions, not a
+measured ten-repetition backup or a worst-case bound.
+
+The counting probe used **store mode, without encryption or a SQL snapshot**;
+it was a compression measurement, not a recovery backup. Its timings include
+decompression of the archived inputs, so they are not production-backup speed
+measurements. The full encrypted capture peak and service responsiveness still
+require an installed-host test. Initial volume sizing must leave headroom rather
+than treating these ratios as guaranteed compression for all future data.
+
+### Direct-capture qualification
+
+Run the focused proof before deployment. It uses fictional files and temporary
+GnuPG keys, with a disposable database and captured remote transports. It exercises
+source mutation, direct SingleRun compression, bounded real pipe readback, retry
+of identical ciphertext, old pending-job compatibility, native SQL restore and
+retained Visualiser permissions after raw expiry. It contacts no external backup
+host and sends no real emails or scientific simulations.
+
+```bash
+cd ~/git/JAS-mine/JAS-mine-web &&
+TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 \
+~/simpaths-browser-tests/venv/bin/python scripts/test_batch_queue.py \
+  --proof-only \
+  --proof-script "$HOME/git/SimPathsWeb/SimPaths/deploy/multirun/backup_stream_proof.py" \
+  --proof-requirements "$HOME/git/SimPathsWeb/SimPaths/deploy/multirun/requirements-backup-proof.txt" \
+  --output "/tmp-codex/backup-stream-native-$(date +%Y%m%d-%H%M%S)"
+```
+
+The 22 October 2026 native qualification passed all 70 checks, with no failures,
+errors or skips and successful disposable-database cleanup. The retained evidence
+is `backup-stream-native-retry-20261022-110213`; the earlier failed report is
+preserved separately.
+
+This proves format/application compatibility, not performance or the chosen
+provider's SSH/SFTP features. Before sizing production backup storage, measure
+archive size, simultaneous scratch and retained-copy usage, CPU/I/O contention
+and capture duration with representative results, then retrieve and restore an
+actual off-machine copy on an isolated recovery target.
 
 `status` returns nonzero when there is no verified backup, protection is overdue,
 or backup work has failed. Include this in an independent host-monitoring check:

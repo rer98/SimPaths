@@ -6,13 +6,19 @@ bytes back and uses a hard link so an existing completed copy is never replaced.
 @author ross richardson
 """
 import os
+from contextvars import copy_context
+import hashlib
 from pathlib import Path
 import re
+import selectors
+import shlex
 import shutil
 import subprocess
 import stat
 import tarfile
 import tempfile
+import threading
+import time
 
 from .artifacts import ArtifactError
 from .backup_files import (MAX_ENTRIES, file_hash, has_space, name, open_file, publish,
@@ -87,38 +93,61 @@ def public_home(parent, public_key, recipient):
 def seal(backup, destination, *, public_key, recipient):
     from .backup import verify
     backup=existing_directory(backup); manifest=verify(backup)
+    before=scan(backup)
+    def write(archive):
+        for key in sorted(before):
+            path=backup/key
+            entry=tarfile.TarInfo('backup/'+key)
+            entry.uid=entry.gid=0; entry.uname=entry.gname=''; entry.mtime=0
+            if path.is_dir():
+                entry.type=tarfile.DIRTYPE; entry.mode=0o700; archive.addfile(entry)
+            else:
+                entry.mode=before[key][2]&0o700; entry.size=before[key][3]
+                with open_file(backup,key) as incoming: archive.addfile(entry,incoming)
+        if scan(backup)!=before: raise ArtifactError('The verified backup changed during encryption')
+        return manifest
+    return seal_stream(destination,write,public_key=public_key,recipient=recipient)
+
+
+def seal_stream(destination, write, *, public_key, recipient):
+    """Encrypt an archive producer; join the bounded output pump before publish."""
     destination=Path(destination).absolute(); parent=existing_directory(destination.parent)
     descriptor=Path(str(destination)+'.json')
     if destination.exists() or destination.is_symlink() or descriptor.exists() or descriptor.is_symlink():
         raise ArtifactError('Choose a new encrypted backup name')
     home=public_home(parent,public_key,recipient)
     temporary=parent/('.encrypting-'+os.urandom(16).hex())
-    before=scan(backup)
-    process=None
+    process=None; pump=None; failures=[]
     try:
         with temporary.open('xb') as encrypted,tempfile.TemporaryFile() as errors:
             os.chmod(temporary,0o400)
             process=subprocess.Popen(gpg_command(home)+['--trust-model','always','--recipient',fingerprint(recipient),
-                '--compress-algo','zlib','--encrypt'],stdin=subprocess.PIPE,stdout=encrypted,stderr=errors)
+                '--compress-algo','zlib','--encrypt'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=errors)
+            def drain():
+                try:
+                    while block:=process.stdout.read(1024**2):
+                        if not has_space(parent,len(block)):
+                            raise ArtifactError('Insufficient free space for encrypted backup preparation')
+                        encrypted.write(block)
+                    encrypted.flush(); os.fsync(encrypted.fileno())
+                except BaseException as error:
+                    failures.append(error)
+                    try: process.kill()
+                    except ProcessLookupError: pass
+            context=copy_context()
+            pump=threading.Thread(target=lambda:context.run(drain),name='backup-encrypted-output')
+            pump.start()
             try:
                 with tarfile.open(fileobj=process.stdin,mode='w|',format=tarfile.PAX_FORMAT) as archive:
-                    for key in sorted(before):
-                        path=backup/key
-                        entry=tarfile.TarInfo('backup/'+key)
-                        entry.uid=entry.gid=0; entry.uname=entry.gname=''; entry.mtime=0
-                        if path.is_dir():
-                            entry.type=tarfile.DIRTYPE; entry.mode=0o700; archive.addfile(entry)
-                        else:
-                            entry.mode=before[key][2]&0o700; entry.size=before[key][3]
-                            with open_file(backup,key) as incoming: archive.addfile(entry,incoming)
-                        if not has_space(parent):
-                            raise ArtifactError('Insufficient free space for encrypted backup preparation')
+                    manifest=write(archive)
                 process.stdin.close()
-                if process.wait(timeout=3600): raise ArtifactError('Backup encryption failed')
-                encrypted.flush(); os.fsync(encrypted.fileno())
+                code=process.wait(timeout=3600); pump.join()
+                if failures: raise failures[0]
+                if code: raise ArtifactError('Backup encryption failed')
             except BaseException:
-                process.kill(); process.wait(); raise
-        if scan(backup)!=before: raise ArtifactError('The verified backup changed during encryption')
+                process.kill(); process.wait(); pump.join()
+                if failures: raise failures[0]
+                raise
         value=dict(format=FORMAT,backup_id=manifest['id'],recipient=fingerprint(recipient),**file_hash(parent,temporary.name))
         # Journal first; a crash between journal and rename never publishes a
         # ciphertext with an unknown checksum/recipient.
@@ -129,6 +158,14 @@ def seal(backup, destination, *, public_key, recipient):
         if not destination.exists(): descriptor.unlink(missing_ok=True)
         raise
     finally:
+        if process is not None:
+            if process.poll() is None: process.kill()
+            process.wait()
+            if pump is not None and pump.ident is not None: pump.join()
+            for pipe in (process.stdin,process.stdout):
+                if pipe is not None:
+                    try: pipe.close()
+                    except BrokenPipeError: pass
         temporary.unlink(missing_ok=True)
         dispose_keyring(home)
 
@@ -211,16 +248,60 @@ class SFTP:
                 info=os.fstat(stream.fileno())
                 if info.st_mode&0o077 or info.st_size>4*1024**2: raise ArtifactError('SFTP credentials and host pins must be private and bounded')
 
-    def batch(self, commands):
-        executable=shutil.which('sftp')
-        if not executable: raise ArtifactError('Install OpenSSH SFTP for off-machine backup copying')
-        result=subprocess.run([executable,'-F','/dev/null','-b','-','-P',str(self.port),'-i',str(self.identity),
+    def ssh_options(self):
+        return ['-F','/dev/null','-i',str(self.identity),
             '-oBatchMode=yes','-oStrictHostKeyChecking=yes','-oUserKnownHostsFile='+str(self.known_hosts),
             '-oGlobalKnownHostsFile=/dev/null','-oIdentitiesOnly=yes','-oIdentityAgent=none','-oForwardAgent=no',
             '-oClearAllForwardings=yes','-oPermitLocalCommand=no','-oProxyCommand=none',
-            '-oConnectTimeout=10','-oServerAliveInterval=15','-oServerAliveCountMax=3',self.user+'@'+self.host],
+            '-oConnectTimeout=10','-oServerAliveInterval=15','-oServerAliveCountMax=3']
+
+    def batch(self, commands):
+        executable=shutil.which('sftp')
+        if not executable: raise ArtifactError('Install OpenSSH SFTP for off-machine backup copying')
+        result=subprocess.run([executable,*self.ssh_options(),'-b','-','-P',str(self.port),self.user+'@'+self.host],
             input=('\n'.join(commands)+'\n').encode(),stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,timeout=7200)
         return result.returncode==0
+
+    def remote_hash(self, remote, receipt):
+        """Hash SSH readback in bounded buffers; never spool a downloaded copy.
+
+        The destination must permit read-only `cat` over the pinned SSH endpoint
+        (Hetzner Storage Box supports this on port 23). A missing final name is
+        allowed so a first upload can proceed. Failed/partial reads never verify.
+        """
+        executable=shutil.which('ssh')
+        if not executable: raise ArtifactError('Install OpenSSH for streamed backup verification')
+        deadline=time.monotonic()+7200; digest=hashlib.sha256(); count=0; error_bytes=0
+        process=subprocess.Popen([executable,*self.ssh_options(),'-T','-p',str(self.port),
+            self.user+'@'+self.host,'cat '+shlex.quote(remote)],stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,stderr=subprocess.PIPE,bufsize=0)
+        try:
+            with selectors.DefaultSelector() as selector:
+                selector.register(process.stdout,selectors.EVENT_READ,'data')
+                selector.register(process.stderr,selectors.EVENT_READ,'error')
+                while selector.get_map():
+                    remaining=deadline-time.monotonic()
+                    if remaining<=0: raise ArtifactError('Backup readback verification timed out')
+                    events=selector.select(min(remaining,1))
+                    for key,_ in events:
+                        block=os.read(key.fileobj.fileno(),1024**2)
+                        if not block: selector.unregister(key.fileobj); continue
+                        if key.data=='data':
+                            count+=len(block)
+                            if count>receipt['bytes']:
+                                raise ArtifactError('Remote backup exceeds its verified length')
+                            digest.update(block)
+                        else:
+                            error_bytes+=len(block)
+                            if error_bytes>64*1024: raise ArtifactError('Backup readback failed')
+            code=process.wait(timeout=max(0.01,deadline-time.monotonic()))
+            if code==1 and count==0: return None
+            if code: raise ArtifactError('Encrypted backup readback could not finish')
+            return dict(bytes=count,sha256=digest.hexdigest())
+        finally:
+            if process.poll() is None: process.kill()
+            process.wait()
+            process.stdout.close(); process.stderr.close()
 
     def copy(self, source):
         source=Path(source).absolute(); receipt=sealed(source)
@@ -232,35 +313,18 @@ class SFTP:
 
     def _copy_file(self, source, remote, receipt):
         partial=remote+'.partial'
-        temporary=Path(tempfile.mkdtemp(prefix='.transfer-check-',dir=source.parent))
-        try:
-            checked=temporary/'ciphertext'
-            if not has_space(temporary,receipt['bytes']):
-                raise ArtifactError('Insufficient space for encrypted transfer verification')
-            if self.batch(['get '+sftp_quote(remote)+' '+sftp_quote(checked)]):
-                if file_hash(temporary,'ciphertext')['sha256']!=receipt['sha256']:
-                    raise ArtifactError('A different remote backup already has this identity')
-                return True
-            checked.unlink(missing_ok=True)
-            if not has_space(temporary,receipt['bytes']):
-                raise ArtifactError('Insufficient space for encrypted transfer verification')
-            # OpenSSH creates uploads with the source mode (our ciphertext is
-            # read-only). A killed put never reaches chmod, so replace only its
-            # unpublished staging file before retransmitting the same snapshot.
-            # Unlinking also avoids writing through a surviving publication link.
-            # The optional rm permits the normal first upload with no partial.
-            if not self.batch(['-rm '+sftp_quote(partial),
-                               'put '+sftp_quote(source)+' '+sftp_quote(partial),'chmod 600 '+sftp_quote(partial),
-                               'get '+sftp_quote(partial)+' '+sftp_quote(checked)]):
-                raise ArtifactError('Encrypted backup transfer could not finish')
-            if file_hash(temporary,'ciphertext')['sha256']!=receipt['sha256']:
-                raise ArtifactError('Remote encrypted backup checksum differs')
-            # OpenSSH's hard-link operation is atomic and refuses an existing
-            # destination. No rename extension may overwrite a completed backup.
-            if not self.batch(['ln '+sftp_quote(partial)+' '+sftp_quote(remote),'rm '+sftp_quote(partial)]):
-                checked.unlink(missing_ok=True)
-                if not self.batch(['get '+sftp_quote(remote)+' '+sftp_quote(checked)]) or file_hash(temporary,'ciphertext')['sha256']!=receipt['sha256']:
-                    raise ArtifactError('Remote encrypted backup publication could not finish')
-            return False
-        finally:
-            shutil.rmtree(temporary)
+        expected={k:receipt[k] for k in ('bytes','sha256')}
+        existing=self.remote_hash(remote,receipt)
+        if existing is not None:
+            if existing!=expected: raise ArtifactError('A different remote backup already has this identity')
+            return True
+        # Replace only the unpublished partial; a completed backup is immutable.
+        if not self.batch(['-rm '+sftp_quote(partial),
+                           'put '+sftp_quote(source)+' '+sftp_quote(partial),'chmod 600 '+sftp_quote(partial)]):
+            raise ArtifactError('Encrypted backup transfer could not finish')
+        if self.remote_hash(partial,receipt)!=expected:
+            raise ArtifactError('Remote encrypted backup checksum differs')
+        if not self.batch(['ln '+sftp_quote(partial)+' '+sftp_quote(remote),'rm '+sftp_quote(partial)]):
+            if self.remote_hash(remote,receipt)!=expected:
+                raise ArtifactError('Remote encrypted backup publication could not finish')
+        return False

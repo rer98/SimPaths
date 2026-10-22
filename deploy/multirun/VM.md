@@ -149,6 +149,13 @@ separate protected storage. A storage outage must leave queue/history intact and
 send prompt shared-service alerts to the configured administrator. Optional
 storage-delay emails can also keep affected users informed as described below.
 
+After provisioning and reviewing non-job headroom, enable the
+[live scheduler storage budget](STORAGE_BUDGET.md) before later filesystem growth.
+Its optional follow mode refreshes capacity every 30 seconds without restarting
+running jobs; a fixed increase and freeze are also available. The persisted
+control overrides only pool storage on future starts. Physical storage changes,
+actual free-space checks and per-workspace quota enforcement remain separate.
+
 ## 3. Persistent PostgreSQL
 
 Install a root-managed copy of `vm/postgres.compose.yaml` and `postgres-init.sql`

@@ -319,9 +319,14 @@ python -m deploy.multirun.backup_schedule status \
 ```
 
 It shows the latest verified backup ID/checksum, its age, off-machine-copy status,
-pending capture/encrypt/copy stage and failure/alert state. Nonzero exit means no
+local-retention mode, any confirmed local-removal time, pending capture/encrypt/copy
+or local-cleanup stage, and failure/alert state. Nonzero exit means no
 verified backup, overdue protection or failed work. Include it in independent
 host monitoring; the VM cannot email if it is down or its timer is disabled.
 Status does not capture, decrypt, send mail or delete files. Use
 [the recovery runbook](BACKUP.md) for schedules, key/host pins, retention and isolated
 restore/activation. No timer, host or alerts are enabled by this command.
+
+The optional [remote-only retention policy](REMOTE_BACKUP_RETENTION.md) releases
+local archive space only after verified off-machine delivery. Keep the default
+`retain` until independent retrieval/restore and external history have been tested.

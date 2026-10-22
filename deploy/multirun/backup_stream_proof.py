@@ -16,6 +16,7 @@ if __name__=='__main__':raise SystemExit(main(names=[
     'deploy.multirun.test_backup_stream',
     'deploy.multirun.test_backup_transport',
     'deploy.multirun.test_backup_schedule',
+    'deploy.multirun.test_backup_remote_retention',
     'deploy.multirun.test_backup_single',
     'deploy.multirun.test_backup_visualiser',
     'deploy.multirun.test_backup_live',

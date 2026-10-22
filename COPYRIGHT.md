@@ -13,6 +13,12 @@ Generated archive inventories, checksum receipts and fictional proof evidence
 are (C) Copyright 2026, by Ross Richardson; @author ross richardson. Scientific
 data and third-party software retain their existing ownership and licences.
 
+The verified remote-only backup retention policy, interruption/recovery checks
+and operator guide carry inline attribution. Generated delivery/disposal journals,
+retained checksum records and fictional native proof evidence are
+(C) Copyright 2026, by Ross Richardson; @author ross richardson. Scientific data,
+cryptographic tools and third-party components retain their ownership and licences.
+
 The MultiRun release-lifecycle controls, private reference-aware retirement,
 verified recovery archives and regression/proof scripts carry inline notices.
 Generated catalogue/control metadata, archive receipts, recovery ZIP inventories

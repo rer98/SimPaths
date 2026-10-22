@@ -702,6 +702,10 @@ not install services, choose providers or change security settings.
   explicit directory captures and old pending jobs still need a full plaintext
   copy. Streamed remote readback needs no archive-sized downloaded file. Measure
   these peaks and set local retention before choosing application/backup volumes.
+  The opt-in [remote-only policy](multirun/REMOTE_BACKUP_RETENTION.md) can reduce
+  staging to one complete compressed archive plus scratch/headroom, after external
+  retrieval/restore and retention are proven. It preserves failed pending uploads;
+  configure it explicitly, and repeat the local interruption/recovery proof.
   Verify mount dependencies and persistence before importing images or starting
   services. Fresh Docker 29+ defaults to a different image store; select and
   verify the backend required by the reviewed host verifier before use.

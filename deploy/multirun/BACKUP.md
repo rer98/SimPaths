@@ -383,9 +383,10 @@ complete local download. Oversized, interrupted, timed-out or mismatching respon
 fail verification; the child process is stopped/joined before returning. A conflicting/corrupt file fails
 protection; no overwrite fallback is used. Receipt delivery must finish too.
 
-Local encrypted-copy retention remains independently configurable with
-`keep_days` and `keep_latest`. Defaults are unchanged (30 days, at least three
-completed copies); they are not a recommendation for a small VPS volume. For an
+Local encrypted-copy retention remains independently configurable. The default
+`local_retention="retain"` uses `keep_days` and `keep_latest` as before
+(30 days, at least three completed copies); they are not a recommendation for a
+small VPS volume. For an
 initial one-copy daily local policy, an operator can select `keep_days=1` and
 `keep_latest=1`: a previous complete copy remains until a replacement completes
 and the age condition permits retirement. Pending remote transfers are retained.
@@ -393,7 +394,14 @@ Remote expiry/history must be configured separately; the runner does not prune
 remote backups. A shorter local policy is an operator choice, not applied by this
 code change. Independent off-machine restore remains necessary.
 
-Even a one-copy local policy needs room for the previous completed archive and
+After independent external retrieval/restore is proven, the optional
+`local_retention="remote-only"` removes the local encrypted payload after the
+archive and its receipt have both passed remote verification and completion is
+durable. It preserves small delivery/checksum records and pending failed uploads.
+It needs a configured remote destination and is never enabled automatically.
+See [remote-only retention and its laptop proof](REMOTE_BACKUP_RETENTION.md).
+
+Even a one-copy **retain** policy needs room for the previous completed archive and
 its replacement simultaneously, plus capture scratch and the free-space floor.
 Retirement runs after the capture/transfer attempt; a smaller `keep_latest` alone
 also does not override `keep_days`. With daily full backups and a 30-day local age
@@ -477,7 +485,7 @@ email from this VM alone cannot alert if the VM, timer or configuration is broke
 The runner retries failed mail and sends one incident-resolution notice when
 protection recovers. Status/terminal errors disclose only safe stages/IDs.
 
-Local retention defaults to 30 days and at least three completed encrypted copies.
+Local retention defaults to `retain`, 30 days and at least three completed encrypted copies.
 Only this runner's completed job directories are retired; pending work and the
 newest retained copies survive. These minimum-copy rules can retain a backup longer
 than 30 days during an outage. Define expiry/access/auditing on the separate host

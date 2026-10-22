@@ -12,6 +12,11 @@ public_key = "/etc/simpaths-online/backup-recipient.asc"
 recipient = "REPLACE_WITH_THE_FULL_PUBLIC_KEY_FINGERPRINT"
 interval_hours = 24
 retry_minutes = 30
+# Default: retain completed local archives under keep_days/keep_latest below.
+# After proving external retrieval/restore, "remote-only" removes their payloads
+# only after verified remote archive AND receipt delivery; small records remain.
+# It requires [remote]. Failed transfers keep their exact local archive for retry.
+local_retention = "retain"
 keep_days = 30
 keep_latest = 3
 minimum_free_gib = 1

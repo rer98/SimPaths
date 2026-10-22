@@ -173,8 +173,12 @@ before the passing runs.
 
 Final review added inactive-controller inheritance and a pending-handover pause
 guard. All nine local metadata/policy checks pass. The focused native follow-up
-qualifies the latter separately; do not treat the earlier proof as testing later
-changes until its own result is recorded.
+passed **20 checks** (12 capacity-approval checks and eight processing-capacity
+checks), with no failures or errors and successful disposable-database cleanup.
+Evidence: `/tmp-codex/compute-capacity-final-20261022-203209/report.json` and
+`tests.log`. This qualifies the final pending-handover pause guard separately
+from the earlier 175-check proof. Local qualification is complete; the installed
+host hot-add, real inbox and mixed-load acceptance checks above remain pending.
 
 ```bash
 cd ~/git/JAS-mine/JAS-mine-web &&

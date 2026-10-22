@@ -109,6 +109,16 @@ recipient = "admin@example.invalid"
 Sharing the SMTP environment alone does not enable backup alerts. See the
 [backup installation guide](multirun/BACKUP.md) for its complete configuration.
 
+Host filesystem warnings have a separate
+[capacity monitor](multirun/HOST_CAPACITY.md). Its unit loads the same private SMTP
+environment; configure its recipient and explicit `[alerts] enabled = true` in
+`/etc/simpaths-online/host-capacity.toml`. The example checks capacity every five
+minutes, warns at 85%, clears below 80% and combines messages with a 30-minute
+delivery spacing plus daily persistent-warning reminders. It sends nothing during
+healthy operation. This timer and its controls are independent of job monitoring,
+monitoring exports and backup alerts. Verify its restricted-account mount access
+and the explicit test-email command during VM setup.
+
 ## Remaining VM acceptance
 
 - Confirm the sender/domain is verified and authenticated in Brevo. If SMTP IP

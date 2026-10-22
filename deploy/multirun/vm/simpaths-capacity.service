@@ -1,0 +1,49 @@
+# (C) Copyright 2026, by Ross Richardson
+# Independent, low-priority filesystem metadata checks and administrator alerts.
+# @author ross richardson
+[Unit]
+Description=SimPaths Online host filesystem capacity check
+After=network-online.target local-fs.target
+Wants=network-online.target
+# Deliberately no dependencies on application, Docker, PostgreSQL or their mounts:
+# an unavailable allocation must be reported rather than preventing this check.
+
+[Service]
+Type=oneshot
+User=simpaths-capacity
+Group=simpaths-capacity
+WorkingDirectory=/opt/simpaths-online/SimPaths
+LoadCredential=capacity.toml:/etc/simpaths-online/host-capacity.toml
+EnvironmentFile=-/etc/simpaths-online/smtp.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/simpaths-online/venv/bin/python -m deploy.multirun.host_capacity run --config %d/capacity.toml --state /var/lib/simpaths-capacity --runtime-state /run/simpaths-capacity
+StateDirectory=simpaths-capacity
+StateDirectoryMode=0700
+# The tiny runtime fallback preserves delivery spacing if persistent disk is full.
+RuntimeDirectory=simpaths-capacity
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+UMask=0077
+Nice=15
+IOSchedulingClass=idle
+CPUWeight=10
+CPUQuota=10%
+MemoryMax=96M
+TasksMax=16
+TimeoutStartSec=90s
+KillMode=control-group
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+CapabilityBoundingSet=
+StandardOutput=journal
+StandardError=journal

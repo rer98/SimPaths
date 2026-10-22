@@ -85,6 +85,10 @@ their installation-specific acceptance is still open:
   growth tracking, reserved headroom, optional ceilings, fixed increases and
   restart/backup preservation. The 124 passing native cases and corrected
   seven-case rerun qualify the fixture scope; mounted-host growth remains open.
+- Independent [host capacity alerts](multirun/HOST_CAPACITY.md): bounded five-minute
+  metadata checks of each configured filesystem, 85% warnings, recovery below
+  80%, restart-safe delivery spacing and persistent-warning reminders. Actual
+  service-account mount access and inbox delivery remain installed-host checks.
 - [Optional performance review](multirun/PERFORMANCE_REVIEW.md), with live external
   controls, launch-selected detailed Java observations, bounded timelines and
   workload/pipeline reports. Optional review defaults remain off; safety checks
@@ -707,6 +711,12 @@ not install services, choose providers or change security settings.
   correction; verify actual mounted-host growth, unchanged running jobs and
   restart reuse. No physical resizing or
   storage-budget reduction is performed by this controller.
+- [ ] Configure and enable the [host capacity timer](multirun/HOST_CAPACITY.md)
+  against the actual mounted allocations, using the dedicated unprivileged
+  account. Verify metadata access, missing-mount reporting, effective resource
+  limits, private persistent/runtime state and explicit administrator test-mail
+  delivery; confirm timer behavior after reboot. No application or job restart
+  is required to change its thresholds or enablement.
 - [ ] Install reviewed artifacts with dedicated service identities and
   operator-controlled code/config, and configure the selected domain. Keep
   host/Docker access private. Record actual usable RAM/disk and CPU sharing.

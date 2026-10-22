@@ -1,0 +1,47 @@
+# (C) Copyright 2026, by Ross Richardson
+# Host-wide filesystem capacity alerts using metadata only; review actual mounts.
+# @author ross richardson
+[monitor]
+# Explicit installation opt-in; TOML is read again for every five-minute check.
+enabled = false
+instance = "simpaths-online"
+frontend = "/opt/simpaths-online/JAS-mine-web"
+warning_percent = 85
+recovery_percent = 80
+reminder_hours = 24
+# Shared delivery spacing for combined warnings, recovery and failed-mail retries.
+mail_spacing_minutes = 30
+
+[alerts]
+enabled = false
+recipient = "admin@example.invalid"
+
+# Use actual filesystem mount points, not directories within another allocation.
+# A missing expected mount is an alert, rather than a reading of its parent disk.
+[[filesystems]]
+name = "root"
+path = "/"
+
+[[filesystems]]
+name = "postgresql"
+path = "/var/lib/postgresql"
+
+[[filesystems]]
+name = "docker"
+path = "/var/lib/docker"
+
+[[filesystems]]
+name = "application"
+path = "/srv/simpaths-online/private"
+
+[[filesystems]]
+name = "backups"
+path = "/srv/simpaths-backups"
+
+[[filesystems]]
+name = "boot"
+path = "/boot"
+
+[[filesystems]]
+name = "efi"
+path = "/boot/efi"

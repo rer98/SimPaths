@@ -149,6 +149,12 @@ separate protected storage. A storage outage must leave queue/history intact and
 send prompt shared-service alerts to the configured administrator. Optional
 storage-delay emails can also keep affected users informed as described below.
 
+Install the independent [host capacity monitor](HOST_CAPACITY.md) after the real
+mount layout is verified. Its low-priority five-minute metadata checks warn the
+administrator at 85% on each configured filesystem, including root, PostgreSQL,
+Docker and backup storage. Existing application disk history measures the private
+state filesystem; it does not replace these host-wide checks.
+
 After provisioning and reviewing non-job headroom, enable the
 [live scheduler storage budget](STORAGE_BUDGET.md) before later filesystem growth.
 Its optional follow mode refreshes capacity every 30 seconds without restarting

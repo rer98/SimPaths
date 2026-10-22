@@ -59,6 +59,17 @@ Use the actual installed config path if it differs from the example.
 
 ## Output
 
+### Host-wide capacity alerts
+
+The independent [host capacity monitor](HOST_CAPACITY.md) checks configured root,
+PostgreSQL, Docker, private-data, backup and boot filesystems about every five
+minutes. It reads metadata, sends combined administrator warnings at 85%, clears
+below 80% and retains delivery state across process restarts. It also detects
+missing mounts and inode pressure. Its timer, configuration and mail enablement
+are separate from the application and performance review. Inspect its latest
+private status and journal as an administrator; the application account has no
+access to this separate monitor's state or credentials.
+
 ### Live scheduler storage budget
 
 The report includes private `storage_budget` policy/status, with the actual

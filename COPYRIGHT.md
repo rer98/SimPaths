@@ -336,6 +336,13 @@ in its accompanying `COPYRIGHT.md`; no attribution is inserted into JSON rows.
 Upstream Visualiser calculations and dependencies retain their existing notices
 and licences.
 
+The host-filesystem capacity monitor, focused checks, installation guide and
+systemd/configuration templates carry attribution in their headers. Generated
+private capacity/delivery-state JSON and fictional or local metadata proof
+receipts are (C) Copyright 2026, by Ross Richardson; @author ross richardson.
+Existing scientific records and third-party software retain their attribution
+and licences.
+
 The Visualiser capacity harness, fixture builder, worker, replay script, tests,
 Dockerfile and preparation design record carry attribution in their headers.
 Generated fixture manifests, runtime snapshots, capacity reports, samples and

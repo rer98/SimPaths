@@ -279,6 +279,7 @@ def recover_database(c, queue, manifest, target):
     c.execute(sql.SQL('UPDATE {} SET released_at=%s WHERE released_at IS NULL').format(sql.Identifier(queue.schema,'reservations')),(captured,))
     for table in ('executor_bindings','processing_reservations','interactive_reservations'):
         c.execute(sql.SQL('DELETE FROM {}').format(sql.Identifier(queue.schema,table)))
+    c.execute(sql.SQL('UPDATE {} SET interactive_cpu_recall_until=NULL').format(sql.Identifier(queue.schema,'pools')))
     c.execute(sql.SQL("UPDATE {} SET state='failed' WHERE state='receiving'").format(sql.Identifier(queue.schema,'uploads')))
     for schema,record in manifest['vm'].items(): recover(c,schema,record,target,manifest['id'],captured)
 

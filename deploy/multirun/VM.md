@@ -228,6 +228,13 @@ session insertion/removal commit together. Stopping or failed cleanup keeps the
 reservation until workload removal is confirmed. Idle polling does not lock the
 common pool.
 
+Optional [idle SingleRun CPU loans](IDLE_INTERACTIVE_CPU.md) let the private
+dispatcher boost running adaptive simulations without admitting extra jobs.
+SingleRun RAM/storage stay protected. Launch admission waits for verified live
+CPU reductions; uncertain quota replies retain their larger reservations. Batch
+migration 033 and matching host application code are required. The throughput
+candidate enables this setting; general defaults keep it disabled.
+
 Drain SingleRun, including owned orphans, before first joining the pool. Its
 binding is stored durably so a missing environment setting cannot bypass common
 admission later. The standalone local SingleRun bootstrap creates a different

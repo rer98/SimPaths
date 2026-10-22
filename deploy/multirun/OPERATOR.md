@@ -218,6 +218,12 @@ remain complete; unfinished job details default to 20 and can be increased with
   consumption. The scheduler's own resource functions calculate availability;
   holdback and actual interactive occupancy are not counted twice. Unfinished
   or expired-lease reservations remain occupied.
+- **Idle SingleRun CPU:** optional loans to existing simulations, current borrowed
+  quota and pending recall, under `resources.idle_interactive_cpu`. The eligible
+  loan ceiling is separate from how much is currently borrowed. CPU-only loans
+  can make the ordinary batch remainder negative while new admissions still
+  exclude the protected allowance. Status does not trigger recall or update
+  quotas. See [loan and failure rules](IDLE_INTERACTIVE_CPU.md).
 - **Jobs:** simulation/preparation counts by state; bounded job/experiment
   references, attempts, last outcome and reasons such as preparing inputs,
   blocked inputs, disk shortage, retry backoff, owner concurrency or shared

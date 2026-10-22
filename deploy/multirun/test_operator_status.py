@@ -99,6 +99,20 @@ class OperatorTests(unittest.TestCase):
         self.settings(notification_delivery='false')
         with self.assertRaises(ValueError): launch_settings(self.state,'test','jasmine_batch')
 
+    def test_current_scheduling_metadata_and_legacy_records_are_read_only(self):
+        self.settings(adaptive_cpu=True,visualiser_automatic=True,visualiser_handover=True,
+            lend_idle_interactive_cpu=True,visualiser_workers=2,visualiser_seed_workers=2,growth_memory_mib=2048)
+        before=self.contents()
+        result=launch_settings(self.state,'test','jasmine_batch')
+        self.assertTrue(result['lend_idle_interactive_cpu'])
+        self.assertEqual(before,self.contents())
+        self.settings(lend_idle_interactive_cpu='true')
+        with self.assertRaises(ValueError):launch_settings(self.state,'test','jasmine_batch')
+        self.settings(unreviewed_option=True)
+        with self.assertRaises(ValueError):launch_settings(self.state,'test','jasmine_batch')
+        self.settings()
+        self.assertNotIn('lend_idle_interactive_cpu',launch_settings(self.state,'test','jasmine_batch'))
+
     def test_terminal_labels_escape_control_characters(self):
         self.assertEqual(literal('name\x1b[2J\nmore'),'name?[2J?more')
 

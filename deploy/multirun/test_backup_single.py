@@ -58,7 +58,7 @@ class SingleCaptureTests(unittest.TestCase):
     def capture(self, *, running=True, allowed=True, stream=None):
         from jasmine_web import vm_state
         versions=[dict(version=i,checksum=hashlib.sha256(Path(vm_state.__file__).with_name(n).read_bytes()).hexdigest())
-            for i,n in enumerate(('vm_state_schema.sql','vm_state_002_shared_pool.sql'),1)]
+            for i,n in enumerate(('vm_state_schema.sql','vm_state_002_shared_pool.sql','vm_state_003_availability.sql','vm_state_004_interest.sql'),1)]
         record=dict(id='SID',model_id='fictional',status='ready',detail=dict(container_id='container',host='172.30.0.2',backend_secret='fictional'))
         def query(statement):
             text=str(statement)

@@ -123,6 +123,9 @@ comparison_rows = 400000
 
 [scheduling]
 adaptive_cpu = true
+# Lend idle SingleRun CPU only as revocable boosts to running simulations.
+# Starting/paused/stopping SingleRun reservations prevent loans; RAM stays held.
+lend_idle_interactive_cpu = true
 cpu_cooldown_seconds = 30
 preparation_priority_seconds = 60
 

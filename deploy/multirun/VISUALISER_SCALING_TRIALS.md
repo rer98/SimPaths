@@ -60,7 +60,8 @@ The pool schedules independent seed tasks, then:
 
 This prototypes the agreed readiness rule. Production reservation handover and
 baseline-first model admission are documented in the
-[handover guide](VISUALISER_HANDOVER.md); idle protected CPU lending remains
+[handover guide](VISUALISER_HANDOVER.md). [Idle SingleRun CPU lending](IDLE_INTERACTIVE_CPU.md)
+now boosts existing simulations; direct loans to preparation groups remain
 separate work. The prototype uses the existing raw parser; it is not an upstream
 parallel parser patch or a claim that all preparation code has become
 multithreaded.

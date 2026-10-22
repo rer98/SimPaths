@@ -29,13 +29,19 @@ def launch_settings(state, pool_id, schema):
         value = read_json(Path(state)/'operator-settings.json')
     except FileNotFoundError:
         return dict(available=False)
-    if (type(value) is not dict or set(value) != {'format','pool_id','schema','recorded_at',
-                'model_release','notification_delivery','retention_cleanup','visualiser_enabled'}
+    required={'format','pool_id','schema','recorded_at','model_release',
+              'notification_delivery','retention_cleanup','visualiser_enabled'}
+    flags=('adaptive_cpu','visualiser_automatic','visualiser_handover','lend_idle_interactive_cpu')
+    numbers=('visualiser_workers','visualiser_seed_workers','growth_memory_mib')
+    if (type(value) is not dict or not required<=set(value) or set(value)-required-set(flags)-set(numbers)
             or value['format']!='simpaths.operator.settings.v1'
             or (value['pool_id'],value['schema'])!=(pool_id,schema)
             or any(type(value[k]) is not bool for k in ('notification_delivery','retention_cleanup','visualiser_enabled'))
             or not isinstance(value['recorded_at'],str)):
         raise ValueError('Invalid launch settings')
+    if (any(type(value[key]) is not bool for key in flags if key in value)
+            or any(type(value[key]) is not int or value[key]<0 for key in numbers if key in value)):
+        raise ValueError('Invalid launch scheduling settings')
     from .releases import IDENTIFIER
     if not isinstance(value['model_release'],str) or not IDENTIFIER.fullmatch(value['model_release']):
         raise ValueError('Invalid launch release')
@@ -44,7 +50,8 @@ def launch_settings(state, pool_id, schema):
         raise ValueError('Invalid launch timestamp')
     return dict(available=True, recorded_at=recorded.isoformat(), model_release=value['model_release'],
         notification_delivery=value['notification_delivery'],retention_cleanup=value['retention_cleanup'],
-        visualiser_enabled=value['visualiser_enabled'])
+        visualiser_enabled=value['visualiser_enabled'],
+        **{key:value[key] for key in (*flags,*numbers) if key in value})
 
 
 def collect(queue, state, *, limit=20, read_database=True):
@@ -152,6 +159,11 @@ def render(report):
             '  Capacity: '+allocation(pool['capacity']), '  Reserved: '+allocation(pool['reserved']),
             '  Available to batch: '+allocation(pool['available_for_batch']),
             '  Interactive holdback: '+allocation(pool['interactive_holdback'])]
+        loan=pool.get('idle_interactive_cpu')
+        if loan:
+            lines.append('  Idle SingleRun CPU loans: '+('enabled' if loan['enabled'] else 'disabled')+
+                f"; borrowed {loan['borrowed_millis']/1000:g} CPU; recall "+
+                ('pending' if loan['recall_pending'] else 'clear'))
         for kind,row in pool['reservations'].items():
             lines.append(f"  {kind}: {row['count']} reservation(s); "+allocation(row))
         lines.append('Jobs: '+(', '.join(f"{r['kind']}/{r['state']} {r['count']}" for r in db['jobs']['counts']) or 'none'))

@@ -177,7 +177,7 @@ def capture(c, dsn, schema, destination, source, *, stream=None):
     version=c.execute(sql.SQL('SELECT version,checksum FROM {} ORDER BY version').format(sql.Identifier(schema,'schema_version'))).fetchall()
     from jasmine_web import vm_state
     expected=[dict(version=i,checksum=hashlib.sha256(Path(vm_state.__file__).with_name(n).read_bytes()).hexdigest())
-              for i,n in enumerate(('vm_state_schema.sql','vm_state_002_shared_pool.sql'),1)]
+              for i,n in enumerate(('vm_state_schema.sql','vm_state_002_shared_pool.sql','vm_state_003_availability.sql','vm_state_004_interest.sql'),1)]
     if version!=expected: raise ArtifactError('Apply reviewed SingleRun migrations before backup')
     deployment=c.execute(sql.SQL('SELECT deployment_id FROM {}').format(sql.Identifier(schema,'metadata'))).fetchone()['deployment_id']
     records=c.execute(sql.SQL('SELECT * FROM {} ORDER BY id').format(sql.Identifier(schema,'sessions'))).fetchall()

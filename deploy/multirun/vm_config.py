@@ -30,7 +30,7 @@ DEFAULTS = {
     'pool': {'cpu_millis': 3000, 'memory_mib': 6144, 'storage_mib': 13312,
              'per_user_active': 1, 'hold_cpu_millis': 0, 'hold_memory_mib': 0, 'hold_storage_mib': 0,
              'growth_memory_mib': 0},
-    'scheduling': {'adaptive_cpu': False, 'cpu_cooldown_seconds': 30,
+    'scheduling': {'adaptive_cpu': False, 'cpu_cooldown_seconds': 30, 'lend_idle_interactive_cpu': False,
                    'preparation_priority_seconds': 60},
     'limits': {'max_configurations': 100, 'max_repetitions': 12,
                'max_unfinished_jobs': 110, 'pool_unfinished_jobs': 220,
@@ -168,6 +168,10 @@ def load_config(path):
         raise ValueError('Storage-wait emails require notification delivery')
     visualiser = sections['visualiser']
     scheduling = sections['scheduling']
+    if type(scheduling['lend_idle_interactive_cpu']) is not bool:
+        raise ValueError('Choose explicitly whether to lend idle SingleRun CPU')
+    if scheduling['lend_idle_interactive_cpu'] and (not scheduling['adaptive_cpu'] or pool['hold_cpu_millis']<500):
+        raise ValueError('Idle SingleRun CPU lending needs adaptive CPU and a protected CPU holdback')
     number(scheduling['cpu_cooldown_seconds'], 'scheduling.cpu_cooldown_seconds', 5, 300)
     number(scheduling['preparation_priority_seconds'], 'scheduling.preparation_priority_seconds', 5, 300)
     if scheduling['adaptive_cpu'] and (limits['runtime_per_repetition_minutes'] < 240 or
@@ -258,6 +262,7 @@ def load_config(path):
         visualiser_memory_mib=visualiser['memory_mib'], visualiser_timeout_seconds=visualiser['timeout_seconds'],
         **{'visualiser_'+key:visualiser[key] for key in visualiser if key not in ('build','preview','memory_mib','timeout_seconds')},
         adaptive_cpu=scheduling['adaptive_cpu'],cpu_cooldown_seconds=scheduling['cpu_cooldown_seconds'],
+        lend_idle_interactive_cpu=scheduling['lend_idle_interactive_cpu'],
         preparation_priority_seconds=scheduling['preparation_priority_seconds'],
         growth_memory_mib=pool['growth_memory_mib'],
         capacity={k: pool[k] for k in ('cpu_millis', 'memory_mib', 'storage_mib')},

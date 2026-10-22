@@ -71,6 +71,10 @@ their installation-specific acceptance is still open:
   and parallel per-seed summary preparation. Completed configurations continue
   through ready comparisons/publications before releasing their preparation
   allocation; missing partner summaries do not retain idle resources.
+- [Idle SingleRun CPU lending](multirun/IDLE_INTERACTIVE_CPU.md) as revocable
+  boosts to existing adaptive models, with verified recall before SingleRun
+  admission. The 164-check native proof and final 90-check follow-up passed on
+  22 October. RAM/storage stay protected; installed-host latency remains open.
 - Incremental experiment additions, [portable finished-chart downloads](multirun/VISUALISER_PREPARATION.md),
   independently configured raw/summary/chart retention and chart access after
   routine raw expiry. Explicit deletion and revocation still deny derived access.
@@ -100,6 +104,41 @@ their installation-specific acceptance is still open:
 These mechanisms do not establish the chosen shared host's throughput or
 responsiveness. Preserve exact tested artifact identities; the older image/browser
 and update reports below are not blanket acceptance of today's source tree.
+
+### User-data SingleRun population, horizon and responsiveness TODO
+
+**Agreed policy, 22 October 2026:** retain a **maximum requested initial
+population of 50,000** for user-data interactive sessions to support useful simulation speed and
+frequent chart updates. Keep **no fixed upper finishing-year limit**. The default
+end year remains 2026 and must not precede the selected start year. A test ending
+in 2035 or 2070 is a resource measurement, not a new permitted-year ceiling.
+
+The current allowance is **4 GiB maximum application heap, 5 GiB total container
+RAM/reservation and 2 vCPUs**. Preparation has a separate 4-GiB-maximum worker
+that must exit before Build. Existing interactive qualification covers 50,000
+people through 2026, including preparation and reset/rebuild; the later long
+MultiRun tests do not establish interactive observer/chart memory or latency.
+
+- [ ] Qualify combinations of supported initial populations and longer horizons
+  through the genuine user-data SingleRun/browser path. Start with **20,000 and
+  50,000 people through 2035 and 2070**, using the existing 2026 measurements as
+  the short-horizon reference where artifact/settings identities match. Record
+  exact image/JAR/input identities and test these under the current fixed limits.
+- [ ] Measure preparation, Build and annual execution time, time between visible
+  chart updates, chart retrieval and Pause/Step/control responsiveness. Include
+  later simulation years and permitted expensive options such as Gini; a smaller
+  initial population alone does not guarantee fast interactive updates.
+- [ ] Record whole-session/container memory, Java heap and non-heap usage, output
+  storage growth and the actual population trajectory/maximum. Check whether
+  retained observer/chart history or demographic growth raises memory needs
+  over a long horizon, even when initial population stays within the cap.
+- [ ] Check verified preparation-worker exit, completed output/chart correctness,
+  Pause/resume and reset/rebuild in the same application JVM. Confirm capacity
+  remains accounted for and is released only after session cleanup.
+- [ ] Repeat selected cases on the VPS during representative MultiRun and
+  Visualiser activity. Decide whether the existing allowance and chart update
+  behaviour are adequate; record any required resource or implementation changes
+  while preserving the agreed population cap and open finishing-year policy.
 
 ### Work order from this review
 
@@ -156,8 +195,9 @@ and update reports below are not blanket acceptance of today's source tree.
    verification remains due. See the
    [certificate-store qualification](../../solveit_SimPathsWeb/security-review/2026-10-21/CERTIFI_UPDATE.md).
 3. Freeze a new release inventory and review its migration/rollback procedure.
-   There are now **32 batch migrations**, including handover (030), detailed
-   performance history (031) and administrator monitoring exports (032). The retained 22-migration update pair is historical;
+   There are now **33 batch migrations**, including handover (030), detailed
+   performance history (031), administrator monitoring exports (032) and idle
+   SingleRun CPU recall (033). The retained 22-migration update pair is historical;
    it does not qualify code-only rollback for the current release.
    A separately frozen 32-migration pair passed 55 regressions, all seven native
    stages, final integrity and cleanup on 20 October. Carry its exact selected
@@ -180,6 +220,13 @@ this starting candidate, not a measured hosted optimum:
 | Protected primary Visualiser preparation | 1 vCPU | 2.5 GiB |
 | Shared unexpected-model-growth reserve | Within admitted CPU budgets | 2 GiB |
 | Total common pool | 11 vCPUs | 39.5 GiB |
+
+The candidate [idle SingleRun CPU policy](multirun/IDLE_INTERACTIVE_CPU.md) can
+lend the unused two vCPUs as temporary boosts to existing models, raising their
+total CPU quota to ten. It does not increase admission concurrency or lend RAM.
+SingleRun launches wait for verified quota recall; the guaranteed ordinary model
+budget remains eight vCPUs. Native helper proof and installed-host mixed-load
+acceptance must be distinguished from scientific throughput measurements.
 
 Keep the remaining actual host capacity for the OS, PostgreSQL, public/private
 orchestration and other service work. If the provider's 48 GB is decimal, it is
@@ -748,6 +795,10 @@ not install services, choose providers or change security settings.
   for those populations, representative horizons and collector settings against
   the 4 GiB + 256 MiB-per-repetition standard before opening the service. The current
   twelve-run evidence covers 50,000 people and 2019–2026.
+- [ ] Complete the [user-data SingleRun population/horizon and responsiveness
+  qualification](#user-data-singlerun-population-horizon-and-responsiveness-todo)
+  under the current 4-GiB heap/5-GiB container/2-vCPU allowance. Keep the requested
+  initial population capped at 50,000, with no fixed upper finishing year.
 - [x] Complete the local [same-JVM memory matrix](multirun/MEMORY_TRIALS.md): all
   six 2035/2070 smaller-heap/container cases passed two repetitions at 2 vCPUs on
   20 October, with fixed limits, verified output, archived evidence and cleanup.
@@ -1020,3 +1071,28 @@ and [16-check final mail/control proof](/tmp-codex/monitoring-exports-mail-retry
 passed without failures; native harness cleanup was confirmed. The focused first
 PostgreSQL run passed 82 checks. Local frontend/adapter checks also pass; counts
 overlap. Captured senders were used, with no real mail or scientific runs.
+
+### SingleRun availability notifications
+
+- [ ] Apply SingleRun migrations 003 and 004 with the reviewed private frontend release.
+  Verify the canonical HTTPS origin and private SMTP/inbox before enabling
+  `VM_AVAILABILITY_EMAILS=true`; see [EMAIL_SETUP.md](EMAIL_SETUP.md).
+- [ ] Check a busy launch, verified email signup and cancellation on the VM.
+  Confirm no session is reserved, explicit Leave delays notices five minutes
+  after completed cleanup, and idle expiry adds no new delay. Returning users
+  can launch during the delay, and capacity is rechecked before sending.
+- [ ] Check the SingleRun admin demand report and daily CSV/JSON export. Confirm
+  addresses are absent, and verify the pending list and numeric history through
+  the unified VM backup/restore route before public use.
+- [ ] Verify the optional SimPaths updates checkbox is unchecked by default,
+  requires email verification, and records consent independently of the one-off
+  notification. Check withdrawal, local expiry and the separate private signup
+  export before agreeing a handover with the mailing-list owner.
+
+Local availability/consent evidence (22 October): all **98 non-browser checks**
+passed in `/tmp-codex/singlerun-availability-consent-20261022-185657/model-proof/report.json`.
+That report preserves a superseded browser-fixture failure. The corrected native
+HTTP Chromium proof passes at
+`/tmp-codex/singlerun-availability-http-browser-20261022-190319/model-proof/report.json`,
+with enclosing harness cleanup confirmed. No real mail or scientific simulations
+were used; installed VM SMTP and account-isolation acceptance remain outstanding.

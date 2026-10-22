@@ -142,6 +142,11 @@ and launch a new session to change those inputs.
 | Other `persist…` settings | Select the statistical summaries to save. |
 | `dataDumpStartTime`, `dataDumpTimePeriod` | Output start offset from the start year, and the interval between recordings. Defaults: 0 and 1. |
 
+The requested starting-population cap is intended to keep simulation steps and
+chart updates reasonably responsive. The finishing year has no fixed upper
+limit: longer projections may take longer overall. Responsiveness also depends
+on population growth, enabled calculations and the available server resources.
+
 For a longer horizon, supply suitable projections, targets and other parameter
 inputs as well as a policy schedule. Allowing an end year does not establish that
 every input supports that year: some model processes use fixed cutoffs or reuse

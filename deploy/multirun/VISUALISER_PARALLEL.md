@@ -80,7 +80,10 @@ seed_workers = 2
 This leaves the agreed **30 GiB / 8-vCPU** ordinary simulation/preparation budget
 after protected SingleRun, primary preparation and growth headroom. A larger
 parallel preparation borrows the extra resources from that ordinary budget.
-Growth headroom and idle SingleRun reservations are not available for that loan.
+Growth headroom and SingleRun RAM/storage are not available for that loan.
+The separate [idle SingleRun CPU policy](IDLE_INTERACTIVE_CPU.md) lends CPU only
+to simulation boosts; preparation can reclaim those boosts before admission but
+cannot reserve the protected SingleRun CPU for itself.
 
 Install the reviewed executor resources drop-in with **MemoryMax=12G** and
 **CPUQuota=500%** for two potential 5-GiB/2-vCPU groups plus bounded orchestration.
@@ -91,8 +94,8 @@ when changing protected/pool budgets.
 
 Direct atomic simulation-to-preparation transfer is now integrated behind
 `visualiser.handover`; see [the handover guide](VISUALISER_HANDOVER.md) for its
-continuation, resource and recovery rules. Mid-calculation shrinking and lending
-idle protected CPU to simulations remain separate work. The existing preference
+continuation, resource and recovery rules. Mid-calculation shrinking and direct
+CPU loans to Visualiser groups remain separate work. The existing preference
 interval still applies to unfunded preparation admission; an adopted handover
 keeps its accounted reservation through eligible experiment work.
 

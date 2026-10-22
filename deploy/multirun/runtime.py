@@ -5,7 +5,7 @@ Authentication delivery, origin and resource policy are supplied by the launcher
 @author ross richardson
 """
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from dataclasses import asdict
 import json
 import os
@@ -107,6 +107,8 @@ def create_registry(args,q,state,send_mail,*,capacity=Resources(2000,5120,12288)
                          getattr(args,'visualiser_storage_mib',512))
                if getattr(args,'visualiser_protected',False) else None)
     q.configure_processing(protected,growth_memory_mib=getattr(args,'growth_memory_mib',0))
+    from jasmine_web.batch.idle_interactive_cpu import configure as configure_idle_cpu
+    configure_idle_cpu(q,getattr(args,'lend_idle_interactive_cpu',False))
     access=Access(q,secret_file(state/'session-secret'),send_mail)
     datasets=Datasets(q,state/'uploads',owner_limit=args.upload_allowance_gib << 30)
     preparations=Preparations(datasets)
@@ -206,7 +208,10 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                           admission_guard=(lambda:scheduler.guard) if scheduler else None,
                           after_claim=scheduler.claimed if scheduler else None,
                           completion_handover=service.visualiser.completion_handover if scheduler else None)
-            with worker.open():
+            from jasmine_web.batch.idle_interactive_cpu import RecallListener
+            recall=(RecallListener(q,lambda:worker.rebalance_cpu(reserve_cpu_millis=0,allow_queued=False))
+                    if getattr(args,'lend_idle_interactive_cpu',False) else nullcontext())
+            with worker.open(),recall:
                 while not stop.is_set():
                     try:
                         worker.tick(claim_new=False)
@@ -427,6 +432,7 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
         model_release=default,notification_delivery=args.notification_emails,
         retention_cleanup=args.retention_cleanup,visualiser_enabled=args.visualiser_preview,
         adaptive_cpu=adaptive is not None,visualiser_automatic=getattr(args,'visualiser_automatic',False),
+        lend_idle_interactive_cpu=getattr(args,'lend_idle_interactive_cpu',False),
         visualiser_workers=getattr(args,'visualiser_max_workers',1),
         visualiser_seed_workers=getattr(args,'visualiser_seed_workers',1),
         visualiser_handover=getattr(args,'visualiser_handover',False),

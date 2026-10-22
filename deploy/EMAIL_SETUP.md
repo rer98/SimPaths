@@ -45,9 +45,32 @@ No Brevo campaign templates or marketing automations are required for this route
 | `CONTACT_TO_EMAIL` | Contact-form recipient only; it does not select administrator recipients |
 | MultiRun `[notifications].admin_email` | Administrator alerts and monitoring-export recipient |
 | Backup `[alerts].recipient` | Separate recipient for backup alerts |
+| SingleRun `VM_AVAILABILITY_EMAILS` | Enable verified, one-off busy-service notifications to users |
 
 The sender and administrator recipient may be the same mailbox. Sign-in codes
 and owner-specific job notifications still go to the relevant user's address.
+
+SingleRun's private executor can use the same SMTP transport for availability
+notifications. After SMTP/inbox acceptance, set `VM_AVAILABILITY_EMAILS=true` and
+`VM_AVAILABILITY_ORIGIN` to the real SingleRun HTTPS origin in `singlerun.env`.
+Requests require email verification and never reserve a session. Explicit Leave
+delays notices by five minutes after confirmed cleanup; natural expiry adds no
+delay. The email explains the restart grace and asks the recipient to return
+promptly because another user may already have launched. By default notices are
+spaced 120 seconds apart and eligibility is checked every 30 seconds. Verification
+codes and availability notices both count toward the shared SMTP allowance.
+
+Administrator demand counts and waiting times are available through the SingleRun
+admin dashboard, with numeric daily CSV/JSON exports. The full policy and private
+settings are in `JAS-mine-web/docs/singlerun-availability.md`.
+
+The availability form also has a separate, unchecked **“I’d like to receive
+SimPaths news and updates by email.”** checkbox. Only verified opt-ins enter
+the independent updates signup records, held locally for up to 12 months.
+Notification-only addresses are erased when their request ends. The SingleRun
+admin dashboard offers a private consent export and withdrawal controls. Agree
+the handover with the SimPaths mailing-list owner before importing anyone;
+this service does not automatically import addresses or send updates campaigns.
 
 ## Private VM environment
 

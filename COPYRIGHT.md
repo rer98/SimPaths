@@ -427,3 +427,16 @@ control/status JSON, bounded growth history and fictional proof evidence are
 (C) Copyright 2026, by Ross Richardson; @author ross richardson. Scientific
 records and existing third-party components retain their original attribution
 and licences.
+
+The idle SingleRun CPU loan guide, native Docker/runtime/recovery proof and
+configuration/status integration carry attribution in their headers. Generated
+fictional quota/recall reports, backup metadata and verification evidence are
+(C) Copyright 2026, by Ross Richardson; @author ross richardson. Existing
+scientific data, software images and third-party logs retain their original
+ownership and licences.
+
+The SingleRun availability native service, Chromium and unified recovery proof
+drivers and focused recovery tests carry attribution in their source headers.
+Generated fictional notification/recovery evidence and numeric demand exports are
+(C) Copyright 2026, by Ross Richardson; @author ross richardson. Existing model
+records, runtime images and third-party software retain their original notices.

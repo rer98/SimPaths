@@ -448,6 +448,7 @@ class VMRuntimeTests(unittest.TestCase):
         self.assertEqual(data['schema'],self.q.schema)
         self.assertFalse(data['notification_delivery'])
         self.assertFalse(data['retention_cleanup'])
+        self.assertFalse(data['lend_idle_interactive_cpu'])
         self.assertEqual(path.stat().st_mode & 0o777,0o600)
         for secret in (self.q.dsn,'alice@example.org',str(self.state)):
             self.assertNotIn(secret,path.read_text())
@@ -491,6 +492,45 @@ class VMRuntimeTests(unittest.TestCase):
         asyncio.run(exercise())
         self.assertFalse(exporter.thread.is_alive())
         self.assertIsNone(exporter.lock_fd)
+
+    def test_idle_cpu_listener_runs_under_executor_ownership_and_joins_on_shutdown(self):
+        import asyncio
+        import threading
+        from jasmine_web.batch import idle_interactive_cpu as loans
+        self.args.lend_idle_interactive_cpu=True
+        # No model is running: exercise the production dispatcher's real LISTEN
+        # connection and shutdown order without inventing a container adapter.
+        with self.q._connection() as c:
+            c.execute('UPDATE pools SET hold_cpu=500')
+        loans.configure(self.q,True)
+        listeners=[]; workers=[]; closed_before_executor_release=[]
+        class ObservedWorker(runtime.Worker):
+            @contextmanager
+            def open(worker):
+                with super().open():
+                    workers.append(worker)
+                    try:yield worker
+                    finally:closed_before_executor_release.append(not listeners[0].thread.is_alive())
+        class ObservedListener(loans.RecallListener):
+            def __enter__(listener):
+                listeners.append(listener)
+                return super().__enter__()
+        bundle=self.app(private_service=True)
+        with patch.object(loans,'RecallListener',ObservedListener),patch.object(runtime,'Worker',ObservedWorker):
+            async def exercise():
+                async with bundle.lifespan(None):
+                    for _ in range(200):
+                        if listeners and listeners[0].ready.is_set() and bundle.ready()['ready']:break
+                        await asyncio.sleep(.05)
+                    self.assertTrue(bundle.ready()['ready'])
+                    self.assertEqual(len(listeners),1)
+                    self.assertTrue(listeners[0].thread.is_alive())
+                    self.assertTrue(workers[0].opened)
+            asyncio.run(exercise())
+        self.assertFalse(listeners[0].thread.is_alive())
+        self.assertEqual(closed_before_executor_release,[True])
+        self.assertFalse(workers[0].opened)
+        self.assertFalse(any(t.name=='interactive-cpu-recall' and t.is_alive() for t in threading.enumerate()))
 
     def test_database_migrations_and_registry_work_without_cluster_superuser_privileges(self):
         import psycopg

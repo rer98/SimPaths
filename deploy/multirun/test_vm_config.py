@@ -79,6 +79,7 @@ class VMConfigTests(unittest.TestCase):
             'sha256:REPLACE_WITH_64_HEXADECIMAL_DIGITS','sha256:'+'a'*64)
         options=self.config(text)
         self.assertTrue(options.adaptive_cpu)
+        self.assertTrue(options.lend_idle_interactive_cpu)
         self.assertTrue(options.visualiser_automatic)
         self.assertEqual(options.visualiser_max_workers,2)
         self.assertEqual(options.visualiser_seed_workers,2)
@@ -101,10 +102,21 @@ class VMConfigTests(unittest.TestCase):
             with self.subTest(new=new),self.assertRaises(ValueError):self.config(text.replace(old,new))
         legacy=self.config()
         self.assertFalse(legacy.adaptive_cpu)
+        self.assertFalse(legacy.lend_idle_interactive_cpu)
         self.assertFalse(legacy.visualiser_automatic)
         self.assertEqual(legacy.visualiser_seed_workers,1)
         self.assertFalse(legacy.visualiser_handover)
         self.assertFalse(legacy.visualiser_storage_pressure)
+
+    def test_idle_cpu_loans_require_adaptive_scheduling_and_a_cpu_holdback(self):
+        text=(TEMPLATE.parent/'throughput.toml.example').read_text().replace(
+            'sha256:REPLACE_WITH_64_HEXADECIMAL_DIGITS','sha256:'+'a'*64)
+        for old,new in (('lend_idle_interactive_cpu = true','lend_idle_interactive_cpu = 1'),
+                        ('adaptive_cpu = true','adaptive_cpu = false'),
+                        ('hold_cpu_millis = 2000','hold_cpu_millis = 0')):
+            with self.subTest(new=new),self.assertRaises(ValueError):self.config(text.replace(old,new))
+        self.assertFalse(self.config(text.replace('lend_idle_interactive_cpu = true',
+            'lend_idle_interactive_cpu = false')).lend_idle_interactive_cpu)
 
     def test_storage_pressure_requires_consistent_approved_budgets(self):
         text=(TEMPLATE.parent/'throughput.toml.example').read_text().replace(

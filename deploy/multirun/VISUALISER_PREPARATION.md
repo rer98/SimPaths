@@ -643,6 +643,10 @@ still pending.
   background preparation uses the same aggregation capacity as user-requested
   preparation; it does not get another unrestricted pool.
 
+The later [idle SingleRun CPU policy](IDLE_INTERACTIVE_CPU.md) permits CPU-only
+simulation boosts with verified recall. It does not lend SingleRun RAM/storage
+or add that protected CPU to Visualiser processing reservations.
+
 Reservations and enforced limits must agree. A 3 GiB worker budget means the
 whole measured processing group, including descendants and publication/index
 work, rather than a 3 GiB JavaScript heap with unbudgeted overhead. Account for

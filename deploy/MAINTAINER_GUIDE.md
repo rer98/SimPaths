@@ -561,6 +561,13 @@ Rebuild the model JAR and user-data image to apply the Java default; the existin
 memory candidate was already verified at 4 GiB through its explicit override.
 Reload the SingleRun services and use new sessions to apply catalogue changes.
 
+Outstanding [SingleRun population/horizon qualification](DEPLOYMENT_CHECKLIST.md#user-data-singlerun-population-horizon-and-responsiveness-todo)
+will check 20,000/50,000-person longer projections under the current 4-GiB
+application heap, 5-GiB container and 2-vCPU allowance, including visible chart
+updates, controls, observer/history memory and reset/rebuild. The agreed
+user-data policy retains a maximum requested initial population of 50,000 for
+interactive speed, with no fixed upper finishing year; test horizons do not become year caps.
+
 ### Deferred SimPaths maintenance suggestions: preparation performance
 
 Deferred by agreement on 16 October 2026 for later work or consideration by the

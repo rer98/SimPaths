@@ -5,6 +5,7 @@ Model-owned container adapter checks for image/JAR binding and prepared requests
 @author ross richardson
 """
 from types import SimpleNamespace
+from copy import deepcopy
 import json
 import shlex
 import sys
@@ -29,6 +30,52 @@ class ContainerAdapterTests(unittest.TestCase):
         self.spec = {**self.fixture.spec, 'model_digest': IMAGE}
         self.lease = SimpleNamespace(specification=self.spec, configuration_id='savings-0001',
                                     resources=dict(cpu_millis=2000, memory_mib=4096, storage_mib=6144))
+
+    def enable_adaptive_cpu(self):
+        sys.path.insert(0, str(frontend_path()))
+        self.addCleanup(lambda: sys.path.remove(str(frontend_path())))
+        from jasmine_web.batch.adaptive_cpu import AdaptiveCPUPolicy
+        from jasmine_web.batch.policy import Policy, RuntimeAllowance
+        self.spec['runtime_allowance'] = RuntimeAllowance(900, 14400).describe(len(self.spec['seeds']), Policy())
+        self.spec['adaptive_cpu'] = AdaptiveCPUPolicy().describe(self.spec, self.lease.resources)
+
+    def test_adaptive_cpu_floor_and_boosts_keep_the_same_native_job_and_heap(self):
+        self.enable_adaptive_cpu()
+        reviewed = deepcopy(self.spec)
+        for cpu in (1000, 1500, 2000):
+            with self.subTest(cpu=cpu):
+                self.lease.resources = dict(self.lease.resources, cpu_millis=cpu)
+                command = self.adapter.container_command(self.lease, self.fixture.work)
+                self.assertEqual(command.argv, ('/bin/sh', '/request/run.sh', '2g'))
+                self.assertEqual(command.image, IMAGE)
+                self.assertEqual((self.fixture.work / 'run.yml').read_text(),
+                                 self.fixture.configuration.native_yaml('savings-0001'))
+                self.assertEqual(self.spec, reviewed)
+
+    def test_cpu_floor_requires_the_original_frozen_adaptive_permission(self):
+        self.lease.resources['cpu_millis'] = 1000
+        with self.assertRaises(ArtifactError):self.adapter.container_command(self.lease, self.fixture.work)
+        self.lease.resources['cpu_millis'] = 2000
+        self.enable_adaptive_cpu()
+        for cpu in (999, 1250, 2500, True):
+            self.lease.resources['cpu_millis'] = cpu
+            with self.subTest(cpu=cpu), self.assertRaises(ArtifactError):
+                self.adapter.container_command(self.lease, self.fixture.work)
+        self.lease.resources['cpu_millis'] = 1000
+        self.spec['adaptive_cpu']['configurations']['savings-0001']['minimum_millis'] = 500
+        with self.assertRaises(ValueError):self.adapter.container_command(self.lease, self.fixture.work)
+
+    def test_adaptive_cpu_cannot_relax_ram_disk_or_changed_release_requirements(self):
+        self.enable_adaptive_cpu()
+        original = dict(self.lease.resources, cpu_millis=1000)
+        for key, value in (('memory_mib', 2048), ('storage_mib', 1024)):
+            self.lease.resources = dict(original, **{key: value})
+            with self.subTest(resource=key), self.assertRaises(ArtifactError):
+                self.adapter.container_command(self.lease, self.fixture.work)
+        self.lease.resources = original
+        starting, minimum = self.adapter._launch_requirements(self.fixture.configuration)
+        with patch.object(self.adapter, '_launch_requirements', return_value=(starting, dict(minimum, cpu_millis=3000))):
+            with self.assertRaises(ArtifactError):self.adapter.container_command(self.lease, self.fixture.work)
 
     def test_submission_pins_runtime_image_and_keeps_native_seed_plan(self):
         arguments = container_submission(self.fixture.configuration.editable_configuration(),

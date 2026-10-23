@@ -63,7 +63,11 @@ def dispose_keyring(home):
 
 
 def public_home(parent, public_key, recipient):
-    home=Path(tempfile.mkdtemp(prefix='.backup-public-key-',dir=parent))
+    # gpg-agent's Unix socket path must fit Linux's 108-byte sockaddr_un field.
+    # A scheduled backup's nested jobs/<id> directory can already be too long.
+    # This 0700 workspace contains only the exported public key. Keep it under
+    # the short /tmp path (PrivateTmp for the service), separate from ciphertext.
+    home=Path(tempfile.mkdtemp(prefix='.backup-public-key-',dir='/tmp'))
     try:
         key=Path(public_key)
         # Operator key files are bounded, owned and pinned. No ambient keyring or

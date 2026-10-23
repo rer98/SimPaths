@@ -88,6 +88,18 @@ class SimPathsContainerAdapter(SimPathsLocalAdapter):
         run=next(r for r in lease.specification['run_sets'] if r['id']==lease.configuration_id)
         if run.get('starting_allocation') != starting:
             raise ArtifactError('Starting allocation differs from the verified workload profile')
+        if lease.specification.get('adaptive_cpu') is not None:
+            from jasmine_web.batch.adaptive_cpu import configuration
+            _, bounds = configuration(lease.specification, lease.configuration_id)
+            cpu = lease.resources['cpu_millis']
+            if (minimum['cpu_millis'] != bounds['maximum_millis'] or type(cpu) is not int
+                    or not bounds['minimum_millis'] <= cpu <= bounds['maximum_millis']
+                    or (cpu - bounds['minimum_millis']) % bounds['step_millis']):
+                raise ArtifactError('CPU allocation differs from the frozen adaptive policy')
+            # The reviewed two-CPU simulation may start at its reserved floor
+            # and receive revocable boosts later. RAM, disk and the original
+            # release policy retain their independent launch checks.
+            minimum = dict(minimum, cpu_millis=bounds['minimum_millis'])
         if any(lease.resources[key] < value for key, value in minimum.items()):
             raise ArtifactError("Allocation is below the prepared example's CPU, RAM or storage requirement")
         if self.receipt["identity"]["format"] in (FORMAT, INPUT_FORMAT):

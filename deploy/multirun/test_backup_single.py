@@ -55,33 +55,45 @@ class SingleCaptureTests(unittest.TestCase):
     def setUp(self):
         temporary=tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
         self.root=Path(temporary.name); self.container=Container()
-    def capture(self, *, running=True, allowed=True, stream=None):
+        self.closed_clients=[]
+    def capture(self, *, running=True, allowed=True, stream=None, empty=False, http_error=False):
         from jasmine_web import vm_state
         versions=[dict(version=i,checksum=hashlib.sha256(Path(vm_state.__file__).with_name(n).read_bytes()).hexdigest())
             for i,n in enumerate(('vm_state_schema.sql','vm_state_002_shared_pool.sql','vm_state_003_availability.sql','vm_state_004_interest.sql'),1)]
         record=dict(id='SID',model_id='fictional',status='ready',detail=dict(container_id='container',host='172.30.0.2',backend_secret='fictional'))
         def query(statement):
             text=str(statement)
-            value=versions if 'schema_version' in text else [dict(deployment_id='deployment')] if 'deployment_id' in text else [record]
+            value=versions if 'schema_version' in text else [dict(deployment_id='deployment')] if 'deployment_id' in text else ([] if empty else [record])
             return SimpleNamespace(fetchall=lambda:value,fetchone=lambda:value[0])
         from jasmine_web.session_security import network_name
         network=SimpleNamespace(reload=lambda:None,name=network_name('SID'),id='private-network',attrs=dict(
             Internal=True,Driver='bridge',Labels=dict(self.container.attrs['Config']['Labels']),
             IPAM=dict(Config=[dict(Subnet='172.30.0.0/24',Gateway='172.30.0.1')])))
         docker=SimpleNamespace(containers=SimpleNamespace(get=lambda _:self.container),networks=SimpleNamespace(get=lambda _:network),
-            __enter__=lambda self:self,__exit__=lambda *args:None)
+            close=lambda:self.closed_clients.append('docker'))
         def request(url,**kwargs):
             if url.endswith('/status'): value=dict(status='running' if running else 'paused',built=True)
             elif url.endswith('current-params'): value=dict(seed=606,endYear=2026)
             else: value=dict(files=[dict(timestamp='20261001_120000'),dict(timestamp='20261002_120000')])
             return SimpleNamespace(status_code=403 if not allowed and url.endswith('export/list') else 200,content=b'{}',json=lambda:value)
-        # Context-manager protocol uses type methods, so provide ExitStack-managed
-        # patches for the real constructors rather than a fake socket/client.
+        # DockerClient exposes close(), without context-manager methods. HTTPX
+        # does implement the context protocol; keep each fixture faithful to it.
         with ExitStack() as stack:
             from contextlib import nullcontext
-            stack.enter_context(patch('docker.DockerClient',return_value=nullcontext(docker)))
-            stack.enter_context(patch('httpx.Client',return_value=nullcontext(SimpleNamespace(get=request))))
+            stack.enter_context(patch('docker.DockerClient',return_value=docker))
+            options=dict(side_effect=RuntimeError('Fictional HTTP client startup failure')) if http_error else dict(
+                return_value=nullcontext(SimpleNamespace(get=request)))
+            stack.enter_context(patch('httpx.Client',**options))
             return single.capture(SimpleNamespace(execute=query),'unused','fictional_vm',self.root,self.root,stream=stream)
+
+    def test_empty_registry_uses_docker_sdk_close_protocol(self):
+        self.assertEqual(self.capture(empty=True),dict(images=[],sessions=[]))
+        self.assertEqual(self.closed_clients,['docker'])
+
+    def test_http_client_startup_failure_closes_the_created_docker_client(self):
+        with self.assertRaisesRegex(RuntimeError,'HTTP client startup'):
+            self.capture(http_error=True)
+        self.assertEqual(self.closed_clients,['docker'])
 
     def test_direct_stream_preserves_inputs_and_closed_zip_without_raw_staging(self):
         from .backup_stream import Archive
@@ -117,6 +129,7 @@ class SingleCaptureTests(unittest.TestCase):
         self.assertFalse(value['sessions'][0]['download_allowed']); self.assertEqual([],value['sessions'][0]['archives'])
         self.container.attrs['Config']['Labels']['jasmine.session_id']='other-owner'
         with self.assertRaises(ArtifactError): self.capture()
+        self.assertEqual(self.closed_clients,['docker','docker'])
 
     def test_changed_closed_file_aborts_capture(self):
         self.container.changed=True

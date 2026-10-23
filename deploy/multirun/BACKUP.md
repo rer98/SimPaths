@@ -497,6 +497,12 @@ retain trusted receipts outside the VM and restore only trusted operator backups
 
 ### Recover an encrypted bundle off-machine
 
+Encryption uses a private mode-0700 public-key workspace under `/tmp` (the
+backup service's `PrivateTmp`). Keeping GnuPG's helper socket there avoids Unix
+socket path limits when the encrypted archives live under long, nested backup
+paths. This workspace contains only the exported public key and is removed when
+encryption finishes; ciphertext remains on the configured backup filesystem.
+
 Use the trusted ciphertext checksum from the independently retained receipt and
 a private recovery keyring containing the decryption key:
 

@@ -174,7 +174,8 @@ class TransportTests(unittest.TestCase):
         with self.assertRaises(ArtifactError): transport.SFTP(host='host.example.invalid',user='operator',port=22,directory='/backups',identity=key,known_hosts=pins)
 
 
-@unittest.skipUnless(DSN,'Native GnuPG requires the host backup proof')
+@unittest.skipUnless(DSN or os.environ.get('SIMPATHS_NATIVE_GPG_PROOF')=='1',
+                     'Native GnuPG requires the host backup proof or explicit GPG-only proof')
 class NativeEncryptionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -205,6 +206,27 @@ class NativeEncryptionTests(unittest.TestCase):
         transport.unseal(cipher,recovered,keyring=self.home,expected_sha256=receipt['sha256'])
         self.assertEqual(backup.verify(self.backup),backup.verify(recovered))
         self.assertEqual(0o400,cipher.stat().st_mode&0o777)
+
+    def test_long_backup_path_uses_short_private_public_key_workspace_and_round_trips(self):
+        parent=self.root/('long-backup-path-'+'x'*100)
+        parent.mkdir(mode=0o700)
+        home=transport.public_home(parent,self.public,self.recipient)
+        try:
+            self.assertFalse(home.is_relative_to(parent))
+            self.assertLess(len(os.fsencode(str(home/'S.gpg-agent.extra'))),108)
+            self.assertEqual(home.stat().st_uid,os.getuid())
+            self.assertEqual(home.stat().st_mode&0o777,0o700)
+            result=subprocess.run(transport.gpg_command(home)+['--with-colons','--list-secret-keys'],
+                                  capture_output=True,timeout=30)
+            self.assertEqual(result.returncode,0)
+            self.assertNotIn(b'sec:',result.stdout)
+        finally:transport.dispose_keyring(home)
+        self.assertFalse(home.exists())
+        cipher=parent/'recovery.gpg'
+        receipt=transport.seal(self.backup,cipher,public_key=self.public,recipient=self.recipient)
+        recovered=self.root/'long-path-recovered'
+        transport.unseal(cipher,recovered,keyring=self.home,expected_sha256=receipt['sha256'])
+        self.assertEqual(backup.verify(self.backup),backup.verify(recovered))
 
     def test_wrong_key_pin_corrupted_ciphertext_and_wrong_trusted_checksum_fail_closed(self):
         with self.assertRaises(ArtifactError): transport.seal(self.backup,self.root/'wrong.gpg',public_key=self.public,recipient='B'*40)

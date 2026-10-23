@@ -5,7 +5,7 @@ Running output and H2 databases are excluded. Restored sessions retain private
 ownership and saved exports, with no attempt to reattach a live Java process.
 @author ross richardson
 """
-from contextlib import nullcontext
+from contextlib import closing, nullcontext
 from datetime import datetime, timedelta
 import hashlib
 import io
@@ -182,7 +182,7 @@ def capture(c, dsn, schema, destination, source, *, stream=None):
     deployment=c.execute(sql.SQL('SELECT deployment_id FROM {}').format(sql.Identifier(schema,'metadata'))).fetchone()['deployment_id']
     records=c.execute(sql.SQL('SELECT * FROM {} ORDER BY id').format(sql.Identifier(schema,'sessions'))).fetchall()
     sessions=[]; images=set()
-    with docker.DockerClient(base_url='unix:///var/run/docker.sock',timeout=120) as client, httpx.Client(timeout=10,trust_env=False) as http:
+    with closing(docker.DockerClient(base_url='unix:///var/run/docker.sock',timeout=120)) as client, httpx.Client(timeout=10,trust_env=False) as http:
         for record in records:
             key=hashlib.sha256(record['id'].encode()).hexdigest()
             detail=record['detail']

@@ -11,7 +11,7 @@ services:
       - "127.0.0.1:5433:5432"
     environment:
       POSTGRES_DB: jasmine_multirun
-      POSTGRES_USER: simpaths_online
+      POSTGRES_USER: postgres
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
     secrets:
       - postgres_password

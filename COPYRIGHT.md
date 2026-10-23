@@ -7,6 +7,11 @@ Attribution scope and non-commentable/generated artifacts.
 
 # Attribution
 
+The fresh PostgreSQL role proof carries inline attribution. Its generated
+fictional role, authentication and initialization receipts are
+(C) Copyright 2026, by Ross Richardson; @author ross richardson. PostgreSQL and
+the container image retain their original ownership and licences.
+
 The live CPU/RAM capacity operator, deployment guide and recovery proofs carry
 inline notices. Generated capacity proposals, numeric observations and fictional
 test evidence are (C) Copyright 2026, by Ross Richardson; @author ross richardson.

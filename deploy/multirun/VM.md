@@ -169,10 +169,30 @@ in an operator directory outside the source checkout. Supply a reviewed PostgreS
 17 image digest in `POSTGRES_IMAGE` and a private password-file path in
 `POSTGRES_PASSWORD_FILE` through that directory's protected `.env`. The database
 binds only `127.0.0.1:5433`, uses a persistent named volume and restarts independently.
-Its application role owns its database, with superuser/cluster-management powers
-removed by the first-start SQL. Local socket administration is available to the
-operator via the passwordless `postgres` role; that role cannot authenticate over
-password-protected TCP. Initialization SQL applies only to a fresh volume.
+Its first-start SQL creates `simpaths_online` as a separate application role that
+owns its database and has no superuser/cluster-management powers. Initialize with
+`POSTGRES_USER=postgres`: PostgreSQL 16+ forbids removing superuser status from
+the bootstrap role. The generated SCRAM password is assigned to the application
+role inside PostgreSQL; the bootstrap role's password is then cleared. Local
+socket administration remains available through `postgres`, which cannot
+authenticate over password-protected TCP. Initialization SQL applies only to a
+fresh volume; replacing this file does not repair an already initialized cluster.
+
+Before installing a new cluster, qualify the production initialization SQL with
+an already installed, reviewed PostgreSQL 17 image:
+
+```bash
+python3 deploy/acceptance/postgres_roles.py \
+  --image sha256:<installed-image-id> \
+  --output /private/operator-evidence/postgres-roles-<unique-name>
+```
+
+The proof creates a uniquely named, network-isolated container with memory-backed
+data, then removes it. It checks application ownership and restricted attributes,
+schema read/write, rejection of an incorrect password, and rejection of TCP
+administrator login using the application credential. It pulls no images and
+does not contact an existing database. Native installation acceptance must also
+check the real volume, loopback binding, container replacement and backup/restore.
 
 ```bash
 docker compose -f postgres.compose.yaml config --quiet

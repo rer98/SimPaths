@@ -167,6 +167,12 @@ root. Its capabilities permit quota changes, controlled ownership and dropping
 privilege in the probe; they are not granted to web/model processes. There is no
 runtime `sudo` call from the application.
 
+The unit explicitly supplies UID/GID-switching and child-termination capabilities
+to the root interpreter as well as listing them in its capability ceiling. The
+write-probe child switches to the executor UID/GID, clears supplementary groups
+and every process capability, and verifies that identity before testing writes.
+The parent retains permission to terminate a timed-out child before cleanup.
+
 The native TOML uses matching paths:
 
 ```toml

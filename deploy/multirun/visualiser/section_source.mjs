@@ -200,6 +200,7 @@ export class SectionSource{
       if(cached){values.set(c.id,cached.rows);sizes.set(c.id,cached.bytes);}else missing.push(c);}
     if(missing.length){
       const params=new URLSearchParams({variable,stratifier,kind});
+      if(this.pinPublication)params.set('publication',catalogue.publication);
       missing.forEach(c=>params.append('configuration',c.id));
       this.stats.viewRequests++;
       if(background)this.stats.prefetchRequests++;

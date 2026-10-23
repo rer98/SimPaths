@@ -6,6 +6,7 @@
 import {validateCatalogue,validateRows} from './section_source.mjs';
 
 export const PACKAGE_FORMAT='simpaths.visualiser.package.v1';
+export const EXPERIMENT_PACKAGE_FORMAT='simpaths.visualiser.experiment-package.v1';
 const MIB=1024*1024,MANIFEST_LIMIT=MIB,INDEX_LIMIT=16*MIB,VIEW_LIMIT=8*MIB,VIEW_ROWS=20000;
 const hash=v=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
 const object=(v,fields)=>v&&typeof v==='object'&&!Array.isArray(v)&&
@@ -29,8 +30,10 @@ async function read(directory,name,maximum,expected,signal){
 }
 
 export function validatePackage(value){
-  if(!object(value,['format','catalogue','parts','provenance'])||value.format!==PACKAGE_FORMAT||
-      !Array.isArray(value.parts)||value.parts.length<1||value.parts.length>99)
+  const experiment=value?.format===EXPERIMENT_PACKAGE_FORMAT;
+  if(!object(value,['format','catalogue','parts','provenance',...(experiment?['mapping']:[])])||
+      ![PACKAGE_FORMAT,EXPERIMENT_PACKAGE_FORMAT].includes(value.format)||
+      !Array.isArray(value.parts)||value.parts.length<1||value.parts.length>100)
     throw Error('This folder is not a supported saved comparison. Extract the downloaded ZIP and select its comparison folder.');
   const catalogue=validateCatalogue(value.catalogue),ids=catalogue.configurations.map(c=>c.id),seen=new Set();
   const covered=new Set();
@@ -40,15 +43,25 @@ export function validatePackage(value){
         part.configurations.length<1||part.configurations.length>100||new Set(part.configurations).size!==part.configurations.length||
         part.configurations.some(id=>!ids.includes(id))||seen.has(part.directory))throw Error('Invalid saved comparison index.');
     seen.add(part.directory);
-    if(ordinal&&JSON.stringify(part.configurations)!==JSON.stringify([ids[0],ids[ordinal+1]]))
+    if(!experiment&&ordinal&&JSON.stringify(part.configurations)!==JSON.stringify([ids[0],ids[ordinal+1]]))
       throw Error('Saved comparison alternatives do not match.');
     for(const id of part.configurations)covered.add(id);
   }
-  if(value.parts.length===1&&JSON.stringify(value.parts[0].configurations)!==JSON.stringify(ids))
+  if(!experiment&&value.parts.length===1&&JSON.stringify(value.parts[0].configurations)!==JSON.stringify(ids))
     throw Error('Saved comparison configurations do not match.');
-  if(covered.size!==ids.length||value.parts.length>1&&(
+  if(covered.size!==ids.length||!experiment&&value.parts.length>1&&(
       value.parts.length!==ids.length-1||JSON.stringify(value.parts[0].configurations)!==JSON.stringify(ids.slice(0,2))))
     throw Error('Saved comparison is incomplete.');
+  if(experiment){
+    const mapping=value.mapping;
+    if(!Array.isArray(mapping)||mapping.length!==ids.length||mapping.some((m,i)=>
+      !object(m,['id','name','role','key','part','paired'])||
+      ['id','name','role','key'].some(k=>m[k]!==catalogue.configurations[i][k])||
+      !integer(m.part,0,value.parts.length-1)||!value.parts[m.part].configurations.includes(m.id)||
+      typeof m.paired!=='boolean'||m.role==='Baseline'&&m.paired)||
+      new Set(mapping.map(m=>m.part)).size!==value.parts.length||
+      catalogue.comparison_available!==mapping.some(m=>m.paired))throw Error('Saved experiment configurations do not match.');
+  }
   const provenance=value.provenance;
   if(!object(provenance,['visualiser_revision','application_sha256','calculation_files','configurations'])||
       provenance.application_sha256!==null&&!hash(provenance.application_sha256)||
@@ -83,7 +96,8 @@ export class PortableSource{
     const rows=[];let bytes=0;
     for(const configuration of selected){
       abort(signal);if(this.closed)throw new DOMException('Saved comparison closed.','AbortError');
-      const part=this.manifest.parts.find(p=>p.configurations.includes(configuration.id));
+      const mapping=this.manifest.mapping?.find(c=>c.id===configuration.id);
+      const part=mapping?this.manifest.parts[mapping.part]:this.manifest.parts.find(p=>p.configurations.includes(configuration.id));
       const parts=await this.directory.getDirectoryHandle('parts');
       const directory=await parts.getDirectoryHandle(part.directory.split('/')[1]);
       const index=await read(directory,'index.json',INDEX_LIMIT,part.index,signal);this.stats.indexReads++;
@@ -92,9 +106,17 @@ export class PortableSource{
           Object.keys(index.sections).length>25000)throw Error('Invalid saved chart index.');
       const metadata=validateCatalogue(index.catalogue);
       if(metadata.publication!==part.publication||JSON.stringify(metadata.configurations.map(c=>c.id))!==JSON.stringify(part.configurations)||
-          JSON.stringify(metadata.seeds)!==JSON.stringify(this.catalogue.seeds)||metadata.comparison_available!==this.catalogue.comparison_available||
-          metadata.configurations.some(c=>{const global=configurations.find(g=>g.id===c.id);return !global||c.role!==global.role||c.name!==global.name;}))
+          JSON.stringify(metadata.seeds)!==JSON.stringify(this.catalogue.seeds)||
+          !mapping&&(metadata.comparison_available!==this.catalogue.comparison_available||
+          metadata.configurations.some(c=>{const global=configurations.find(g=>g.id===c.id);return !global||c.role!==global.role||c.name!==global.name;})))
         throw Error('Saved chart metadata does not match the comparison.');
+      const original=metadata.configurations.find(c=>c.id===configuration.id);
+      if(mapping&&(!original||original.name!==configuration.name||
+          configuration.role==='Baseline'&&original.role!=='Baseline'&&metadata.configurations.length!==1||
+          mapping.paired&&(!metadata.comparison_available||original.role!=='Scenario'||
+            !metadata.configurations.some(c=>c.role==='Baseline'&&configurations.some(g=>g.role==='Baseline'&&g.id===c.id)))||
+          !mapping.paired&&configuration.role==='Scenario'&&metadata.configurations.length!==1))
+        throw Error('Saved experiment roles do not match their chart parts.');
       const key=await sha(new TextEncoder().encode(JSON.stringify([configuration.id,variable,stratifier,kind])));
       const entry=index.sections[key];
       if(!entry)continue;
@@ -102,13 +124,16 @@ export class PortableSource{
           !integer(entry.rows,1,VIEW_ROWS)||bytes+entry.bytes>VIEW_LIMIT-65536||rows.length+entry.rows>VIEW_ROWS)
         throw Error('This saved chart is too large. Select fewer scenarios or a smaller population breakdown.');
       const values=await read(directory,key+'.json',VIEW_LIMIT,entry,signal);this.stats.sectionReads++;
-      const original=metadata.configurations.find(c=>c.id===configuration.id);
       // Index sections use canonical baseline/scenario; global display identities
       // distinguish every alternative when several bounded pairs are combined.
       if(!Array.isArray(values)||values.length!==entry.rows||values.some(r=>r?.scenario!==(original.role==='Baseline'?'baseline':'scenario')))
         throw Error('Saved chart rows do not match their configuration.');
       validateRows(values,{variable,stratifier,kind},{...original,key:original.role==='Baseline'?'baseline':'scenario'});
-      for(const row of values)rows.push({...row,scenario:configuration.key});
+      for(const row of values){
+        const mapped={...row,scenario:configuration.key};
+        if(mapping&&!mapping.paired)for(const field of ['paired_mean_delta','paired_lower_ci','paired_upper_ci','paired_n_runs'])delete mapped[field];
+        rows.push(mapped);
+      }
       bytes+=entry.bytes;
     }
     abort(signal);if(this.closed)throw new DOMException('Saved comparison closed.','AbortError');

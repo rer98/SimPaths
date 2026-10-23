@@ -450,3 +450,9 @@ drivers and focused recovery tests carry attribution in their source headers.
 Generated fictional notification/recovery evidence and numeric demand exports are
 (C) Copyright 2026, by Ross Richardson; @author ross richardson. Existing model
 records, runtime images and third-party software retain their original notices.
+
+The progressive experiment Visualiser transport, guarded dashboard adapter and
+compiled-interface checks carry inline attribution. Generated experiment build
+receipts and fictional qualification evidence are
+(C) Copyright 2026, by Ross Richardson; @author ross richardson. Upstream chart
+calculations, branding and third-party dependencies retain their original notices.

@@ -8,30 +8,58 @@ import {createRoot} from 'react-dom/client';
 import App from './App';
 import {parseLocalFolder} from './localFolderParser';
 import {SectionSource} from './section_source.mjs';
+import {ExperimentSource} from './experiment_source.mjs';
 import {PortableSource} from './portable_source.mjs';
 
 function Page(){
   const key=location.pathname.split('/').pop();
-  const onlineKey=/^[a-f0-9]{64}$/.test(key);
+  const experiment=/^\/visualiser\/experiment\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(location.pathname);
+  const onlineKey=experiment||/^[a-f0-9]{64}$/.test(key);
   const [catalogue,setCatalogue]=useState(null),[local,setLocal]=useState(null);
   const [mode,setMode]=useState('online');
   const [message,setMessage]=useState('Loading online results…');
   const [processing,setProcessing]=useState(false);
+  const [experimentStatus,setExperimentStatus]=useState(null),[updateNotice,setUpdateNotice]=useState('');
   const generation=useRef(0),client=useRef(null),pending=useRef(null);
-  function cancel(){pending.current?.abort();client.current?.close();client.current=null;}
+  const refreshTimer=useRef(null);
+  function cancel(){clearTimeout(refreshTimer.current);pending.current?.abort();client.current?.close();client.current=null;}
   async function vm(){
     cancel();const serial=++generation.current,abort=new AbortController();pending.current=abort;
     setMode('online');
-    setLocal(null);setCatalogue(null);setProcessing(false);setMessage('Loading online results…');
+    setLocal(null);setCatalogue(null);setExperimentStatus(null);setUpdateNotice('');setProcessing(false);setMessage('Loading online results…');
     if(!onlineKey){setMessage('Open a saved comparison, or select locally saved simulation files.');return;}
     try{
-      const source=new SectionSource(key,{onInvalidated:text=>{
+      const options={onInvalidated:text=>{
         if(serial!==generation.current)return;
-        setCatalogue(null);setMessage(text);
-      }});client.current=source;
-      const value=await source.metadata(abort.signal);
+        setCatalogue(null);setExperimentStatus(null);setUpdateNotice('');setMessage(text);
+      }};
+      const source=experiment?new ExperimentSource(key,{...options,
+        onUpdated:value=>{if(serial===generation.current)setCatalogue(value);},
+        onStatus:(value,previous)=>{
+          if(serial!==generation.current)return;
+          setExperimentStatus(value);
+          if(previous){
+            const before=new Map(previous.configurations.map(c=>[c.id,c]));
+            const charts=value.configurations.filter(c=>c.charts==='ready'&&before.get(c.id)?.charts!=='ready');
+            const pairs=value.configurations.filter(c=>c.comparison==='ready'&&before.get(c.id)?.comparison!=='ready');
+            if(charts.length)setUpdateNotice('Charts now available: '+charts.map(c=>c.name).join(', ')+'.');
+            else if(pairs.length)setUpdateNotice('Baseline comparisons now available: '+pairs.map(c=>c.name).join(', ')+'.');
+          }
+        }}):new SectionSource(key,options);
+      client.current=source;
+      async function refresh(){
+        if(serial!==generation.current||source.closed)return;
+        try{
+          const value=await source.refresh(abort.signal);
+          if(serial===generation.current)setMessage(value?'':'Charts will appear here as configuration preparation finishes.');
+        }catch(error){if(serial===generation.current&&error.name!=='AbortError')setMessage(error.message);}
+        if(serial===generation.current&&!source.closed)
+          refreshTimer.current=setTimeout(refresh,document.hidden?60000:15000);
+      }
+      const value=experiment?await source.refresh(abort.signal):await source.metadata(abort.signal);
       if(serial!==generation.current)return;
-      setCatalogue(value);setMessage('');
+      setCatalogue(value);setMessage(value?'':'Charts will appear here as configuration preparation finishes.');
+      if(experiment)refreshTimer.current=setTimeout(refresh,document.hidden?60000:15000);
     }catch(error){if(serial===generation.current&&error.name!=='AbortError')setMessage(error.message);}
   }
   useEffect(()=>{vm();return()=>{generation.current++;cancel();};},[]);
@@ -67,9 +95,18 @@ function Page(){
   }:undefined,[catalogue,mode]);
   const alternatives=catalogue?.configurations.filter(c=>c.role==='Scenario').length||0;
   const controls=<>
-    <p className="vm-source-help">View your selected online results, or select a local parent folder with a Baseline folder and one folder for each alternative scenario.</p>
+    <p className="vm-source-help">{experiment?'This experiment updates as configurations and baseline comparisons become ready. Choose the scenarios to display; new results do not change your selections.':'View your selected online results, or select a local parent folder with a Baseline folder and one folder for each alternative scenario.'}</p>
     {onlineKey&&<button className="vm-source-button" onClick={vm}>View Online Results</button>}
-    {mode==='online'&&catalogue&&<a className="vm-source-button" href={'/api/visualiser/'+key+'/archive'} target="_blank" rel="noopener">Download comparison data</a>}
+    {mode==='online'&&catalogue&&<a className="vm-source-button" href={(experiment?'/api/visualiser-experiments/':'/api/visualiser/')+key+'/archive'} target="_blank" rel="noopener">Download comparison data</a>}
+    {mode==='online'&&experimentStatus&&<details className="vm-experiment-status">
+      <summary>{experimentStatus.ready} of {experimentStatus.total} configurations have charts ready</summary>
+      <ul>{experimentStatus.configurations.map(c=><li key={c.id}>{c.name}: {c.charts==='ready'?'Charts ready':
+        c.state==='active'?'Simulation running':c.state==='queued'?'Simulation queued':
+        ['queued','processing'].includes(c.charts)?'Preparing charts':'Charts not yet available'}
+        {c.charts==='ready'&&c.comparison!=='not_applicable'&&(c.comparison==='ready'?' · Baseline comparison ready':
+          c.comparison==='waiting_baseline'?' · Waiting for baseline comparison':' · Baseline comparison not yet ready')}</li>)}</ul>
+    </details>}
+    {mode==='online'&&updateNotice&&<p className="vm-source-help" role="status">{updateNotice}</p>}
     <button className="vm-source-button" onClick={savedComparison} disabled={processing}>Open saved comparison</button>
     <button className="vm-source-button" onClick={localFiles} disabled={processing}>Visualise Locally Saved Data</button>
     <p className="vm-source-help">To reopen a downloaded comparison, extract its ZIP and select the folder containing manifest.json. All available variables and selected scenarios are included in the download.</p>

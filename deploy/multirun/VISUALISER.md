@@ -635,3 +635,68 @@ node deploy/multirun/visualiser/build.cjs \
 Use a new output directory and retain the build receipt. The working branch is
 `feat/aggregate-data-source`; the optional selected-chart interface belongs in
 that upstream PR. The calculation source `parseCore.js` is unchanged.
+
+## One live view per experiment
+
+Results shows one **Open Visualiser** link at
+`/visualiser/experiment/<experiment UUID>`. It becomes available when the first
+configuration has charts. An alternative can be viewed before its baseline has
+finished. A status list distinguishes available levels from ready paired
+comparisons. Failed or expired preparation has an explicit **Retry preparation**
+action; opening or refreshing the page never starts preparation.
+
+An open experiment checks status every 15 seconds, or every 60 seconds in a
+hidden tab. Newly available configurations and paired comparisons extend its
+catalogue without remounting the dashboard. Existing scenario choices and the
+selected variable remain in place; new alternatives appear as unselected
+buttons. Levels remain available while a comparison is pending. Baseline rows
+and unpaired alternatives carry no other alternative's paired differences.
+
+The server assembles the selected chart sections from existing, verified
+individual and baseline–alternative publications. It does not reread microdata
+or recalculate statistics for an experiment view. A publication revision binds
+each chart request; completion during a read triggers a bounded refresh. Current
+owner approval, dataset grants, source identity, expiry and file checksums still
+apply to every read and download. Removing one source removes its dependent
+comparisons while other authorised standalone charts can remain available.
+
+Manual and automatic requests for the same baseline–alternative pair share one
+preparation identity. Alternative order does not create extra work. Equivalent
+retained legacy publications are reused under their existing keys; old chart
+URLs continue to work. UI-only build changes preserve publications when both
+`runner.cjs` and `calculation.cjs`, the Node runtime, processing memory and
+publication limits match. Dataset eligibility uses the current allowlist
+independently. Changed calculations or runtimes cannot reuse incompatible data.
+
+**Download comparison data** freezes all configurations ready at the start of
+the request, including currently hidden scenarios. Later completions do not
+interrupt that download. The aggregate-only ZIP uses
+`simpaths.visualiser.experiment-package.v1`, with an explicit mapping from each
+configuration to its checksum-verified part. The local reader supports this and
+the original package format. A downloaded snapshot does not receive future
+completions; reopen the online experiment for the latest results.
+
+### Focused qualification
+
+Build with the pinned compiler dependencies, then run the native browser proof
+against that new build. It covers early alternative availability, failed-pair
+retry, one stable link, additions to the same tab, preserved scenario choices,
+current grants, exports and production private RPC framing. Its data and emails
+are fictional; no scientific simulations are run.
+
+```bash
+cd ~/git/JAS-mine/JAS-mine-web
+TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 \
+~/simpaths-browser-tests/venv/bin/python tests/browser/batch_visualiser.py \
+  --private-rpc \
+  --backend-pattern test_visualiser.py test_visualiser_automatic.py \
+                    test_visualiser_independent_retention.py test_visualiser_experiments.py \
+  --build /tmp-codex/visualiser-experiment-BUILD \
+  --output "/tmp-codex/experiment-visualiser-native-$(date +%Y%m%d-%H%M%S)"
+```
+
+The JavaScript checks `test_experiment_source.mjs` and
+`test_experiment_bundle.cjs` also exercise status-only polling, revision races,
+expiry, cache invalidation and preserved choices in the compiled app.
+The compiled interface check also verifies that an access denial clears chart
+paths, configuration progress and completion notices from the open page.

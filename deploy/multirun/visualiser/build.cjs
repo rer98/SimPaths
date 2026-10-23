@@ -4,7 +4,7 @@
  * @author ross richardson
  */
 const fs=require('fs'), path=require('path'), crypto=require('crypto');
-const {adaptApp}=require('./adapt_app.cjs');
+const {adaptApp,adaptDashboard}=require('./adapt_app.cjs');
 const {dependencyReceipt,emittedPackages}=require('./build_metadata.cjs');
 const args={};
 for(let i=2;i<process.argv.length;i+=2){
@@ -46,6 +46,7 @@ for(const name of selected){
   let text=fs.readFileSync(path.join(args.source,'src',name),'utf8');
   hashes[name]=sha(text);
   if(name==='App.js')text=adaptApp(text);
+  if(name==='DashboardSection.js')text=adaptDashboard(text);
   const transformed=babel.transformSync(text,{
     filename:name,presets:[[reactPreset,{runtime:'automatic'}]],
     babelrc:false,configFile:false,comments:true}).code;
@@ -54,6 +55,7 @@ for(const name of selected){
 fs.copyFileSync(path.join(__dirname,'entry.jsx'),path.join(staging,'entry.jsx'));
 fs.copyFileSync(path.join(__dirname,'comparison_data.mjs'),path.join(staging,'comparison_data.mjs'));
 fs.copyFileSync(path.join(__dirname,'section_source.mjs'),path.join(staging,'section_source.mjs'));
+fs.copyFileSync(path.join(__dirname,'experiment_source.mjs'),path.join(staging,'experiment_source.mjs'));
 fs.copyFileSync(path.join(__dirname,'section_cache.mjs'),path.join(staging,'section_cache.mjs'));
 fs.copyFileSync(path.join(__dirname,'portable_source.mjs'),path.join(staging,'portable_source.mjs'));
 const entry=fs.readFileSync(path.join(staging,'entry.jsx'),'utf8');

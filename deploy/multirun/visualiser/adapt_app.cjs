@@ -12,4 +12,12 @@ function adaptApp(source) {
   // The hosted guidance uses its established explicit asset allowlist name.
   return source.replaceAll('/interpreting-results.html','/Interpreting-results.html');
 }
-module.exports={adaptApp};
+function adaptDashboard(source){
+  const previous='useEffect(()=>setEnabledScenarios(new Set(allScenarioNames)),[allScenarioNames]);';
+  if(source.split(previous).length!==2)throw Error('Review changed scenario selection lifecycle');
+  // The experiment host adds available controls without selecting them or
+  // resetting choices that a user already made in this dashboard instance.
+  return source.replace(previous,
+    'useEffect(()=>setEnabledScenarios(previous=>new Set([...previous].filter(name=>allScenarioNames.includes(name)))),[allScenarioNames]);');
+}
+module.exports={adaptApp,adaptDashboard};

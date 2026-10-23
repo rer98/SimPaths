@@ -90,6 +90,25 @@ class VisualiserBackend:
         self.identity=dict(build=manifest,publication='own-and-public-preview-v1',
                            public_datasets=sorted(self.public_datasets),node=version,memory_mib=memory_mib)
 
+    @staticmethod
+    def calculation_identity(identity):
+        """Presentation changes do not invalidate unchanged aggregate calculations.
+
+        Current dataset grants and the public-training allowlist are checked on
+        every read separately. Keep the calculation bytes, runtime and limits
+        bound, including when reading publications from an older UI build.
+        """
+        build=identity.get('build',{})
+        if build.get('format')!='simpaths.visualiser.build.v1':
+            return identity
+        files=build.get('files',{})
+        if any(not re.fullmatch('[a-f0-9]{64}',str(files.get(name)))
+               for name in ('runner.cjs','calculation.cjs')):
+            return identity
+        return {**{k:v for k,v in identity.items() if k not in ('build','public_datasets')},
+                'calculation':dict(mode=build.get('mode'),
+                    files={name:files[name] for name in ('runner.cjs','calculation.cjs')})}
+
     def prune_summaries(self, *, owner=None, configuration=None, unless_held=False):
         if self.summary_cache is None:
             return dict(entries=0,bytes=0)

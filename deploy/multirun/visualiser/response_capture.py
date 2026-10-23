@@ -12,6 +12,7 @@ import re
 from deploy.multirun.artifacts import ArtifactError
 
 MIB=1024**2
+CHART_PATH=r'/api/(?:visualiser/[a-f0-9]{64}|visualiser-experiments/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})/(data|catalogue|view)'
 
 
 class AggregateCapture:
@@ -29,7 +30,7 @@ class AggregateCapture:
 
     async def __call__(self,scope,receive,send):
         if (scope.get('type')!='http' or scope.get('method')!='GET'
-                or not re.fullmatch(r'/api/visualiser/[a-f0-9]{64}/(data|catalogue|view)',scope.get('path',''))):
+                or not re.fullmatch(CHART_PATH,scope.get('path',''))):
             return await self.app(scope,receive,send)
         query=scope.get('query_string',b'').decode('ascii')
         identity=scope['path']+'?'+query
@@ -75,5 +76,5 @@ class AggregateCapture:
 
 def observe_browser_response(response,responses):
     """Event callbacks read metadata only; never ask DevTools to retain large bodies."""
-    if re.search(r'/api/visualiser/[a-f0-9]{64}/(data|catalogue|view)(\?|$)',response.url):
+    if re.search(CHART_PATH+r'(\?|$)',response.url):
         responses.append(dict(url=response.url,status=response.status))

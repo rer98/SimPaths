@@ -84,3 +84,26 @@ test('a standalone configuration reopens without requiring a baseline-alternativ
   const source=await PortableSource.open(f.directory);
   assert.equal((await source.load({...selection,scenarios:[]})).length,1);
 });
+
+test('an experiment snapshot combines ready pairs and standalone levels without borrowing paired differences',async()=>{
+  const f=fixture(),m=f.manifest;
+  m.format='simpaths.visualiser.experiment-package.v1';
+  m.mapping=m.catalogue.configurations.map((c,i)=>({...c,part:i===2?1:0,paired:i===1}));
+  const part=m.parts[1],index=JSON.parse(f.files.get(part.directory+'/index.json'));
+  index.catalogue.configurations=index.catalogue.configurations.filter(c=>c.id==='alt2');
+  index.catalogue.comparison_available=false;part.configurations=['alt2'];
+  const raw=bytes(index);f.files.set(part.directory+'/index.json',raw);part.index={bytes:raw.length,sha256:digest(raw)};
+  f.files.set('manifest.json',bytes(m));
+  const source=await PortableSource.open(f.directory),rows=await source.load(selection);
+  assert.deepEqual(rows.map(r=>[r.scenario,r.mean_value,r.paired_mean_delta]),[
+    ['baseline',40,undefined],['scenario_1',45,5],['scenario_2',45,undefined]]);
+  for(const edit of [v=>v.mapping[2].part=7,v=>v.mapping[0].paired=true,
+    v=>v.mapping[1].id='alt2',v=>v.mapping[2].key='scenario_1']){
+    const invalid=structuredClone(m);edit(invalid);assert.throws(()=>validatePackage(invalid));
+  }
+  const partial=structuredClone(m);
+  partial.catalogue.configurations=partial.catalogue.configurations.slice(2);partial.catalogue.comparison_available=false;
+  partial.parts=[part];partial.parts[0].directory='parts/000';
+  partial.mapping=[{...partial.mapping[2],part:0}];partial.provenance.configurations=partial.provenance.configurations.slice(2);
+  assert.equal(validatePackage(partial).catalogue.configurations[0].key,'scenario_2');
+});

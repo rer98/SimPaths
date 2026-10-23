@@ -5,6 +5,7 @@ No user records or provider microdata are read.
 @author ross richardson
 """
 import csv
+from copy import deepcopy
 import hashlib
 import io
 import json
@@ -21,6 +22,21 @@ from deploy._workflow import frontend_path
 from deploy.multirun.visualiser_backend import VisualiserBackend
 
 BUILD=os.environ.get('SIMPATHS_VISUALISER_TEST_BUILD')
+
+
+class CalculationIdentityTests(unittest.TestCase):
+    def test_presentation_and_current_allowlist_changes_preserve_calculations_but_runtime_or_calculation_changes_do_not(self):
+        identity=dict(build=dict(format='simpaths.visualiser.build.v1',mode='development-paired',
+            files={'runner.cjs':'a'*64,'calculation.cjs':'b'*64,'visualiser.js':'c'*64},revision='old'),
+            public_datasets=['old'],node='v22.23.1',memory_mib=2560,publication='own-and-public-preview-v1')
+        changed=deepcopy(identity);changed['build']['files']['visualiser.js']='d'*64
+        changed['build']['revision']='new';changed['public_datasets']=['new']
+        self.assertEqual(VisualiserBackend.calculation_identity(identity),VisualiserBackend.calculation_identity(changed))
+        for change in ('runner.cjs','calculation.cjs','node','memory_mib','publication'):
+            altered=deepcopy(changed)
+            if change.endswith('.cjs'):altered['build']['files'][change]='e'*64
+            else:altered[change]='different'
+            self.assertNotEqual(VisualiserBackend.calculation_identity(identity),VisualiserBackend.calculation_identity(altered))
 
 
 def csv_text(rows):

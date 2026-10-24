@@ -40,6 +40,40 @@ class BrowserCopyTests(unittest.TestCase):
     def copy(self,spec,**kwargs):
         return self.model.browser_copy(spec,replacements=kwargs.get('replacements',{}),auto_retry=kwargs.get('auto_retry',True))
 
+    def test_saved_summary_preserves_effective_settings_without_new_work_limits_or_release(self):
+        for saved in (True,False):
+            with self.subTest(saved=saved):
+                specification=self.specification(saved=saved);before=deepcopy(specification)
+                with patch.object(self.model,'releases',{}),patch.object(self.model,'max_configurations',1),patch.object(self.model,'max_repetitions',1):
+                    result=self.model.browser_saved_summary(specification,replacements={})
+                self.assertEqual([r['id'] for r in result['configurations']],['baseline','comparison'])
+                second=result['configurations'][1]
+                self.assertEqual(second['common']['population'],50000)
+                self.assertEqual(second['common']['end_year'],2025)
+                self.assertFalse(second['collector']['persistHouseholds'])
+                self.assertEqual(second['dataset'],'alternative-inputs')
+                self.assertEqual(specification,before)
+
+    def test_saved_summary_uses_approved_input_replacement_and_omits_unrecorded_defaults(self):
+        specification=self.specification();before=deepcopy(specification)
+        changed=deepcopy(specification['run_sets'][0])
+        changed['parameters']['dataset_revision']='replacement-inputs'
+        changed['parameters']['run_sets'][0]['model_args'].pop('savingRate')
+        result=self.model.browser_saved_summary(specification,replacements={'baseline':changed})
+        self.assertEqual(result['configurations'][0]['dataset'],'replacement-inputs')
+        self.assertNotIn('savingRate',result['configurations'][0]['settings'])
+        self.assertEqual(specification,before)
+
+    def test_saved_summary_rejects_inconsistent_configuration_release_or_seeds(self):
+        specification=self.specification()
+        for field in ('id','release','seeds'):
+            changed=deepcopy(specification['run_sets'][0])
+            if field=='id':changed['id']='unexpected'
+            elif field=='release':changed['parameters']['model_release']='different-release'
+            else:changed['parameters']['seed_plan']['first_seed']='9007199254740000'
+            with self.subTest(field=field),self.assertRaises(ValueError):
+                self.model.browser_saved_summary(specification,replacements={'baseline':changed})
+
     def extension(self):
         original=self.specification()
         incoming=deepcopy(original)

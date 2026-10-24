@@ -15,7 +15,8 @@ import time
 from .artifacts import ArtifactError
 from .backup_files import copy_selected,file_hash,read_metadata,scan
 
-FORMAT='simpaths.visualiser.retained-backup.v2'
+FORMAT='simpaths.visualiser.retained-backup.v3'
+PREVIOUS_FORMAT='simpaths.visualiser.retained-backup.v2'
 LEGACY_FORMAT='simpaths.visualiser.retained-backup.v1'
 ROOT='execution/visualiser-cache'
 HEX=re.compile('[a-f0-9]{64}')
@@ -114,7 +115,7 @@ def known_source(c,queue,owner,attempt,identity=None):
 def capture(state,destination,c=None,queue=None,*,stream=None):
     from jasmine_web.batch.downloads import lock
     root=Path(state)/ROOT
-    result=dict(format=FORMAT,publications=0,summaries=0,evictions=0)
+    result=dict(format=FORMAT,publications=0,summaries=0,evictions=0,experiment_views=0)
     if not root.exists():return result
     if root.is_symlink():raise ArtifactError('Linked Visualiser storage')
     with ExitStack() as guards:
@@ -144,6 +145,19 @@ def capture(state,destination,c=None,queue=None,*,stream=None):
         from jasmine_web.batch.visualiser_storage import BUDGET,budget
         if (root/BUDGET).exists():
             budget(root);keys.add(BUDGET)
+        from jasmine_web.batch.visualiser_baseline import DIRECTORY,LIMIT,validate
+        preferences=root/DIRECTORY
+        if preferences.exists():
+            if preferences.is_symlink():raise ArtifactError('Linked visualisation preferences')
+            for path in sorted(preferences.iterdir()):
+                value=validate(read_metadata(path),path.name)
+                if c is not None:
+                    from psycopg import sql
+                    if not c.execute(sql.SQL('SELECT 1 FROM {} WHERE pool_id=%s AND id=%s AND owner_id=%s').format(
+                        sql.Identifier(queue.schema,'experiments')),
+                        (queue.pool_id,value['experiment'],value['owner'])).fetchone():continue
+                keys.add(DIRECTORY+'/'+path.name);result['experiment_views']+=1
+                if result['experiment_views']>LIMIT:raise ArtifactError('Too many visualisation preferences')
         summaries=root/'summaries'
         if summaries.exists():
             if summaries.is_symlink():raise ArtifactError('Linked summary storage')
@@ -172,9 +186,10 @@ def capture(state,destination,c=None,queue=None,*,stream=None):
 
 def verify(state,expected):
     fields={'format','publications','summaries'}
-    if isinstance(expected,dict) and expected.get('format')==FORMAT:fields.add('evictions')
+    if isinstance(expected,dict) and expected.get('format') in (FORMAT,PREVIOUS_FORMAT):fields.add('evictions')
+    if isinstance(expected,dict) and expected.get('format')==FORMAT:fields.add('experiment_views')
     if (not isinstance(expected,dict) or set(expected)!=fields
-            or expected['format'] not in (FORMAT,LEGACY_FORMAT) or any(type(expected[k]) is not int or not 0<=expected[k]<=10000
+            or expected['format'] not in (FORMAT,PREVIOUS_FORMAT,LEGACY_FORMAT) or any(type(expected[k]) is not int or not 0<=expected[k]<=10000
                                                 for k in fields-{'format'})):
         raise ArtifactError('Invalid Visualiser backup inventory')
     root=Path(state)/ROOT
@@ -183,13 +198,20 @@ def verify(state,expected):
         return
     keys=set();counts={k:0 for k in fields-{'format'}};records={}
     from jasmine_web.batch.visualiser_storage import BUDGET,budget
+    from jasmine_web.batch.visualiser_baseline import DIRECTORY,validate
     for path in root.iterdir():
         if path.name=='summaries':continue
-        if path.name==BUDGET and expected['format']==FORMAT:
+        if path.name==DIRECTORY and expected['format']==FORMAT:
+            if path.is_symlink():raise ArtifactError('Linked visualisation preferences')
+            for preference in path.iterdir():
+                validate(read_metadata(preference),preference.name)
+                keys.add(DIRECTORY+'/'+preference.name);counts['experiment_views']+=1
+            continue
+        if path.name==BUDGET and expected['format'] in (FORMAT,PREVIOUS_FORMAT):
             budget(root);keys.add(BUDGET);continue
         if not HEX.fullmatch(path.name):raise ArtifactError('Unexpected Visualiser backup entry')
         record=read_metadata(path/'status.json');records[path.name]=record
-        if record['state']=='evicted' and expected['format']!=FORMAT:
+        if record['state']=='evicted' and expected['format'] not in (FORMAT,PREVIOUS_FORMAT):
             raise ArtifactError('Legacy backup cannot contain Visualiser eviction markers')
         keys.update(publication(root,path.name,record))
         counts['evictions' if record['state']=='evicted' else 'publications']+=1

@@ -153,7 +153,23 @@ class VisualiserBackupFilesTests(unittest.TestCase):
         self.assertFalse((restored/self.key/'published.json').exists())
 
     def test_existing_v1_retained_backup_inventory_still_verifies(self):
-        record=self.capture();record.pop('evictions');record['format']=archive.LEGACY_FORMAT
+        record=self.capture();record.pop('evictions');record.pop('experiment_views');record['format']=archive.LEGACY_FORMAT
+        archive.verify(self.target,record)
+
+    def test_visualisation_baseline_preferences_are_checked_and_preserved_independently(self):
+        from jasmine_web.batch.visualiser_baseline import save,selected,DIRECTORY
+        experiment=dict(id='experiment-alice',owner_id='alice',specification=dict(baseline=None,
+            run_sets=[dict(id='first'),dict(id='second')]))
+        save(self.cache,experiment,'second')
+        record=self.capture();self.assertEqual(record['experiment_views'],1)
+        self.assertEqual(selected(self.target/archive.ROOT,experiment),'second')
+        self.assertIsNone(experiment['specification']['baseline'])
+        file=next((self.target/archive.ROOT/DIRECTORY).iterdir())
+        value=json.loads(file.read_text());value['owner']='bob';atomic_json(file,value)
+        with self.assertRaises(ValueError):archive.verify(self.target,record)
+
+    def test_existing_v2_retained_backup_inventory_still_verifies(self):
+        record=self.capture();record.pop('experiment_views');record['format']=archive.PREVIOUS_FORMAT
         archive.verify(self.target,record)
 
 
@@ -194,6 +210,9 @@ class NativeVisualiserRestoreTests(unittest.TestCase):
         key=v.request(auth['token'],auth['csrf'],self.f.completed.job_id)['id'];v.tick()
         original=v.data_bytes(auth['token'],key)
         q=self.f.q
+        from jasmine_web.batch.visualiser_baseline import save as save_baseline,selected as selected_baseline
+        exp,_=source.results._snapshot(auth['token'],experiment=self.f.exp)
+        save_baseline(v.root,exp,None)
         from .releases import ReleaseRegistry, utc_now
         from .release_retirement import ReleaseRetirement
         from . import release_archives
@@ -237,12 +256,14 @@ class NativeVisualiserRestoreTests(unittest.TestCase):
         self.assertEqual(manifest['visualiser']['summaries'],1)
         self.assertEqual(manifest['visualiser']['publications'],0 if evicted else 1)
         self.assertEqual(manifest['visualiser']['evictions'],1 if evicted else 0)
+        self.assertEqual(manifest['visualiser']['experiment_views'],1)
         backup.restore(self.f.target_q,self.f.backup,self.f.target,self.f.target_tools)
         backup.activate(self.f.target_q,self.f.backup,self.f.target,image_check=lambda _:None,source_isolated=online)
         restored_registry=ReleaseRegistry(self.f.target)
         self.assertEqual(release_archives.verify(restored_registry,old)['archive'],archive_identity)
         self.assertNotIn(old,restored_registry.load())
         restored=self.service(self.f.target_q,self.f.target)
+        self.assertIsNone(selected_baseline(restored.visualiser.root,exp))
         self.assertEqual(budget(restored.visualiser.root),approved)
         with patch.object(restored.visualiser.backend,'process',side_effect=AssertionError('Restore must not recalculate')):
             if evicted:

@@ -13,6 +13,29 @@ from .schema import ConfigurationError, Limits
 
 
 class BrowserCopy:
+    def browser_saved_summary(self, specification, *, replacements):
+        """Read frozen values without requiring an available release or new-work limits."""
+        runs=specification['run_sets']
+        if not 1<=len(runs)<=Limits().max_run_sets or set(replacements)-{r['id'] for r in runs}:
+            raise ConfigurationError('view','the saved configuration selection is inconsistent')
+        configurations=[]
+        for original in runs:
+            selected=replacements.get(original['id'],original)
+            raw=selected['parameters'];data=normalise(raw).as_dict()
+            if (selected['id']!=original['id'] or len(data['run_sets'])!=1
+                    or data['run_sets'][0]['id']!=original['id']
+                    or raw['model_release']!=original['parameters']['model_release']
+                    or data['seed_plan']['seeds']!=specification['seeds'] or data.get('sweep')):
+                raise ConfigurationError('view','saved configuration identity or seed plan is inconsistent')
+            item=raw['run_sets'][0]
+            # Show recorded values, never newly introduced schema defaults.
+            configurations.append(dict(id=item['id'],name=item['name'],
+                settings=deepcopy(item['model_args']),collector=deepcopy(item['collector_args']),
+                common=deepcopy(item.get('common',raw['common'])),
+                dataset=item.get('dataset_revision',raw['dataset_revision']),model_release=raw['model_release']))
+        return dict(name=specification['label'],common=deepcopy(configurations[0]['common']),
+                    configurations=configurations)
+
     def browser_snapshot(self, request):
         """Saved by the service after validation, never supplied as queue metadata."""
         return dict(format=WEB_FORMAT,

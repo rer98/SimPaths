@@ -124,9 +124,19 @@ def main(argv=None):
     parser.add_argument('--private-combined',action='store_true',
         help='Explicit private diagnostic only; hosted deployments use vm_frontend and vm_executor')
     parser.add_argument('--email')
+    approvals=parser.add_mutually_exclusive_group()
+    from .account_admin import approval_days
+    approvals.add_argument('--approval-days',type=approval_days,metavar='1..365')
+    approvals.add_argument('--permanent',action='store_true')
     parser.add_argument('--json',action='store_true',help='JSON output for status')
     parser.add_argument('--limit',type=int,default=20,help='Maximum job details for status')
     args = parser.parse_args(argv)
+    if args.command in ('approve','revoke'):
+        from .account_admin import main as accounts
+        values=['--config',str(args.config),args.command,'--email',args.email or input('Email address: ').strip()]
+        if args.approval_days is not None:values+=['--days',str(args.approval_days)]
+        if args.permanent:values+=['--permanent']
+        return accounts(values)
     if args.command=='status':
         from .operator_status import main as status
         return status(['--config',str(args.config),'--limit',str(args.limit)]+(['--json'] if args.json else []))

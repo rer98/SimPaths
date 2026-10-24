@@ -7,9 +7,12 @@ All model/HTTP/Docker records are fictional; no container or server is contacted
 from contextlib import ExitStack
 import hashlib
 import io
+import json
 from pathlib import Path
+import shutil
 import tempfile
 import tarfile
+import subprocess
 import sys
 from types import SimpleNamespace
 import unittest
@@ -110,6 +113,37 @@ class SingleCaptureTests(unittest.TestCase):
             zipped='backup/state/'+value['sessions'][0]['archives'][0]['file']
             with tar.extractfile(zipped) as incoming, zipfile.ZipFile(io.BytesIO(incoming.read())) as archive:
                 self.assertEqual(archive.read('20261001_120000/csv/Person.csv'),b'closed fictional CSV')
+
+    def test_real_find_executes_inventory_formats_and_preserves_filenames_in_both_capture_modes(self):
+        """Exercise the OS argv boundary and GNU find, rather than mock its output."""
+        native=self.root/'native-container'
+        for source,files in self.container.files.items():
+            for name,body in files.items():
+                path=native/Path(source).parent.relative_to('/')/name
+                path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(body)
+        extra=native/'app/input/alternative policy é.xlsx';extra.write_bytes(b'fictional alternative')
+        self.container.files['/app/input/alternative policy é.xlsx']={extra.name:extra.read_bytes()}
+        calls=[]
+        def real_find(args):
+            calls.append(args)
+            result=subprocess.run([args[0],str(native/Path(args[1]).relative_to('/')),*args[2:]],capture_output=True)
+            return SimpleNamespace(exit_code=result.returncode,output=result.stdout+result.stderr)
+        self.container.exec_run=real_find
+        value=self.capture()
+        saved=self.root/value['sessions'][0]['directory']
+        record=json.loads((saved/'capture.json').read_text())
+        self.assertEqual({row['source'] for row in record['input_sources']},
+            {'/app/input/scenario.xlsx','/app/input/alternative policy é.xlsx','/app/.simpaths-startup/uploads/population.csv'})
+        self.assertTrue(any('-type' in call for call in calls))
+        self.assertTrue(any('-type' not in call for call in calls))
+        # The stream path uses the same checked inventories for ZIPs and inputs.
+        shutil.rmtree(self.root/'singlerun')
+        from .backup_stream import Archive
+        content=io.BytesIO()
+        with tarfile.open(fileobj=content,mode='w|') as tar:
+            self.capture(stream=Archive(tar))
+        with tarfile.open(fileobj=io.BytesIO(content.getvalue())) as tar:
+            self.assertTrue(any(n.endswith('/alternative policy é.xlsx') for n in tar.getnames()))
 
     def test_running_output_is_omitted_but_closed_export_settings_and_original_inputs_survive(self):
         value=self.capture()

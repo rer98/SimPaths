@@ -138,7 +138,8 @@ def _capture(queue, state, destination, tools, *, after_snapshot=None, single_ca
             archived_inventory(registry)
             # VM removals/proxy mutations use a separate shared PostgreSQL fence.
             vm_schemas=discover(queue)
-            for schema in vm_schemas: stack.enter_context(schema_guard(queue.dsn,schema,backup=True))
+            vm_guards=stack.enter_context(ExitStack())
+            for schema in vm_schemas: vm_guards.enter_context(schema_guard(queue.dsn,schema,backup=True))
             with online_database(queue) as (c,snapshot):
                 from psycopg import sql
                 from jasmine_web.batch.backup import schema_tables
@@ -167,6 +168,17 @@ def _capture(queue, state, destination, tools, *, after_snapshot=None, single_ca
                 database=table_inventory(c,queue)
                 vm={schema:dict(database=table_inventory(c,SimpleNamespace(schema=schema))) for schema in vm_schemas}
                 if after_snapshot: after_snapshot()
+                # Capture the SingleRun registry/closed exports against this SQL
+                # snapshot first. Its controls need protection only while those
+                # files are read, not during the later bulk MultiRun capture.
+                images={r['image'] for r in releases.values()}
+                single_state=staging/('single-state' if stream is None else 'state')
+                single_state.mkdir(mode=0o700)
+                for schema in vm_schemas:
+                    options=dict(stream=stream) if stream is not None and single_capture is None else {}
+                    vm[schema].update((single_capture or capture)(c,queue.dsn,schema,single_state,state,**options))
+                    images.update(vm[schema]['images'])
+                vm_guards.close()
                 keys,roots=selected_files(c,queue,state)
                 if any(destination.is_relative_to(Path(p['source'])) or Path(p['source']).is_relative_to(destination) for p in roots):
                     raise ArtifactError('Keep backups outside prepared input storage')
@@ -185,9 +197,11 @@ def _capture(queue, state, destination, tools, *, after_snapshot=None, single_ca
                 if not has_space(parent,estimate if stream is None else 0):
                     raise ArtifactError('Insufficient free space for the complete online backup')
                 tools.dump(staging/'database.dump',schema=[queue.schema,*vm_schemas],snapshot=snapshot)
-                if stream is None: tree=copy_selected(state,staging/'state',keys)
+                if stream is None:
+                    tree=copy_selected(state,staging/'state',keys)
+                    for entry in single_state.iterdir():os.rename(entry,staging/'state'/entry.name)
+                    single_state.rmdir()
                 else:
-                    (staging/'state').mkdir(mode=0o700)
                     if 'training-imports.json' in keys:
                         # Validate the exact captured import metadata later, not
                         # a second read of a potentially newer live file.
@@ -206,12 +220,7 @@ def _capture(queue, state, destination, tools, *, after_snapshot=None, single_ca
                 for root in roots:
                     if stream is None: root['tree'],_=copy_tree(Path(root['source']),staging/root['directory'])
                     else: root['tree']=stream.copy_tree(Path(root['source']),root['directory'])
-                images={r['image'] for r in releases.values()}
                 images.update(r['model_digest'] for r in rows(c,queue,'SELECT model_digest FROM {}',['prepared_locations']))
-                for schema in vm_schemas:
-                    options=dict(stream=stream) if stream is not None and single_capture is None else {}
-                    vm[schema].update((single_capture or capture)(c,queue.dsn,schema,staging/'state',state,**options))
-                    images.update(vm[schema]['images'])
                 # SingleRun exports are new backup-owned files, so inventory them
                 # after capture without following unselected live container paths.
                 if stream is None: tree=visualiser_inventory(staging/'state')

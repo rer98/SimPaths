@@ -4,12 +4,13 @@ Capture committed, verified Visualiser summaries/publications while omitting raw
 scratch and live processors. Immutable receipts survive inactive restoration.
 @author ross richardson
 """
-from contextlib import ExitStack
+from contextlib import ExitStack,contextmanager
 import json
 import math
 from pathlib import Path
 import re
 import stat
+import time
 
 from .artifacts import ArtifactError
 from .backup_files import copy_selected,file_hash,read_metadata,scan
@@ -18,6 +19,22 @@ FORMAT='simpaths.visualiser.retained-backup.v2'
 LEGACY_FORMAT='simpaths.visualiser.retained-backup.v1'
 ROOT='execution/visualiser-cache'
 HEX=re.compile('[a-f0-9]{64}')
+
+
+@contextmanager
+def capture_lock(path,*,seconds=30):
+    """Wait for brief cache housekeeping without discarding the streamed backup."""
+    from jasmine_web.batch.downloads import lock
+    deadline=time.monotonic()+seconds
+    with ExitStack() as held:
+        while True:
+            try:
+                held.enter_context(lock(path));break
+            except BlockingIOError:
+                remaining=deadline-time.monotonic()
+                if remaining<=0:raise
+                time.sleep(min(0.05,remaining))
+        yield
 
 
 def inventory(root):
@@ -101,7 +118,7 @@ def capture(state,destination,c=None,queue=None,*,stream=None):
     if not root.exists():return result
     if root.is_symlink():raise ArtifactError('Linked Visualiser storage')
     with ExitStack() as guards:
-        guards.enter_context(lock(root/'maintenance.lock'))
+        guards.enter_context(capture_lock(root/'maintenance.lock'))
         keys=set();records={}
         # Ready publication reads keep working: backup takes shared reader locks.
         for path in sorted(root.iterdir()):
@@ -130,7 +147,7 @@ def capture(state,destination,c=None,queue=None,*,stream=None):
         summaries=root/'summaries'
         if summaries.exists():
             if summaries.is_symlink():raise ArtifactError('Linked summary storage')
-            guards.enter_context(lock(summaries/'.cache.lock'))
+            guards.enter_context(capture_lock(summaries/'.cache.lock'))
             for path in sorted(summaries.iterdir()):
                 if not HEX.fullmatch(path.name):continue
                 selected,identity=summary(root,path.name)

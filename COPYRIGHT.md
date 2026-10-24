@@ -352,6 +352,10 @@ in its accompanying `COPYRIGHT.md`; no attribution is inserted into JSON rows.
 Upstream Visualiser calculations and dependencies retain their existing notices
 and licences.
 
+The backup availability regression proof and its fictional lock/control evidence
+are (C) Copyright 2026, by Ross Richardson; @author ross richardson. Existing
+backup formats, scientific records and third-party tools retain their notices.
+
 The host-filesystem capacity monitor, focused checks, installation guide and
 systemd/configuration templates carry attribution in their headers. Generated
 private capacity/delivery-state JSON and fictional or local metadata proof
@@ -456,3 +460,16 @@ compiled-interface checks carry inline attribution. Generated experiment build
 receipts and fictional qualification evidence are
 (C) Copyright 2026, by Ross Richardson; @author ross richardson. Upstream chart
 calculations, branding and third-party dependencies retain their original notices.
+
+The private account operator, account lifecycle/recovery proof and access-policy
+guide carry attribution in their headers. Generated fictional approval, scoped
+grant, renewal-delivery and backup verification evidence is
+(C) Copyright 2026, by Ross Richardson; @author ross richardson. Personal account
+addresses, scientific records and existing software retain their own ownership
+and licences.
+
+The bounded backup-availability proof, native Nginx maintenance proof, reverse-proxy
+include and maintenance guide carry attribution in their source headers. Generated
+fictional proxy responses and recovery/availability evidence are
+(C) Copyright 2026, by Ross Richardson; @author ross richardson. Existing software,
+private deployment settings and scientific data retain their original ownership.

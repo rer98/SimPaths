@@ -141,19 +141,19 @@ def create_registry(args,q,state,send_mail,*,capacity=Resources(2000,5120,12288)
                     raise ValueError('Approval grants only verified public training inputs')
                 verify_snapshot(Path(p),receipt)
                 keys.append(receipt['revision'])
-        owner=access.approve_email(email,seconds=30*86400 if args.command=='approve' else None)
+        permanent=bool(getattr(args,'permanent',False)) and args.command=='approve'
+        days=getattr(args,'approval_days',30)
+        owner=access.approve_email(email,seconds=days*86400 if args.command=='approve' and not permanent else None,
+                                   permanent=permanent)
         if args.command=='approve':
             for key in keys:
-                q.grant_dataset(owner,key,seconds=30*86400)
-        print('MultiRun access '+('approved for 30 days.' if args.command=='approve' else 'revoked.'),flush=True)
+                with q._transaction() as (c,_,_):
+                    c.execute('UPDATE datasets SET public_training=true WHERE pool_id=%s AND id=%s',(q.pool_id,key))
+        description=('approved without an expiry.' if permanent else f'approved for {days} days.')
+        print('MultiRun access '+(description if args.command=='approve' else 'revoked.'),flush=True)
         return access,datasets,preparations,keys
-    # Grant only these explicitly imported public examples to currently approved
-    # local users. Private dataset grants are never inferred or expanded here.
-    with q._transaction() as (c,_,now):
-        for key in keys:
-            c.execute('''INSERT INTO dataset_grants SELECT pool_id,%s,id,approved_until FROM principals
-                WHERE pool_id=%s AND approved_until>%s ON CONFLICT(pool_id,dataset_id,owner_id)
-                DO UPDATE SET valid_until=excluded.valid_until''',(key,q.pool_id,now))
+    # register_training marks only verified public examples as available to all
+    # approved accounts. No independent expiry or confidential grant is inferred.
     return access,datasets,preparations,keys
 
 
@@ -272,6 +272,7 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                     service.notifications.reconcile()
                     service.retention.reconcile()
                     service.completions.reconcile()
+                    service.account_reminders.reconcile(timed=True)
                     service.release_retirement.tick()
                     for _ in range(5):
                         if stop.is_set():
@@ -279,7 +280,8 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                         problems=service.notifications.deliver_one()
                         expiry=service.retention.deliver_one()
                         completion=service.completions.deliver_one()
-                        if not problems and not expiry and not completion:
+                        renewal=service.account_reminders.deliver_one()
+                        if not problems and not expiry and not completion and not renewal:
                             break
                 except Exception as error:
                     print('Notification checks waiting for recovery: '+type(error).__name__,flush=True)
@@ -425,6 +427,9 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
     service.retention=Retention(service,origin=origin,cleanup_enabled=args.retention_cleanup,
         sender=smtp_sender(os.environ['SMTP_FROM_EMAIL']) if args.notification_emails else None)
     service.completions=CompletionNotifications(service,origin=origin,
+        sender=smtp_sender(os.environ['SMTP_FROM_EMAIL']) if args.notification_emails else None)
+    from jasmine_web.batch.account_reminders import AccountReminders
+    service.account_reminders=AccountReminders(service,origin=origin,admin_email=args.admin_email,
         sender=smtp_sender(os.environ['SMTP_FROM_EMAIL']) if args.notification_emails else None)
     from .release_retirement import ReleaseRetirement
     service.release_retirement=ReleaseRetirement(q,state,protected=(default,))

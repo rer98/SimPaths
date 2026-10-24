@@ -14,6 +14,7 @@ from pathlib import Path
 import shutil
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -68,6 +69,29 @@ class VisualiserBackupFilesTests(unittest.TestCase):
     def test_active_shared_reader_does_not_prevent_backup(self):
         with lock(self.cache/self.key/'job.lock',shared=True):
             self.assertEqual(self.capture()['publications'],1)
+
+    def test_brief_maintenance_and_summary_locks_are_waited_out(self):
+        for path in (self.cache/'maintenance.lock',self.cache/'summaries/.cache.lock'):
+            with self.subTest(lock=path.name):
+                entered=threading.Event();release=threading.Event()
+                def housekeeping():
+                    with lock(path):entered.set();release.wait(3)
+                worker=threading.Thread(target=housekeeping);worker.start()
+                try:
+                    self.assertTrue(entered.wait(2))
+                    original_sleep=time.sleep
+                    def pause(seconds):release.set();original_sleep(min(seconds,0.01))
+                    destination=self.root/uuid4().hex;destination.mkdir(mode=0o700)
+                    with patch.object(archive.time,'sleep',side_effect=pause):
+                        result=archive.capture(self.state,destination)
+                    archive.verify(destination,result)
+                    self.assertEqual((result['publications'],result['summaries']),(1,1))
+                finally:release.set();worker.join(3)
+
+    def test_cache_lock_wait_remains_bounded(self):
+        with lock(self.cache/'maintenance.lock'):
+            with self.assertRaises(BlockingIOError):
+                with archive.capture_lock(self.cache/'maintenance.lock',seconds=0):pass
 
     def test_busy_processor_is_omitted_instead_of_copying_partial_publication(self):
         with lock(self.cache/self.key/'job.lock'):
@@ -234,8 +258,7 @@ class NativeVisualiserRestoreTests(unittest.TestCase):
         with self.f.target_q._connection() as c:
             self.assertEqual(c.execute('SELECT identity FROM visualiser_sources WHERE attempt_id=%s',
                 (self.f.completed.attempt_id,)).fetchone(),source_row)
-            c.execute('UPDATE dataset_grants SET valid_until=clock_timestamp() WHERE pool_id=%s AND owner_id=%s AND dataset_id=%s',
-                      (q.pool_id,self.f.owner,self.f.dataset))
+        self.f.target_q.grant_dataset(self.f.owner,self.f.dataset,seconds=None)
         with self.assertRaises(NotFound):restored.visualiser.data_bytes(auth['token'],key)
 
     def test_offline_restore_preserves_summaries_charts_expiry_and_revocation_after_raw_expiry(self):

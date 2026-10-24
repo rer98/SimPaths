@@ -40,6 +40,7 @@ def register_training(datasets, preparations, path):
             # Public example revision is intentionally shared; private uploaded
             # data continues to use opaque owner-specific registry identifiers.
             datasets._insert(c,key,receipt['sha256'],None,[['provider',key]])
+        c.execute('UPDATE datasets SET public_training=true WHERE pool_id=%s AND id=%s',(q.pool_id,key))
     preparations.register_location(key,location=str(path),image=receipt['identity']['source_image'])
     return key
 
@@ -121,6 +122,10 @@ def parse_args(argv=None):
                         help='Existing private PostgreSQL DSN; use for an isolated restored service instead of local database bootstrap')
     parser.add_argument('--prepared',type=Path,action='append',default=[],help='Verified Quick Start import; reused in place')
     parser.add_argument('--email',help='Email to approve or revoke; prompted if omitted')
+    approvals=parser.add_mutually_exclusive_group()
+    from .account_admin import approval_days
+    approvals.add_argument('--approval-days',type=approval_days,metavar='1..365',default=30)
+    approvals.add_argument('--permanent',action='store_true',help='Approve without an account expiry; explicit revocation still applies')
     parser.add_argument('--port',type=int,default=5002)
     parser.add_argument('--max-repetitions',type=int,default=DEFAULT_MAX_REPETITIONS,
                         help='Maximum repetitions per configuration in new submissions (1–1000; default: %(default)s)')

@@ -33,6 +33,23 @@ class LiveBackupTests(unittest.TestCase):
         self.q=self.f.q; self.state=self.f.state
         self.q.backup_state=self.state
 
+    def test_backup_adapter_waits_for_short_singlerun_reader_before_snapshot(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+        schema='fictional_vm_'+uuid4().hex[:12]
+        started=threading.Event();acquired=threading.Event()
+        def backup():
+            started.set()
+            with backup_single.schema_guard(self.q.dsn,schema,backup=True):
+                acquired.set()
+        with ThreadPoolExecutor(max_workers=1) as worker:
+            with backup_single.schema_guard(self.q.dsn,schema):
+                result=worker.submit(backup)
+                self.assertTrue(started.wait(2))
+                self.assertFalse(acquired.wait(0.1))
+            result.result(timeout=3)
+            self.assertTrue(acquired.is_set())
+
     def active(self):
         lease=self.q.claim('online-writer'); self.q.started(lease)
         work=self.f.executor.workspace(lease)/'work'; work.mkdir(mode=0o700,parents=True)
@@ -135,7 +152,7 @@ class LiveBackupTests(unittest.TestCase):
                 if case=='cancel': f.q.cancel(f.f.owner,lease.job_id)
                 elif case=='opt-out': f.f.f.sql('UPDATE jobs SET auto_retry=false WHERE id=%s',(lease.job_id,))
                 elif case=='exhausted': f.f.f.sql('UPDATE jobs SET spent_seconds=180 WHERE id=%s',(lease.job_id,))
-                else: f.f.f.sql("UPDATE dataset_grants SET valid_until=clock_timestamp()-interval '1 second' WHERE dataset_id=%s",(f.f.dataset,))
+                else: f.f.f.sql("UPDATE dataset_grants SET valid_until=clock_timestamp()-interval '1 second',follows_account=false WHERE dataset_id=%s",(f.f.dataset,))
                 f.save(); f.restore()
                 with f.f.target_q._connection() as c:
                     row=c.execute('SELECT state,attempts FROM jobs WHERE id=%s',(lease.job_id,)).fetchone()
@@ -198,3 +215,29 @@ class LiveBackupTests(unittest.TestCase):
         self.assertFalse(expire_recovery(restored,sid,record,deadline-1))
         self.assertTrue(expire_recovery(restored,sid,record,deadline+1))
         self.assertIsNone(restored.peek_session(sid))
+
+    def test_singlerun_controls_resume_before_bulk_multirun_verification(self):
+        from jasmine_web.vm_state import PostgresVMState,VMStateUnavailable
+        schema='vm_backup_'+uuid4().hex[:12]
+        vm=PostgresVMState(self.q.dsn,schema=schema,shared_pool=dict(pool_id=self.q.pool_id,schema=self.q.schema))
+        self.addCleanup(vm.close);vm.migrate();self.addCleanup(self.f.f.sql,'DROP SCHEMA '+schema+' CASCADE')
+        sid=str(uuid4())
+        vm.reserve_session(sid,dict(model_id='fictional',status='starting',memory_bytes=1024,admission_owner='alice',
+            backend_secret='private',resources=dict(cpu_millis=1,memory_mib=1,storage_mib=1)),
+            limit=10,memory_budget=1024**3,per_client=10,containers=lambda:[])
+        captured=[];bulk=[]
+        def capture(c,dsn,selected,destination,source):
+            with self.assertRaises(VMStateUnavailable):
+                with backup_single.schema_guard(dsn,selected):pass
+            directory=f'singlerun/{selected}/'+hashlib.sha256(sid.encode()).hexdigest()
+            (destination/directory).mkdir(mode=0o700,parents=True)
+            captured.append(selected)
+            return dict(images=[],sessions=[dict(id=sid,directory=directory,archives=[],parameters=None,
+                active_output_omitted=False,download_allowed=False,expires_at=None)])
+        original=backup_live.selected_files
+        def verify(*args):
+            self.assertEqual(captured,[schema])
+            with backup_single.schema_guard(self.q.dsn,schema):bulk.append(True)
+            return original(*args)
+        with patch.object(backup_live,'selected_files',side_effect=verify):self.save(single_capture=capture)
+        self.assertEqual(bulk,[True]);backup.verify(self.f.backup)

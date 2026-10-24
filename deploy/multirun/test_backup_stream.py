@@ -344,6 +344,10 @@ class NativeStreamRestoreTests(unittest.TestCase):
         with patch.object(backup_live,'create',side_effect=self.streamed_create):
             self.live.test_shared_single_run_ownership_saved_exports_and_inactive_gate_survive_native_restore()
 
+    def test_singlerun_controls_are_released_before_streaming_bulk_multirun_data(self):
+        with patch.object(backup_live,'create',side_effect=self.streamed_create):
+            self.live.test_singlerun_controls_resume_before_bulk_multirun_verification()
+
     def test_expired_raw_data_summaries_charts_and_revocation_survive_streamed_restore(self):
         from .test_backup_visualiser import NativeVisualiserRestoreTests
         fixture=NativeVisualiserRestoreTests(); fixture.f=self.f

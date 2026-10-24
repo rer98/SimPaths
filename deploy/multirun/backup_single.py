@@ -26,7 +26,9 @@ from .releases import atomic_json
 
 def schema_guard(dsn, schema, *, backup=False):
     from jasmine_web.vm_backup import schema_guard as guard
-    return guard(dsn,schema,backup=backup)
+    # Ordinary controls remain nonblocking. A backup can wait for brief session
+    # cleanup/notification readers before choosing its SQL/files recovery point.
+    return guard(dsn,schema,backup=backup,wait_seconds=60 if backup else 0)
 
 
 def discover(queue, *, connection=None):
@@ -69,7 +71,8 @@ class Chunks(io.RawIOBase):
 def container_files(container, source, receive):
     """Read validated Docker members under before/after source identity checks."""
     def inventory():
-        result=container.exec_run(['find',source,'-printf','%P\0%y\0%D\0%i\0%s\0%T@\0%C@\0'])
+        # Pass backslash-zero to find; an actual NUL cannot be an exec argument.
+        result=container.exec_run(['find',source,'-printf',r'%P\0%y\0%D\0%i\0%s\0%T@\0%C@\0'])
         if result.exit_code or len(result.output)>8*1024**2:
             raise ArtifactError('SingleRun backup source could not be checked')
         return result.output
@@ -219,7 +222,8 @@ def capture(c, dsn, schema, destination, source, *, stream=None):
             atomic_json(target/'parameters.json',parameters); saved['parameters']=saved['directory']+'/parameters.json'
             # Running CSVs are mutable. The engine can continue writing the newest
             # directory; all older runs are closed. A paused engine is protected
-            # against Start/Step/Reset by schema_guard throughout this capture.
+            # against Start/Step/Reset throughout this SingleRun capture. The
+            # caller releases that fence before copying bulk MultiRun files.
             stamps=sorted({r['timestamp'] for r in (listed or {}).get('files',[])})
             if any(not re.fullmatch('[A-Za-z0-9_-]{1,160}',v) for v in stamps): raise ArtifactError('Invalid SingleRun export timestamp')
             if status.get('status')=='running' and stamps:
@@ -245,7 +249,7 @@ def capture(c, dsn, schema, destination, source, *, stream=None):
             inputs=target/'inputs'; inputs.mkdir(mode=0o700)
             input_sources=[]
             for base in ('/app/input','/app/.simpaths-startup/uploads'):
-                result=container.exec_run(['find',base,'-type','f','(','-iname','*.csv','-o','-iname','*.txt','-o','-iname','*.xlsx','-o','-iname','*.xls',')','-printf','%P\0'])
+                result=container.exec_run(['find',base,'-type','f','(','-iname','*.csv','-o','-iname','*.txt','-o','-iname','*.xlsx','-o','-iname','*.xls',')','-printf',r'%P\0'])
                 if result.exit_code:
                     if base.endswith('/uploads'): continue
                     raise ArtifactError('SingleRun inputs could not be inspected')

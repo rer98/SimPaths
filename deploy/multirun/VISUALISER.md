@@ -4,6 +4,30 @@ Private VM aggregation, pinned chart builds and the development connection.
 
 # VM to Policy Impact Visualiser connection
 
+## Shared presentation refresh, 25 October 2026
+
+The refreshed existing Visualiser PR branches share the Getting Started folder
+help with the hosted build. `FolderStructureHelp.js` handles mouse, keyboard and
+touch access and keeps its tooltip below the link within the viewport. The
+connected branch also owns the highlighted source summary, accurate processing
+guidance and preservation of scenario choices when configurations arrive. New
+scenarios start unselected within an open comparison; changing its source key
+starts with all scenarios selected.
+
+For these sources the builder copies and fingerprints the shared component and
+uses the native selection behavior. It keeps the compatibility adaptations for
+older pinned source revisions. Online/saved-source controls, authenticated
+requests, experiment polling, cache recovery and download permissions remain in
+the SimPaths integration. Scientific calculation source is unchanged by this
+presentation refresh. The already deployed preview is not changed by preparing
+or pushing these PR branches; a new deployment still requires its normal build
+and acceptance steps.
+
+Standalone App acceptance uses the maintained application before the separate
+site-specific gate. The repository's normal `index.js` imports the maintainer's
+ignored `PasscodeGate.js`; that file is needed for a fresh standalone production
+build and is not supplied or changed by this refresh.
+
 The opt-in development connection opens the maintained Visualiser application
 from an experiment's Results page. Its original header, topic sidebar, variable
 descriptions, explanatory panels, logos and credits come from Reese's source.

@@ -40,11 +40,14 @@ def execute(build,output):
                     boxes=help.evaluate('''button=>{
                         const rect=e=>{const b=e.getBoundingClientRect();return {left:b.left,right:b.right,top:b.top,bottom:b.bottom};};
                         return {button:rect(button),anchor:rect(button.parentElement),
-                            tooltip:rect(document.querySelector('.vm-folder-tree')),width:innerWidth};
+                            tooltip:rect(document.querySelector('[role="tooltip"]')),width:innerWidth};
                     }''')
                     a,t=boxes['anchor'],boxes['tooltip']
                     button=boxes['button']
-                    assert abs((t['left']+t['right']-button['left']-button['right'])/2)<1.5,boxes
+                    width_tip=t['right']-t['left']
+                    centred=(button['left']+button['right']-width_tip)/2
+                    expected=max(16,min(centred,width-16-width_tip))
+                    assert abs(t['left']-expected)<1.5,boxes
                     assert 6<=t['top']-a['bottom']<=10,boxes
                     assert t['top']>=button['bottom'],boxes
                     assert t['left']>=0 and t['right']<=width,boxes

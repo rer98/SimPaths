@@ -56,12 +56,12 @@ test('the compiled connected application boots, loads every alternative and draw
     new vm.Script(fs.readFileSync(path.join(build,'visualiser.js'),'utf8')).runInContext(dom.getInternalVMContext());
     await waitFor(()=>doc.body.textContent.includes('Policy B'));
     const button=text=>Array.from(doc.querySelectorAll('button')).find(b=>b.textContent.trim()===text);
-    const help=button('View folder structure'),guidance=help.closest('.vm-folder-guidance');
+    const help=button('View folder structure'),guidance=help.closest('p');
     assert.ok(guidance.textContent.includes('folders sit within.'));
     assert.ok(guidance.textContent.indexOf('runs from your model output.')<guidance.textContent.indexOf('View folder structure'));
     assert.ok(guidance.textContent.indexOf('View folder structure')<guidance.textContent.indexOf('Use "Visualise Locally Saved Data"'));
     assert.ok(guidance.parentElement.querySelector('h4').textContent.includes('Getting Started'));
-    assert.equal(doc.querySelectorAll('.vm-folder-help').length,1);
+    assert.equal(doc.querySelectorAll('.folder-structure-help, .vm-folder-help').length,1);
     assert.equal(doc.querySelector('[role="tooltip"]'),null);
     help.parentElement.dispatchEvent(new w.MouseEvent('mouseover',{bubbles:true}));
     await waitFor(()=>doc.querySelector('[role="tooltip"]'));

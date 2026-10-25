@@ -4,6 +4,12 @@ Reproducible dependencies, provenance and acceptance for the hosted Visualiser b
 
 # Build the hosted Visualiser integration
 
+Updated PR sources include `FolderStructureHelp.js`. The builder includes its
+source hash and compiles the shared component; the compatibility adapter leaves
+the shared folder guidance and scenario-selection lifecycle intact. Older pinned
+checkouts remain supported through the existing adaptations. Recheck both the
+standalone App and hosted build when updating these shared interfaces.
+
 The integration has its own `package.json` and `package-lock.json`. Its six direct
 dependencies are React, React DOM, D3, Babel core, Babel's React preset and
 Webpack. The tested lock contains 140 packages. Upstream's application checkout

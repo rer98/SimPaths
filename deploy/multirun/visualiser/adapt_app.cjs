@@ -9,6 +9,13 @@ function adaptApp(source) {
     'AggregateDataPanel', 'sourceRef.current != null', 'dataSource.navigation']) {
     if (!source.includes(anchor)) throw Error('Review changed aggregate data-source interface: '+anchor);
   }
+  // Newer PR sources own the shared, accessible help. Keep it intact instead
+  // of generating another version; retain the old path for pinned old builds.
+  if(source.includes('import FolderStructureHelp from "./FolderStructureHelp";')){
+    if(source.split('<FolderStructureHelp />').length!==2)
+      throw Error('Review changed shared folder guidance');
+    return source.replaceAll('/interpreting-results.html','/Interpreting-results.html');
+  }
   // Reuse the maintained folder tree in the common Getting Started guidance,
   // which remains visible when the host supplies the Connect Data controls.
   const sidebarStart=source.indexOf('subfolders <span\n');
@@ -41,10 +48,11 @@ function adaptApp(source) {
 }
 function adaptDashboard(source){
   const previous='useEffect(()=>setEnabledScenarios(new Set(allScenarioNames)),[allScenarioNames]);';
+  const retained='useEffect(()=>setEnabledScenarios(previous=>new Set([...previous].filter(name=>allScenarioNames.includes(name)))),[allScenarioNames]);';
+  if(source.split(retained).length===2)return source;
   if(source.split(previous).length!==2)throw Error('Review changed scenario selection lifecycle');
   // The experiment host adds available controls without selecting them or
   // resetting choices that a user already made in this dashboard instance.
-  return source.replace(previous,
-    'useEffect(()=>setEnabledScenarios(previous=>new Set([...previous].filter(name=>allScenarioNames.includes(name)))),[allScenarioNames]);');
+  return source.replace(previous,retained);
 }
 module.exports={adaptApp,adaptDashboard};

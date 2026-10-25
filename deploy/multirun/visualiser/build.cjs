@@ -39,6 +39,7 @@ const licences=new Map();
 const emitted={};
 const selected=['App.js','parseCore.js','useAggregatedData.js','DashboardSection.js','localFolderParser.js',
   'AggregateDataPanel.js','aggregateDataSource.js','useAggregateView.js','csvParse.js','tooltipContent.js'];
+if(fs.existsSync(path.join(args.source,'src/FolderStructureHelp.js')))selected.push('FolderStructureHelp.js');
 fs.mkdirSync(args.output,{recursive:true,mode:0o700});
 const staging=path.join(args.output,'source');
 fs.mkdirSync(staging,{mode:0o700});

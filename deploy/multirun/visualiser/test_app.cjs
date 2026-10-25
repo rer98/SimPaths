@@ -65,3 +65,16 @@ test('the build guard requires the reviewed source interface and maps only local
   assert.ok(adapted.includes('/Interpreting-results.html'));
   assert.ok(!adapted.includes('/interpreting-results.html'));
 });
+
+test('shared PR guidance is reused and an incompatible shared interface fails closed',()=>{
+  const {adaptDashboard}=require('./adapt_app.cjs');
+  if(input.includes('import FolderStructureHelp from "./FolderStructureHelp";')){
+    assert.equal(adapted,input.replaceAll('/interpreting-results.html','/Interpreting-results.html'));
+    assert.throws(()=>adaptApp(input.replace('<FolderStructureHelp />','')));
+  }
+  const dashboard=fs.readFileSync(path.join(source,'src/DashboardSection.js'),'utf8');
+  const retained='useEffect(()=>setEnabledScenarios(previous=>new Set([...previous].filter(name=>allScenarioNames.includes(name)))),[allScenarioNames]);';
+  assert.ok(adaptDashboard(dashboard).includes(retained));
+  assert.equal(adaptDashboard(adaptDashboard(dashboard)),adaptDashboard(dashboard));
+  assert.throws(()=>adaptDashboard('unrecognised selection lifecycle'));
+});

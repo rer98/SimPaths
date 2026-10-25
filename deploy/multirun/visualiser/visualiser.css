@@ -6,14 +6,26 @@
   border:1px solid #ffffff66; border-radius:6px; padding:10px 14px; }
 .vm-source-button { display:block; width:100%; box-sizing:border-box; margin:0 0 10px;
   padding:10px; border:1px solid #0f93a1; border-radius:6px; background:#0f93a1;
-  color:#faf7ef; font-family:inherit; font-size:16px; font-weight:600; cursor:pointer; }
+  color:#faf7ef; font-family:inherit; font-size:16px; font-weight:600; text-align:center; cursor:pointer; }
 .vm-source-button:disabled { opacity:.6; cursor:default; }
 .vm-source-help { margin:0 0 12px; color:#475569; font-size:12px; line-height:1.5; }
 .vm-source-message { color:#c2410c; font-size:12px; line-height:1.5; }
 .vm-source-message a { color:#14687c; }
-.vm-source { margin-top:14px; padding:12px; background:#0f93a110;
+.vm-source, section[aria-label="Displayed data source"] { margin-top:14px; padding:12px; background:#0f93a110;
   border:1px solid #0f93a133; border-radius:6px; font-size:12px; overflow-wrap:anywhere; }
-.vm-source p { margin:8px 0 0; }
+.vm-source p, section[aria-label="Displayed data source"] p { margin:8px 0 0; }
+.vm-troubleshooting { margin-bottom:18px; }
+.vm-experiment-status { margin-bottom:12px; }
+.vm-folder-guidance { position:relative; }
+.vm-folder-help { display:inline-block; position:relative; }
+.vm-folder-help>button { padding:0; border:0; background:none; color:#14687c;
+  font:inherit; font-weight:600; text-decoration:underline; cursor:pointer; }
+.vm-folder-help>button:focus-visible { outline:2px solid #14687c; outline-offset:3px; }
+.vm-folder-tree { display:block; position:absolute; left:50%; top:calc(100% + 8px); transform:translateX(-50%);
+  z-index:100; box-sizing:border-box; width:max-content; max-width:min(260px,calc(100vw - 32px)); padding:12px 16px;
+  background:#fff; border:1px solid #ddd; border-radius:8px; color:#333;
+  box-shadow:0 4px 12px #00000026; text-align:left; }
+.vm-folder-tree code { display:block; overflow:auto; white-space:pre; font:12px/1.5 monospace; }
 .vm-scenario-select { display:block; width:100%; box-sizing:border-box; margin-top:8px;
   padding:8px; font:inherit; background:#faf7ef; color:#1e293b;
   border:1px solid #0f93a1; border-radius:6px; }

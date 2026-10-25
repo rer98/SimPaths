@@ -18,7 +18,7 @@ test('an already open experiment adds controls without resetting chart or scenar
   const console=new VirtualConsole();console.on('jsdomError',e=>errors.push(e.message));
   const dom=new JSDOM(fs.readFileSync(path.join(build,'index.html'),'utf8'),{
     url:'https://localhost/visualiser/experiment/'+experiment,runScripts:'outside-only',pretendToBeVisual:true,virtualConsole:console});
-  let stage=1,denied=false;
+  let stage=1,denied=false,connectionDown=true,pairsReady=false,added=false;
   try{
     const w=dom.window,doc=w.document;
     w.ResizeObserver=class{constructor(cb){this.cb=cb;}observe(){this.cb([{contentRect:{width:900,height:500}}]);}disconnect(){}};
@@ -33,14 +33,17 @@ test('an already open experiment adds controls without resetting chart or scenar
       configurations:stage===1?[f.catalogue.configurations[1]]:f.catalogue.configurations.slice(0,stage)});
     w.fetch=async(url,options)=>{
       requests.push({url:String(url),options});const parsed=new URL(url,'https://localhost');
+      if(connectionDown)throw new TypeError('Connection unavailable');
       if(denied)return new Response(JSON.stringify({error:'Sign in again to view online results.'}),{status:403});
       if(parsed.pathname.endsWith(experiment))return new Response(JSON.stringify({
         format:'simpaths.visualiser.experiment.v1',experiment,url:'/visualiser/experiment/'+experiment,
-        publication:catalogue().publication,ready:stage,total:3,pending:stage<3,retryable:false,
+        publication:catalogue().publication,ready:stage,total:added?4:3,pending:stage<3||!pairsReady||added,retryable:false,
         configurations:f.catalogue.configurations.map((c,i)=>({id:ids[i],configuration:c.id,name:c.name,
           state:stage===1&&i!==1||stage===2&&i===2?'active':'succeeded',
           charts:stage===1?i===1?'ready':'waiting':i<stage?'ready':'waiting',
-          comparison:i===0?'not_applicable':stage>1&&i<stage?'ready':'waiting_baseline'}))}));
+          comparison:i===0?'not_applicable':stage>1&&i<stage?(i===2&&!pairsReady?'processing':'ready'):'waiting_baseline'})).concat(added?[{
+            id:'00000000-0000-4000-8000-000000000005',configuration:'later',name:'Later scenario',
+            state:'queued',charts:'waiting',comparison:'waiting_baseline'}]:[])}));
       if(parsed.pathname.endsWith('/catalogue'))return new Response(JSON.stringify(catalogue()));
       const p=parsed.searchParams,selected=p.getAll('configuration');
       assert.equal(p.get('publication'),catalogue().publication);
@@ -58,7 +61,10 @@ test('an already open experiment adds controls without resetting chart or scenar
     const scenario=name=>buttons().find(b=>b.textContent.trim().endsWith(name));
     const ready=()=>!!button('↓ CSV')&&!doc.body.textContent.includes('Loading chart')&&
       !!doc.querySelector('svg path[fill="none"][d]');
+    await wait(()=>button('Retry connection'));
+    connectionDown=false;button('Retry connection').click();
     await wait(()=>doc.body.textContent.includes('1 of 3 configurations'));
+    assert.equal(button('View Online Results'),undefined);
     buttons().find(b=>/^Health\s*▼$/.test(b.textContent.trim())).click();
     await wait(()=>button('Mental Component Summary (MCS)'));button('Mental Component Summary (MCS)').click();
     await wait(()=>ready()&&scenario('Policy A')&&doc.querySelector('svg path[fill="none"][stroke-dasharray="2,2"]'));
@@ -74,12 +80,27 @@ test('an already open experiment adds controls without resetting chart or scenar
     stage=2;await publicationPoll();await wait(()=>doc.body.textContent.includes('2 of 3 configurations')&&ready());
     assert.equal(scenario('Policy A').style.cssText,disabledStyle);
     assert.equal(doc.querySelector('a[href$="/archive"]').getAttribute('href'),'/api/visualiser-experiments/'+experiment+'/archive');
+    assert.ok(doc.querySelector('.vm-experiment-status').compareDocumentPosition(doc.querySelector('a[href$="/archive"]'))&w.Node.DOCUMENT_POSITION_FOLLOWING);
     assert.ok(button('Mental Component Summary (MCS)'));
     const before=await csv();assert.ok(before.includes('40'));assert.ok(!before.includes('Policy A'));
     stage=3;await publicationPoll();await wait(()=>doc.body.textContent.includes('3 of 3 configurations')&&scenario('Policy B <img src="unsafe">')&&ready());
     assert.equal(await csv(),before,'New alternatives must be offered without enabling them');
+    assert.ok(doc.querySelector('.vm-experiment-status'),'Keep progress while baseline comparisons are pending');
+    pairsReady=true;await publicationPoll();
+    await wait(()=>!doc.querySelector('.vm-experiment-status'));
+    assert.ok(!doc.body.textContent.includes('Charts now available:'));
+    assert.ok(!doc.body.textContent.includes('Baseline comparisons now available:'));
+    assert.equal(await csv(),before,'Completing preparation must not reset chart choices');
     assert.equal(doc.querySelector('img[src="unsafe"]'),null);
     scenario('Policy A').click();await wait(()=>ready());assert.ok((await csv()).includes('45'));
+    const selected=await csv();connectionDown=true;await publicationPoll();
+    await wait(()=>button('Retry connection'));
+    connectionDown=false;button('Retry connection').click();
+    await wait(()=>!button('Retry connection')&&!doc.querySelector('.vm-source-message')&&ready());
+    assert.equal(await csv(),selected,'Retry preserves variable and scenario choices');
+    added=true;await publicationPoll();
+    await wait(()=>doc.querySelector('.vm-experiment-status')?.textContent.includes('3 of 4 configurations'));
+    assert.equal(await csv(),selected,'Later additions restore progress without changing the current chart');
     assert.deepEqual(errors,[]);assert.ok(requests.every(r=>!r.options.method),'Live updates must never enqueue preparation');
     denied=true;await publicationPoll();
     await wait(()=>doc.body.textContent.includes('Sign in again to view online results.'));

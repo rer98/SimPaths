@@ -107,6 +107,29 @@ coverage incomplete. Jobs continue: these hooks never execute in scheduler,
 container or HTTP request transactions. No finite local budget can guarantee an
 unlimited archive through an indefinite delivery/storage outage.
 
+Backfill scans at most 200 source rows per table in primary-key order before
+checking their keys and content hashes against the existing indexed latest
+versions. The private worker keeps a cursor per table and wraps after each pass;
+a restart begins a new pass. This bounds hashing work even when all 50,000
+retained timeline rows have already been archived. The hash still detects
+cumulative summaries changed while archival was disabled. Capture and deletion
+triggers preserve new or pruned records while a backfill pass is in progress. Detail
+and subject pruning run separate age and row-limit queries, retaining the same
+limits and two-second SQL timeouts. Already archived mail is attempted even
+when a collection, backfill or packing step fails. Such a failure stays visible
+in the worker status; a successful delivery does not hide it. Invalid or
+disabled controls continue to prevent delivery.
+
+Before reloading a private executor after a monitoring write failure, inspect
+the trace status and let its pending observations drain. These bounded buffers
+are in memory; a restart cannot recover observations that were never committed.
+Durable journal rows and outbox parts survive restarts. The 25 October recovery
+procedure uses two verified temporary query indexes to help the original loaded
+writer drain, then checks fresh observations after the update, removes the
+temporary indexes and checks the patched writer again. A failed drain leaves
+applications running for review. This is separate from the normal schema
+migration workflow and changes no scientific job settings or model images.
+
 Delivered batches remain for 30 days by default; **undelivered batches are never
 discarded automatically**. Increase the budget, repair delivery or independently
 preserve the archive when status reports pressure. `status` shows retained bytes,
@@ -211,6 +234,31 @@ overlap the native proof and must not be added as unique cases. The final
 passed, covering delayed older deliveries, next-day mail, full journals and an
 explicit disable with larger restored budgets; cleanup was confirmed.
 All tests use fictional measurements, captured senders and disposable state.
+
+The 25 October follow-up passed 33 focused PostgreSQL checks and the separate
+50,000-row scale/recovery case, without skips. It checks backfill, retention,
+delivery despite collection failure, preservation of the original attempt,
+legacy-buffer writes with the temporary indexes, and patched writes after their
+removal. Evidence:
+[`monitoring-export-scale-20261025-022552/model-proof/report.json`](/tmp-codex/monitoring-export-scale-20261025-022552/model-proof/report.json).
+The original code also completed the small-record synthetic scale query before
+indexing; that proof did not reproduce the VPS timeout or establish a speed
+improvement. Subsequent read-only timings on the actual VPS found that both
+unbounded hash scans exceeded the two-second limit. The bounded-page follow-up
+therefore also checks cursor progress and wraparound. Deployment must pass the
+bounded function against the actual retained metadata, then verify fresh writer
+and exporter ticks before and after removing the temporary indexes.
+
+The [bounded follow-up](/tmp-codex/experiment-defaults-browser-recovery-20261025-031436/model-proof/monitoring/report.json)
+passed all **35 monitoring checks** without skips. The
+[VPS update](/tmp-codex/experiment-defaults-20261025/native-20261025T032101Z-m4wcr4/simpaths-experiment-defaults-20261025T032123Z-3grqv1a7/report.json)
+then passed: one bounded page per source table completed in **0.482 seconds**,
+fresh trace/export ticks were healthy after both temporary indexes were removed,
+and frozen work, settings and SingleRun processes were preserved. The delivery
+cutoff for the overdue batch had cleared; newer unsent parts retain their normal
+next-day due time. This verifies current recovery, not uninterrupted historical
+sampling or monitoring overhead under a scientific workload. Observations that
+were still in memory before an earlier process reload remain unverified.
 
 Real recipient/SMTP acceptance and daily export volume/storage cost remain VPS
 deployment checks. Previous quiet monitoring trials predate the new journal/mail

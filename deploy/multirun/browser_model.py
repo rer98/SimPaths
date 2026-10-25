@@ -39,7 +39,7 @@ class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
             releases=[self.browser_release(k) for k in self.releases if available.get(k)=='available'],
             common=[dict(id='population',label='Simulated population',kind='int',default=20000,min=1,max=50000),
                     dict(id='start_year',label='First year',kind='int',default=2019,min=2011,max=2024),
-                    dict(id='end_year',label='Last year',kind='int',default=2020,min=2011,max=2026)],
+                    dict(id='end_year',label='Last year',kind='int',default=2026,min=2011,max=2026)],
             fields=[dict(id=k,label=LABELS[k],kind=MODEL_FIELDS[k].kind,default=MODEL_FIELDS[k].default)
                     for k in MODEL_FIELD_ORDER],
             collector_fields=[dict(id=k,label=COLLECTOR_LABELS[k],kind=v.kind,default=v.default,
@@ -75,7 +75,7 @@ class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
             definition=resolved['definition'];model=definition['model'];year=model['selection']['year']
             return dict(id=resolved['dataset_id'],name=resolved.get('display_name') or 'Your pending UK inputs',
                 model_release=model['release'].get('release'),
-                values=dict(start_year=year,population=20000,end_year=min(2026,year+1)),locked=['start_year'],
+                values=dict(start_year=year,population=20000,end_year=2026),locked=['start_year'],
                 inputs=dict(fingerprint=resolved['definition_hash'],comparison_state='pending',files={},
                     source_files={**model['release']['defaults'],**definition['uploads']},
                     population={k:v for k,v in definition['uploads'].items() if k.endswith('.csv')},
@@ -91,7 +91,7 @@ class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
         name = (f"UK training — {identity['population']:,} people" if training
                 else f"Your prepared UK inputs — {identity['start_year']}")
         values = dict(start_year=identity['start_year'], population=identity.get('population',20000),
-                      end_year=min(2026,identity['start_year']+1))
+                      end_year=2026)
         release=identity.get('release',{}).get('id')
         if release is None:
             release=next((key for key,entry in self.releases.items()

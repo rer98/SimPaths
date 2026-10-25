@@ -70,11 +70,10 @@ async function main(){
   await wait(()=>requests.some(r=>r.url.includes('stratifier=Gender'))&&ready());
   assert.ok(doc.body.textContent.includes('2070')||doc.querySelectorAll('svg').length>1);
   select.value='Overall';select.dispatchEvent(new w.Event('change',{bubbles:true}));await wait(ready);
-  // Reopening simulates a fresh page data source: catalogue and current view,
-  // with no persistent private browser cache and no entire comparison request.
-  const refreshStart=requests.length;button('View Online Results').click();await wait(()=>requests.length>refreshStart+1&&ready());
+  // Explicit reloading bypasses cached sections without an entire comparison request.
+  const refreshStart=requests.length;button('Reload charts from server').click();await wait(()=>requests.length>refreshStart+1&&ready());
   assert.ok(requests.slice(refreshStart).every(r=>r.url.includes('/catalogue')||r.url.includes('/view?')));
-  denied=true;button('View Online Results').click();await wait(()=>doc.querySelector('.vm-source-message')?.textContent.includes('approved email'));
+  denied=true;button('Reload charts from server').click();await wait(()=>doc.querySelector('.vm-source-message')?.textContent.includes('approved email'));
   assert.equal(doc.querySelectorAll('svg').length,0);assert.deepEqual(errors,[]);
   assert.ok(requests.every(r=>!r.url.endsWith('/data')));
   Object.assign(report,{passed:true,level_export_identical:true,paired_export_identical:true,years:52,

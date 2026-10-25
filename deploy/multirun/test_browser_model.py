@@ -52,6 +52,10 @@ class BrowserModelTests(unittest.TestCase):
         self.assertEqual(summary['different'],['savingRate'])
         self.assertEqual(len(summary['configurations']),2)
 
+    def test_new_experiments_and_prepared_inputs_default_to_2026(self):
+        self.assertEqual(next(f for f in self.model.browser_form()['common'] if f['id']=='end_year')['default'],2026)
+        self.assertEqual(self.model.describe_dataset(self.resolved)['values']['end_year'],2026)
+
     def test_database_export_control_is_locked_and_a_forged_form_is_rejected(self):
         field=next(f for f in self.model.browser_form()['collector_fields'] if f['id']=='exportToDatabase')
         self.assertTrue(field['locked']);self.assertFalse(field['default'])
@@ -148,6 +152,7 @@ class BrowserModelTests(unittest.TestCase):
         self.assertEqual(description['inputs']['comparison_state'],'pending')
         self.assertEqual(description['inputs']['files'],{})
         self.assertEqual(description['inputs']['source_files'],{**defaults,**uploads})
+        self.assertEqual(description['values']['end_year'],2026)
 
     def test_file_comparison_includes_legacy_workbooks_without_exposing_unrelated_files(self):
         receipt=deepcopy(self.receipt)

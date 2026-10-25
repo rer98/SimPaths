@@ -10,6 +10,12 @@ SimPaths models currently exist for the UK, Greece, Hungary, Italy, and Poland. 
 
 The entire SimPaths documentation is available on its [website](https://simpaths.github.io/SimPaths/), which includes: a detailed description of its building blocks; instructions on how to set up and run the model; information about contributing to the model's development.
 
+## Using SimPaths Online
+
+The [SimPaths Online user guide](deploy/SIMPATHS_ONLINE_USER_GUIDE.md)
+([PDF](deploy/SimPaths-Online-User-Guide.pdf)) explains the SingleRun and MultiRun
+preview services, experiment submission, results, the AI assistant and retention.
+
 ## Maintaining the web deployments
 
 The [web release maintainer guide](deploy/MAINTAINER_GUIDE.md) describes how to

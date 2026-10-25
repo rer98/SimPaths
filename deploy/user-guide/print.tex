@@ -1,0 +1,35 @@
+% (C) Copyright 2026, by Ross Richardson
+% Print styling for the concise SimPaths Online user guide.
+% @author ross richardson
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{needspace}
+\definecolor{simpathsblue}{HTML}{17445C}
+\AtBeginDocument{\hypersetup{pdftitle={SimPaths Online: user guide},pdfauthor={Ross Richardson},
+  colorlinks=true,urlcolor=simpathsblue,linkcolor=simpathsblue}}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\color{simpathsblue}SimPaths Online}
+\fancyhead[R]{\small Academic-group preview}
+\fancyfoot[L]{\footnotesize 25 October 2026 · Experimental service}
+\fancyfoot[R]{\footnotesize\thepage}
+\renewcommand{\headrulewidth}{0.3pt}
+\setlength{\headheight}{15pt}
+\setlength{\parindent}{0pt}
+\setlength{\emergencystretch}{2em}
+% Keep model parameter names and filenames intact when a line wraps.
+\let\simpathsguidetexttt\texttt
+\renewcommand{\texttt}[1]{\mbox{\simpathsguidetexttt{#1}}}
+% Avoid isolated paragraph lines and keep reference tables compact and readable.
+\clubpenalty=10000
+\widowpenalty=10000
+\displaywidowpenalty=10000
+\AtBeginEnvironment{longtable}{\small}
+\titleformat{\section}{\Large\bfseries\color{simpathsblue}}{}{0pt}{}
+\titleformat{\subsection}{\large\bfseries\color{simpathsblue}}{}{0pt}{}
+\titleformat{\subsubsection}{\normalsize\bfseries\color{simpathsblue}}{}{0pt}{}
+\titlespacing*{\section}{0pt}{1.0em}{0.5em}
+\titlespacing*{\subsection}{0pt}{0.9em}{0.4em}
+\titlespacing*{\subsubsection}{0pt}{0.6em}{0.3em}
+\let\originalsubsection\subsection
+\renewcommand{\subsection}{\Needspace{5\baselineskip}\originalsubsection}

@@ -235,7 +235,7 @@ including nine copy-specific cases. All 16 HTTP/database tests passed in
 browser-only rerun `multirun-browser-20260929-050150` after a test assertion fix.
 Temporary test resources were cleaned up; no real simulations or emails were used.
 
-### Retrying a failed configuration in its original experiment
+### Retrying a failed or cancelled configuration in its original experiment
 
 In **My Jobs**, a simulation configuration marked **needs review** has a
 **Review retry** button. The review shows the configuration, input reference,
@@ -246,15 +246,34 @@ history and retained results remain in the original experiment. Nothing is
 submitted by opening the review, going Back or refreshing the page. **Cancel**
 still means cancel, never retry. Preparation jobs use their existing controls.
 
+Cancelled jobs are shown by default. **Show cancelled jobs** remembers the latest
+choice in that browser. A configuration cancelled by its owner has a **Retry**
+button once its attempt has stopped and all reservations have been released.
+It opens the same confirmation review; it does not restart work immediately.
+Confirmed retries retain the cancellation in **Attempt history** and show how
+many times a restart after cancellation was confirmed, including cancellations
+before a first attempt. Cancellations caused by revoked access or safety controls
+are not eligible for this restart action.
+
 Retries still use normal queue admission and fresh private working directories.
 They share the original three-attempt maximum, per-attempt deadline and total
-time allowance. The review explains when access, deleted inputs, unfinished-work
-allowances, cancellation/expiry, attempts or time budgets prevent a retry.
+time allowance. Cancelling after an attempt is created spends that attempt and
+its recorded runtime; cancelling before any attempt is created spends neither.
+The review explains when access, deleted inputs, unfinished-work allowances,
+unfinished cancellation, expiry, attempts or time budgets prevent a retry.
 Permissions, inputs and budgets are checked again on confirmation. **Confirm retry**
 uses the existing recorded resource allocation; it does not itself request
 an increase or correct model settings. An unchanged model/resource failure may
 recur. Automatic resource recovery, described below, can separately increase an
 allocation within the policy recorded at submission.
+
+Cancellation restarts use the existing signed review and `manual_retries` audit.
+Their opaque confirmation fingerprints have a `cancelled-v1:` domain tag, so an
+audit can distinguish them from retries after failure even when no attempt
+existed yet. No schema migration is required. Confirmation rechecks eligibility
+and rejects an old review after a later cancellation; repeating the same accepted
+confirmation cannot enqueue the configuration twice. The audit, attempt/time
+usage and frozen specification are preserved by backup and restore.
 
 **Local laptop recovery:** the loopback launcher explicitly enables an optional
 **Exclude time recorded after the previous deadline** checkbox for a finished

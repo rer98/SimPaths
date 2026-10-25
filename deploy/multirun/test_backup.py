@@ -396,6 +396,27 @@ class BackupRestoreTests(unittest.TestCase):
             backup.restored_database(c,self.target_q,manifest,self.target)
         self.assertTrue((self.target/GATE).exists()); self.activate(); self.assertFalse((self.target/GATE).exists())
 
+    def test_reviewed_cancellation_restart_and_remaining_budget_survive_inactive_restore(self):
+        from jasmine_web.batch.retries import CANCELLED_REVIEW, apply, preview
+        job=self.q.inspect(self.owner,self.queued)['jobs'][0]['id']
+        self.q.cancel(self.owner,job)
+        with self.q._transaction() as (c,_,now):
+            row=self.q._owned_job(c,self.owner,job)
+            review=preview(self.q,c,self.owner,row,now,allow_cancelled=True)
+            self.assertTrue(review['eligible'])
+            apply(self.q,c,self.owner,row,now,expected=review['snapshot'],
+                retry_id=str(uuid4()),allow_cancelled=True)
+        before=self.q.inspect(self.owner,self.queued)
+        records=self.f.sql('SELECT * FROM manual_retries WHERE job_id=%s',(job,))
+        self.assertEqual(len(records),1)
+        self.assertIsNone(records[0]['attempt_id'])
+        self.assertTrue(records[0]['reviewed_snapshot'].startswith(CANCELLED_REVIEW))
+        self.save();self.assertTrue(self.restore()['inactive'])
+        self.assertEqual(self.target_q.inspect(self.owner,self.queued),before)
+        with self.target_q._connection() as c:
+            restored=c.execute('SELECT * FROM manual_retries WHERE job_id=%s',(job,)).fetchall()
+        self.assertEqual(restored,records)
+
     def test_interruption_after_dump_commit_resumes_without_reimport_or_model_attempts(self):
         self.save()
         def interrupted():raise RuntimeError('fictional interruption')

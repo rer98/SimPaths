@@ -37,11 +37,11 @@ class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
         return dict(title='SimPaths Online', subtitle='UK MultiRun',
             max_configurations=self.max_configurations, configuration_ceiling=Limits().max_run_sets,
             max_repetitions=self.max_repetitions, max_yaml_bytes=Limits().max_bytes,
-            yaml=True, sweeps=True, first_seed='606',
+            yaml=True, sweeps=True, first_seed='606',first_seed_label='randomSeedIfFixed',
             releases=[self.browser_release(k) for k in self.releases if available.get(k)=='available'],
-            common=[dict(id='population',label='Simulated population',kind='int',default=20000,min=1,max=MAX_POPULATION),
-                    dict(id='start_year',label='First year',kind='int',default=2019,min=2011,max=2024),
-                    dict(id='end_year',label='Last year',kind='int',default=2026,min=2011,max=MAX_END_YEAR)],
+            common=[dict(id='population',label=COMMON_LABELS['population'],kind='int',default=20000,min=1,max=MAX_POPULATION),
+                    dict(id='start_year',label=COMMON_LABELS['start_year'],kind='int',default=2019,min=2011,max=2024),
+                    dict(id='end_year',label=COMMON_LABELS['end_year'],kind='int',default=2026,min=2011,max=MAX_END_YEAR)],
             fields=[dict(id=k,label=LABELS[k],kind=MODEL_FIELDS[k].kind,default=MODEL_FIELDS[k].default)
                     for k in MODEL_FIELD_ORDER],
             collector_fields=[dict(id=k,label=COLLECTOR_LABELS[k],kind=v.kind,default=v.default,
@@ -176,34 +176,9 @@ MODEL_FIELD_ORDER = (
 )
 
 
-LABELS = {
-    'savingRate':'Saving rate', 'maxAge':'Maximum age', 'timeTrendStopsIn':'Last year of time trend',
-    'timeTrendStopsInMonetaryProcesses':'Last year of monetary time trend',
-    'sIndexTimeWindow':'Security index time window', 'sIndexAlpha':'Security index risk aversion',
-    'sIndexDelta':'Security index discount factor', 'projectMortality':'Project mortality',
-    'projectFormalChildcare':'Project formal childcare', 'projectSocialCare':'Project social care',
-    'useWeights':'Use population weights', 'donorPoolAveraging':'Average across tax donors',
-    'fixTimeTrend':'Fix time trend',
-    'initialisePotentialEarningsFromDatabase':'Initialise potential earnings from input data',
-    'ignoreTargetsAtPopulationLoad':'Ignore targets when loading population',
-    'alignPopulation':'Align population', 'alignFertility':'Align fertility',
-    'alignEducation':'Align education', 'alignInSchool':'Align school participation',
-    'alignCohabitation':'Align cohabitation', 'alignEmployment':'Align employment',
-    'addRegressionStochasticComponent':'Include regression stochastic component',
-    'fixRegressionStochasticComponent':'Fix regression stochastic component',
-    'labourMarketCovid19On':'Use COVID-19 labour supply module',
-    'taxDonorUpratingByWage':'Uprate tax donor incomes by wage growth',
-    'flagSuppressChildcareCosts':'Suppress childcare costs',
-    'flagSuppressSocialCareCosts':'Suppress social care costs',
-    'flagDefaultToTimeSeriesAverages':'Use time-series averages',
-}
-
-COLLECTOR_LABELS = {
-    'calculateGiniCoefficients':'Calculate Gini coefficients', 'exportToDatabase':'Export to database',
-    'exportToCSV':'Export to CSV', 'persistWealthIncomeStatistics':'Save wealth and income statistics',
-    'persistDemographicStatistics':'Save demographic statistics', 'persistAlignmentStatistics':'Save alignment statistics',
-    'persistLabourStatistics':'Save labour statistics', 'persistHealthStatistics':'Save health statistics',
-    'persistWellbeingByGender':'Save wellbeing by gender', 'persistPersons':'Save person records',
-    'persistBenefitUnits':'Save benefit unit records', 'persistHouseholds':'Save household records',
-    'dataDumpStartTime':'First output time', 'dataDumpTimePeriod':'Output interval',
-}
+# Retain model-owned display mappings independently of execution/YAML identifiers.
+# SingleRun displays source names. Earlier descriptive wording is retained in Git
+# history and can be restored here without changing the form/renderer contract.
+COMMON_LABELS = dict(population='popSize',start_year='startYear',end_year='endYear')
+LABELS = {name:name for name in MODEL_FIELD_ORDER}
+COLLECTOR_LABELS = {name:name for name in COLLECTOR_FIELDS}

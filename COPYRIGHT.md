@@ -473,3 +473,16 @@ include and maintenance guide carry attribution in their source headers. Generat
 fictional proxy responses and recovery/availability evidence are
 (C) Copyright 2026, by Ross Richardson; @author ross richardson. Existing software,
 private deployment settings and scientific data retain their original ownership.
+
+The SimPaths Online user guide, its print styling and PDF build script carry
+inline attribution. The generated `deploy/SimPaths-Online-User-Guide.pdf` is
+(C) Copyright 2026, by Ross Richardson; @author ross richardson. Existing model
+code, scientific data and third-party software retain their original notices.
+
+The configurable public-training source manifest
+`deploy/multirun/public_training_sources.json` and generated fictional
+larger-workload qualification evidence are
+(C) Copyright 2026, by Ross Richardson; @author ross richardson. The manifest
+records existing public scientific files; those files retain their original
+ownership and licences. Measured resource policies, importer code, checks and
+operator notes carry attribution in their source headers.

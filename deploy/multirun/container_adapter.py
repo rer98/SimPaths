@@ -13,6 +13,7 @@ import zipfile
 from types import SimpleNamespace
 
 from .artifacts import ArtifactError, relative_name
+from .workload_envelope import initial_heap_mib, validate_resource_envelope
 from .queue_adapter import SimPathsLocalAdapter, WorkspaceSpaceError, require_workspace_space, workspace_required_bytes, submission_arguments
 from .prepared_dataset import FORMAT, INPUT_FORMAT, allocation, verify_snapshot
 
@@ -75,6 +76,8 @@ class SimPathsContainerAdapter(SimPathsLocalAdapter):
     def _launch_requirements(self, config):
         """Resolve release requirements before the shared staging/heap checks."""
         from .resource_policy import workload, starting_allocation
+        if self.receipt['identity']['format'] in (FORMAT,INPUT_FORMAT):
+            validate_resource_envelope(config.as_dict()['common'],self.resource_policy)
         context=workload(config.as_dict())
         starting=starting_allocation(self.resource_policy,**context)
         minimum = allocation(self.receipt,population=config.as_dict()['common']['population'],
@@ -124,7 +127,7 @@ class SimPathsContainerAdapter(SimPathsLocalAdapter):
             manifest.append(item["sha256"] + "  /inputs/" + name)
         (request / "inputs.sha256").write_text("\n".join(manifest) + "\n")
         (request / "input-files.txt").write_text("".join(name + "\n" for name in sorted(identity["prepared"])))
-        heap = str(starting['heap_mib'])+'m' if starting else "3g" if config.as_dict()['common']['population'] > 20000 else "2g"
+        heap = str(starting['heap_mib'])+'m' if starting else str(initial_heap_mib(config.as_dict()['common'])//1024)+'g'
         if getattr(lease,'heap_mib',None) is not None:
             from jasmine_web.batch.resource_recovery import configuration
             recovery=configuration(lease.specification,lease.configuration_id)

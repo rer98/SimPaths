@@ -133,6 +133,21 @@ class BackupFileTests(unittest.TestCase):
         jar.chmod(0o600)
         with self.assertRaises(ArtifactError):backup.verify(output)
 
+    def test_measured_resource_release_and_original_policy_survive_backup_verification(self):
+        from .workload_envelope import extended_resource_policy
+        registry=ReleaseRegistry(self.state)
+        original=self.release;entry=registry.load()[original]
+        policy=extended_resource_policy(entry['resource_policy'])
+        self.release=registry.register(image=entry['image'],name='Measured preview resources',
+            jar=entry['jar'],defaults=entry['defaults'],policy=policy,make_default=True)
+        output,value=self.build_backup()
+        value['release_ids']=list(registry.inventory())
+        atomic_json(output/'manifest.json',value)
+        backup.verify(output)
+        restored=ReleaseRegistry(output/'state').inventory()
+        self.assertEqual(restored[self.release]['resource_policy'],policy)
+        self.assertEqual(restored[original]['resource_policy'],entry['resource_policy'])
+
     def test_atomic_publication_cannot_replace_an_existing_empty_directory(self):
         source=self.root/'pending'; source.mkdir(mode=0o700); (source/'data').write_bytes(b'new')
         target=self.root/'target'; target.mkdir(mode=0o700)

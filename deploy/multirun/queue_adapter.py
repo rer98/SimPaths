@@ -303,9 +303,10 @@ def execute():
     (work / "config").mkdir(mode=0o700)
     (work / "tmp").mkdir(mode=0o700)
     (work / "config/run.yml").write_text(config.native_yaml(request["run_set_id"]))
+    from .workload_envelope import initial_heap_mib
     command = java_command(work / "model.jar", "simpaths.experiment.SimPathsMultiRun",
                            "-config", "run.yml", "-P", "root",
-                           heap="3g" if identity.get("population") == 50000 else "2g",
+                           heap=str(initial_heap_mib(config.as_dict()['common'])//1024)+'g',
                            monitor_memory=True)
     # Keep the supervised PID and its parent-death guard when replacing Python.
     os.execv(command[0], command)

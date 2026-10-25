@@ -12,6 +12,7 @@ from .artifacts import ArtifactError
 
 FORMAT = 'simpaths.multirun.resources.v1'
 PROFILE_FORMAT = 'simpaths.multirun.resources.v2'
+MEASURED_PROFILE_FORMAT = 'simpaths.multirun.resources.v3'
 LEGACY_POLICY = dict(format=FORMAT,
     preparation=dict(cpu_millis=2000, memory_mib=5120, storage_mib=12288),
     simulation=dict(cpu_millis=2000, memory_mib=4096, large_memory_mib=5120,
@@ -22,9 +23,10 @@ DEFAULT_POLICY['simulation']['storage'] = dict(setup_mib=4096, per_repetition_mi
 
 def check_policy(policy):
     """Only bounded operator settings; no allocations are accepted from browsers."""
-    profiled = type(policy) is dict and policy.get('format') == PROFILE_FORMAT
-    if (type(policy) is not dict or set(policy) != {'format', 'preparation', 'simulation'} | ({'profiles'} if profiled else set())
-            or policy['format'] not in (FORMAT,PROFILE_FORMAT) or type(policy['preparation']) is not dict
+    measured = type(policy) is dict and policy.get('format') == MEASURED_PROFILE_FORMAT
+    profiled = type(policy) is dict and policy.get('format') in (PROFILE_FORMAT,MEASURED_PROFILE_FORMAT)
+    if (type(policy) is not dict or set(policy) != {'format', 'preparation', 'simulation'} | ({'profiles'} if profiled else set()) | ({'fallback'} if measured else set())
+            or policy['format'] not in (FORMAT,PROFILE_FORMAT,MEASURED_PROFILE_FORMAT) or type(policy['preparation']) is not dict
             or set(policy['preparation']) != {'cpu_millis', 'memory_mib', 'storage_mib'}
             or type(policy['simulation']) is not dict
             or set(policy['simulation']) != {'cpu_millis', 'memory_mib', 'large_memory_mib', 'storage'}
@@ -43,11 +45,19 @@ def check_policy(policy):
            for value, low in values):
         raise ArtifactError('Model resource policy is below supported minima or exceeds its bounds')
     if profiled:
-        _check_profiles(policy['profiles'])
+        _check_profiles(policy['profiles'],grid=measured)
+    if measured:
+        _check_profiles([policy['fallback']],grid=True,wildcard=True)
+        fallback=policy['fallback']
+        for profile in policy['profiles']:
+            if (profile['id']==fallback['id'] or any(profile[k]>fallback[k] for k in
+                    ('max_population','max_years','max_repetitions','memory_mib','heap_mib','cpu_millis'))
+                    or any(profile['storage'][k]>fallback['storage'][k] for k in ('setup_mib','per_repetition_mib'))):
+                raise ArtifactError('Fallback must cover every measured starting profile')
     return deepcopy(policy)
 
 
-def _check_profiles(profiles):
+def _check_profiles(profiles, *, grid=False, wildcard=False):
     from .schema import COLLECTOR_FIELDS, REQUIRED_OUTPUT
     if type(profiles) is not list or not 1 <= len(profiles) <= 64:
         raise ArtifactError('Supply 1..64 tested workload profiles')
@@ -56,14 +66,15 @@ def _check_profiles(profiles):
         if (type(profile) is not dict or set(profile) != {'id','max_population','max_years','max_repetitions',
                 'collectors','cpu_millis','memory_mib','heap_mib','native_headroom_mib','storage'}
                 or type(profile['id']) is not str or not re.fullmatch(r'[a-z0-9][a-z0-9_.-]{0,63}',profile['id'])
-                or profile['id'] in seen or type(profile['collectors']) is not dict
-                or set(profile['collectors']) != set(COLLECTOR_FIELDS)
+                or profile['id'] in seen
+                or (profile['collectors'] is not None if wildcard else
+                    type(profile['collectors']) is not dict or set(profile['collectors']) != set(COLLECTOR_FIELDS))
                 or type(profile['storage']) is not dict
                 or set(profile['storage']) != {'setup_mib','per_repetition_mib'}):
             raise ArtifactError('Invalid or duplicate workload profile')
         seen.add(profile['id'])
         for key,low,high in (('max_population',1,2**31-1),('max_years',1,1000),
-                ('max_repetitions',1,1000),('cpu_millis',1000,2**31-1),('memory_mib',4096,2**31-1),
+                ('max_repetitions',1,1000),('cpu_millis',1000,2**31-1),('memory_mib',3584 if grid else 4096,2**31-1),
                 ('heap_mib',512,2**31-1),('native_headroom_mib',1024,2**31-1)):
             value=profile[key]
             if type(value) is not int or not low <= value <= high:
@@ -74,22 +85,22 @@ def _check_profiles(profiles):
             if type(profile['storage'][key]) is not int or not low <= profile['storage'][key] <= 2**31-1:
                 raise ArtifactError('Invalid workload storage allowance')
         # Validate the complete collector contract, not just persistPersons.
-        for key,field in COLLECTOR_FIELDS.items():
+        for key,field in (() if wildcard else COLLECTOR_FIELDS.items()):
             try:
                 field.validate(profile['collectors'][key],'profile.collectors.'+key)
             except ValueError:
                 raise ArtifactError('Invalid workload collector settings')
-        if any(profile['collectors'][key] != value for key,value in REQUIRED_OUTPUT.items()):
+        if not wildcard and any(profile['collectors'][key] != value for key,value in REQUIRED_OUTPUT.items()):
             raise ArtifactError('Workload profile must preserve the required output contract')
-    # Envelopes with the same collectors must nest. Otherwise a workload could
-    # match two incomparable profiles and depend on arbitrary list ordering.
+    # V2 preserves nested envelopes. The measured V3 grid explicitly selects by
+    # population, then horizon, then repetitions; duplicate grid cells are invalid.
     axes=('max_population','max_years','max_repetitions')
     for index,left in enumerate(profiles):
         for right in profiles[index+1:]:
             if left['collectors'] != right['collectors']: continue
             less=all(left[k]<=right[k] for k in axes)
             greater=all(left[k]>=right[k] for k in axes)
-            if less == greater:
+            if less and greater or not grid and not less and not greater:
                 raise ArtifactError('Workload envelopes are duplicate or ambiguous; use nested bounds')
 
 
@@ -102,7 +113,7 @@ def workload(data):
 
 def select_profile(policy, *, population, repetitions, years=None, collectors=None):
     checked=check_policy(policy)
-    if checked['format'] != PROFILE_FORMAT:
+    if checked['format'] not in (PROFILE_FORMAT,MEASURED_PROFILE_FORMAT):
         return None
     if (type(population) is not int or population<1 or type(repetitions) is not int
             or not 1<=repetitions<=1000 or type(years) is not int or not 1<=years<=1000
@@ -110,6 +121,18 @@ def select_profile(policy, *, population, repetitions, years=None, collectors=No
         raise ArtifactError('Profile selection requires the complete normalised workload')
     matches=[p for p in checked['profiles'] if population<=p['max_population']
              and years<=p['max_years'] and repetitions<=p['max_repetitions'] and collectors==p['collectors']]
+    if not matches and checked['format']==MEASURED_PROFILE_FORMAT:
+        from .schema import COLLECTOR_FIELDS, REQUIRED_OUTPUT
+        if set(collectors)!=set(COLLECTOR_FIELDS):
+            raise ArtifactError('Supply the complete normalised collector contract')
+        for key,field in COLLECTOR_FIELDS.items():
+            field.validate(collectors[key],'collectors.'+key)
+        if any(collectors[key]!=value for key,value in REQUIRED_OUTPUT.items()):
+            raise ArtifactError('Preserve the required output contract')
+        fallback=checked['fallback']
+        if (population<=fallback['max_population'] and years<=fallback['max_years']
+                and repetitions<=fallback['max_repetitions']):
+            return fallback
     if not matches:
         from jasmine_web.batch.observability import SupportedLimitError
         raise SupportedLimitError('unprofiled','No tested starting allocation covers these population, years, repetitions and output settings. Contact the service operator.')

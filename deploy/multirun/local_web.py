@@ -27,8 +27,9 @@ MAX_UPLOAD_ALLOWANCE_GIB = (2**63 - 1) // (1 << 30)
 def register_training(datasets, preparations, path):
     """Trusted local import of public training only, without recopying inputs."""
     receipt = read_prepared(path)
-    if receipt['identity']['format'] != FORMAT:
-        raise ArtifactError('Use a verified prepared Quick Start training directory')
+    from .public_training import is_public_receipt
+    if receipt['identity']['format'] != FORMAT and not is_public_receipt(receipt):
+        raise ArtifactError('Use verified public training inputs from the trusted importer')
     verify_snapshot(path,receipt)
     key = receipt['revision']
     q = datasets.queue

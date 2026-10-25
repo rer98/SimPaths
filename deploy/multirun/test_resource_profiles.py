@@ -167,9 +167,9 @@ class ProfileIntegrationTests(unittest.TestCase):
         run['starting_allocation']['heap_mib']=3072
         with self.assertRaises(ArtifactError):adapter.container_command(lease,request)
 
-    def test_browser_cannot_choose_allocations_or_expand_existing_service_bounds(self):
+    def test_browser_cannot_choose_allocations_or_exceed_the_extended_service_bounds(self):
         browser=BrowserModel(self.f.releases)
-        form=dict(name='test',common=dict(population=100000,start_year=2019,end_year=2070),
+        form=dict(name='test',common=dict(population=100001,start_year=2019,end_year=2070),
             repetitions=3,run_sets=[dict(id='baseline',name='Baseline',model_args={})],baseline='baseline',auto_retry=True)
         with self.assertRaises(DeploymentLimitError) as rejected:
             browser.browser_configuration('pending-owned',form)

@@ -16,6 +16,7 @@ from .browser_yaml import BrowserYaml
 from .browser_sweep import BrowserSweep
 from .browser_copy import BrowserCopy
 from .schema import COLLECTOR_FIELDS, REQUIRED_OUTPUT, ConfigurationError, DeploymentLimitError, Limits
+from .workload_envelope import MAX_POPULATION, MAX_END_YEAR, validate_workload
 
 
 class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
@@ -31,15 +32,16 @@ class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
 
     def browser_form(self):
         repetition_word='repetition' if self.max_repetitions==1 else 'repetitions'
+        max_simulations=min(self.max_configurations*self.max_repetitions,self.submission_limits.max_simulations)
         available=self.release_availability()
         return dict(title='SimPaths Online', subtitle='UK MultiRun',
             max_configurations=self.max_configurations, configuration_ceiling=Limits().max_run_sets,
             max_repetitions=self.max_repetitions, max_yaml_bytes=Limits().max_bytes,
             yaml=True, sweeps=True, first_seed='606',
             releases=[self.browser_release(k) for k in self.releases if available.get(k)=='available'],
-            common=[dict(id='population',label='Simulated population',kind='int',default=20000,min=1,max=50000),
+            common=[dict(id='population',label='Simulated population',kind='int',default=20000,min=1,max=MAX_POPULATION),
                     dict(id='start_year',label='First year',kind='int',default=2019,min=2011,max=2024),
-                    dict(id='end_year',label='Last year',kind='int',default=2026,min=2011,max=2026)],
+                    dict(id='end_year',label='Last year',kind='int',default=2026,min=2011,max=MAX_END_YEAR)],
             fields=[dict(id=k,label=LABELS[k],kind=MODEL_FIELDS[k].kind,default=MODEL_FIELDS[k].default)
                     for k in MODEL_FIELD_ORDER],
             collector_fields=[dict(id=k,label=COLLECTOR_LABELS[k],kind=v.kind,default=v.default,
@@ -52,7 +54,7 @@ class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
                  'Each configuration uses the same seed sequence, beginning at the selected first random seed and increasing by one. '
                  'Configurations can run in parallel when capacity is available. '
                  f'This deployment supports up to {self.max_repetitions} {repetition_word} per configuration. '
-                 f'Experiments can contain up to {self.max_configurations} configurations and {Limits().max_simulations:,} simulations in total. '
+                 f'Experiments can contain up to {self.max_configurations} configurations and {max_simulations:,} simulations in total. '
                  'Completed configurations appear under My jobs → View results.')
 
     def browser_workbook(self, release, name):
@@ -90,6 +92,10 @@ class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
             raise ArtifactError('Unsupported browser dataset')
         name = (f"UK training — {identity['population']:,} people" if training
                 else f"Your prepared UK inputs — {identity['start_year']}")
+        if 'public_training' in identity:
+            from .public_training import NAME, is_public_receipt
+            if not is_public_receipt(receipt):raise ArtifactError('Public training inputs need importer verification')
+            name=NAME
         values = dict(start_year=identity['start_year'], population=identity.get('population',20000),
                       end_year=2026)
         release=identity.get('release',{}).get('id')
@@ -138,9 +144,7 @@ class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
         canonical = normalise(configuration, limits=self.submission_limits).editable_configuration()
         for path, common in [('common', canonical['common'])] + [(f'run_sets[{i}].common', r['common'])
                 for i,r in enumerate(canonical['run_sets']) if 'common' in r]:
-            if common['population'] > 50000 or common['end_year'] > 2026:
-                raise DeploymentLimitError(path, 'this deployment supports up to 50,000 people and a last year of 2026',
-                                           'population' if common['population']>50000 else 'horizon')
+            validate_workload(common,path)
         return dict(configuration=canonical,baseline=form['baseline'],auto_retry=form['auto_retry'])
 
     def browser_summary(self, request):

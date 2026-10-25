@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 
 from .artifacts import ArtifactError, digest, fingerprint, relative_name, verify
+from .workload_envelope import MAX_END_YEAR, validate_workload
 
 FORMAT = "simpaths.multirun.prepared-quickstart.v1"
 INPUT_FORMAT = "simpaths.multirun.prepared-inputs.v1"
@@ -83,7 +84,7 @@ def validate_selection(configuration, receipt):
     if (configuration["dataset_revision"] != receipt["revision"]
             or common["country"] != "UK" or common["start_year"] != 2019
             or common["population"] != receipt["identity"]["population"]
-            or not 2019 <= common["end_year"] <= 2026):
+            or not 2019 <= common["end_year"] <= MAX_END_YEAR):
         raise ArtifactError("Configuration does not match the selected prepared dataset")
     for run in configuration["run_sets"]:
         settings = run["model_args"]
@@ -94,12 +95,12 @@ def validate_selection(configuration, receipt):
 
 
 def allocation(receipt, *, population=None, repetitions=1, resource_policy=None, years=None, collectors=None):
-    from .resource_policy import LEGACY_POLICY, PROFILE_FORMAT, check_policy, simulation_resources
+    from .resource_policy import LEGACY_POLICY, check_policy, simulation_resources
     identity=receipt['identity']
     policy=check_policy(identity.get('release',{}).get('resource_policy',
                                          LEGACY_POLICY if resource_policy is None else resource_policy))
     from .queue_adapter import workspace_required_bytes
-    minimum=workspace_required_bytes(identity) if (policy['format']==PROFILE_FORMAT or policy['simulation']['storage']['per_repetition_mib']) else 0
+    minimum=workspace_required_bytes(identity) if (policy.get('profiles') or policy['simulation']['storage']['per_repetition_mib']) else 0
     resources=simulation_resources(policy,population=identity.get('population',20000) if population is None else population,
                                    repetitions=repetitions,minimum_setup_bytes=minimum,years=years,collectors=collectors)
     if identity['format'] not in (FORMAT, INPUT_FORMAT):
@@ -146,8 +147,7 @@ def validate_input_selection(configuration, receipt):
     if common['country'] != 'UK' or common['start_year'] != receipt['identity']['start_year']:
         raise ArtifactError('Configuration does not match the prepared start year')
     # Dataset/profile bounds are independent of the deployment repetition limit.
-    if common['end_year'] > 2026 or common['population'] > 50000:
-        raise ArtifactError('Prepared-input profile supports up to 50,000 people and an end year of 2026')
+    validate_workload(common)
 
 
 def read_quickstart(prepared):

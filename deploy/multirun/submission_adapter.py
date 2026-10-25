@@ -20,8 +20,9 @@ from .prepared_dataset import INPUT_FORMAT, allocation, check_input_receipt, ver
 from .queue_adapter import read_prepared
 from .schema import (DEFAULT_MAX_CONFIGURATIONS, DEFAULT_MAX_REPETITIONS, Limits,
                      deployment_configuration_limit, deployment_repetition_limit)
-from .resource_policy import (LEGACY_POLICY, PROFILE_FORMAT, check_policy, simulation_resources,
+from .resource_policy import (LEGACY_POLICY, check_policy, simulation_resources,
                               simulation_storage, starting_allocation, workload)
+from .workload_envelope import initial_heap_mib, validate_workload, validate_resource_envelope
 
 
 class SubmissionModel:
@@ -101,8 +102,7 @@ class SubmissionModel:
     def heap_limits(self, spec):
         """Freeze the launcher's existing initial heaps, independently of browsers."""
         return {run['id']:run['starting_allocation']['heap_mib'] if 'starting_allocation' in run else
-                3072 if normalise(run['parameters']).as_dict()['common']['population']>20000
-                else 2048 for run in spec['run_sets']}
+                initial_heap_mib(normalise(run['parameters']).as_dict()['common']) for run in spec['run_sets']}
 
     def experiment(self, resolved, request):
         from jasmine_web.batch.policy import Resources
@@ -162,7 +162,7 @@ class SubmissionModel:
             policy=receipt['identity'].get('release',{}).get('resource_policy',
                 selected.get('resource_policy',LEGACY_POLICY))
             from .queue_adapter import workspace_required_bytes
-            minimum=workspace_required_bytes(receipt['identity']) if (policy['format']==PROFILE_FORMAT or policy['simulation']['storage']['per_repetition_mib']) else 0
+            minimum=workspace_required_bytes(receipt['identity']) if (policy.get('profiles') or policy['simulation']['storage']['per_repetition_mib']) else 0
         details=simulation_storage(policy,**workload(data),minimum_setup_bytes=minimum)
         # Small standalone proof receipts keep their original separate quota.
         details['storage_mib']=resources.storage_mib
@@ -240,13 +240,14 @@ class SubmissionModel:
         if resolved.get('state')=='pending':
             year=resolved['definition']['model']['selection']['year']
             common=data['common']
-            if (common['country']!='UK' or common['start_year']!=year or common['end_year']>2026
-                    or common['population']>50000):
+            if common['country']!='UK' or common['start_year']!=year:
                 raise ArtifactError('Configuration must match the selected inputs and supported population/years')
+            validate_workload(common)
             release=resolved['definition']['model']['release']
             if release['release']!=data['model_release']:
                 raise ArtifactError('Select inputs prepared for the configuration’s model release')
             policy=release.get('resource_policy',LEGACY_POLICY)
+            validate_resource_envelope(common,policy)
             resources=simulation_resources(policy,**workload(data))
             result=dict(id=run['id'],parameters=config.editable_configuration())
         else:
@@ -259,6 +260,7 @@ class SubmissionModel:
             result=args['run_sets'][0]
             selected=self.releases.get(data['model_release'],{})
             policy=receipt['identity'].get('release',{}).get('resource_policy',selected.get('resource_policy',LEGACY_POLICY))
+            validate_resource_envelope(data['common'],policy)
             resources=allocation(receipt,population=data['common']['population'],repetitions=len(seeds),
                                  resource_policy=policy,years=workload(data)['years'],collectors=workload(data)['collectors'])
         starting=starting_allocation(policy,**workload(data))

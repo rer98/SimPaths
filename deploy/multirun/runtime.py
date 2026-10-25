@@ -135,9 +135,10 @@ def create_registry(args,q,state,send_mail,*,capacity=Resources(2000,5120,12288)
             # dataset. Only these explicitly verified public training imports.
             from .queue_adapter import read_prepared
             from .prepared_dataset import FORMAT, verify_snapshot
+            from .public_training import is_public_receipt
             for p in paths:
                 receipt=read_prepared(Path(p))
-                if receipt['identity']['format']!=FORMAT:
+                if receipt['identity']['format']!=FORMAT and not is_public_receipt(receipt):
                     raise ValueError('Approval grants only verified public training inputs')
                 verify_snapshot(Path(p),receipt)
                 keys.append(receipt['revision'])
@@ -167,7 +168,10 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
           f' ({default}); {len(releases)} retained version(s)',flush=True)
     storage=releases[default]['resource_policy']['simulation']['storage']
     profiled=releases[default]['resource_policy'].get('profiles')
-    if profiled:
+    if profiled and releases[default]['resource_policy'].get('fallback'):
+        print(f'Starting resources: {len(profiled)} workload profiles based on laptop measurements; '
+              'other supported settings use the bounded reference allowance',flush=True)
+    elif profiled:
         print(f'Starting resources: {len(profiled)} tested workload profiles; unmatched settings require operator review',flush=True)
     else:
         print(f"Default working storage: {storage['setup_mib']/1024:g} GiB fixed + "

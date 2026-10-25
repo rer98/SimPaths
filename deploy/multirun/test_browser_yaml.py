@@ -94,8 +94,8 @@ class BrowserYamlTests(unittest.TestCase):
         for field,value in [('persistPersons',False),('exportToCSV',False),('dataDumpTimePeriod',2.0)]:
             form=deepcopy(self.form);form['run_sets'][0]['collector_args']={field:value}
             with self.assertRaises(ValueError):self.model.browser_export_yaml(self.dataset,form)
-        for common in (dict(population=50001,start_year=2019,end_year=2020),
-                       dict(population=20000,start_year=2019,end_year=2027)):
+        for common in (dict(population=100001,start_year=2019,end_year=2020),
+                       dict(population=20000,start_year=2019,end_year=2071)):
             with self.assertRaises(ValueError):self.model.browser_export_yaml(self.dataset,{**self.form,'common':common})
 
     def test_nonpositive_maximum_age_cannot_enter_through_browser_or_yaml(self):

@@ -136,7 +136,7 @@ class PreparedDatasetTests(unittest.TestCase):
 
     def test_wrong_population_year_revision_or_preparation_settings_rejected(self):
         path, receipt = self.dataset()
-        for field, value in (("population", 50000), ("start_year", 2018), ("end_year", 2027)):
+        for field, value in (("population", 50000), ("start_year", 2018), ("end_year", 2071)):
             config = self.config(receipt)
             config["common"][field] = value
             with self.subTest(field=field), self.assertRaises(ValueError):

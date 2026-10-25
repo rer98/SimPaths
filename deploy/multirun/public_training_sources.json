@@ -1,0 +1,28 @@
+{
+  "format": "simpaths.public-training.sources.v1",
+  "repository": "https://github.com/simpaths/SimPaths",
+  "files": {
+    "population_initial_UK_2019.csv": {
+      "bytes": 8813807,
+      "sha256": "9b6f917a804e0c1ecfced2b27c4a78e9cc551dd77d4df4efcc55aa577f983f4b"
+    },
+    "uk_2015_std.txt": {
+      "bytes": 77801526,
+      "sha256": "1ae6cd38da123c6e8f67272244540ed8d1ef16f6307f0f6a7ddf19a3da108616"
+    },
+    "uk_2019_std.txt": {
+      "bytes": 86510739,
+      "sha256": "9e3d486dcdbbc7cd6a5d43f58eb13d70eb54ff6c28b9b371fe7efcd0b224e4bc"
+    },
+    "uk_2020_std.txt": {
+      "bytes": 92215092,
+      "sha256": "f571e362ca33a8db804ca65d1ff80bb8b64ce649a8eef58fc4f3eee47d7adcf9"
+    }
+  },
+  "paths": {
+    "population_initial_UK_2019.csv": "input/InitialPopulations/training/population_initial_UK_2019.csv",
+    "uk_2015_std.txt": "input/EUROMODoutput/training/uk_2015_std.txt",
+    "uk_2019_std.txt": "input/EUROMODoutput/training/uk_2019_std.txt",
+    "uk_2020_std.txt": "input/EUROMODoutput/training/uk_2020_std.txt"
+  }
+}

@@ -53,6 +53,28 @@ confirmed, its unused reservation is settled. Its retained files still consume
 space and keep their hard quota until ordinary retention/cleanup deletes them.
 Projects are never reused and finished limits are never lifted.
 
+## Storage inspection and stop evidence
+
+Workspace inspection counts the greater of each ordinary file's logical size and
+allocated blocks. A temporary file disappearing during the scan, or another I/O
+error, makes that observation unavailable. The executor keeps the same attempt
+and its reservations and checks again later. It does not treat an unsuccessful
+scan as an exceeded storage allowance. Kernel quotas and the independent runtime
+deadline remain in force. Links, special files and an excessive entry count are
+still rejected as invalid input, rather than retried with more storage.
+
+A measured storage stop records its timestamp, byte usage, byte limit and
+measurement source in `storage_check` within the private `stop.json` and
+`exit.json` receipts. A stopped container whose tree cannot be inspected remains
+unconfirmed until a later check can validate it. When a failed execution or invalid
+output is classified using kernel byte-quota evidence, `exit.json` also records
+the byte and inode counters, host free space, outstanding reservations and reserve
+used to distinguish that cause from inode exhaustion or a full filesystem. Error
+messages, private paths and model values are excluded. These receipts survive
+failed-attempt scratch cleanup and allow later resource decisions to be reviewed.
+Older receipts without these fields remain readable; their outcome alone does
+not establish how much space was used at the stop.
+
 ## Privilege and process boundary
 
 The public web UID has no access to this broker. The trusted private executor

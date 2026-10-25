@@ -396,6 +396,27 @@ class BackupRestoreTests(unittest.TestCase):
             backup.restored_database(c,self.target_q,manifest,self.target)
         self.assertTrue((self.target/GATE).exists()); self.activate(); self.assertFalse((self.target/GATE).exists())
 
+    def test_storage_stop_measurements_survive_scratch_cleanup_and_inactive_restore(self):
+        from jasmine_web.batch.attempt_cleanup import AttemptCleanup
+        lease=self.q.claim('storage-proof'); self.q.started(lease)
+        path=self.executor.workspace(lease); (path/'work').mkdir(mode=0o700,parents=True)
+        atomic_json(path/'identity.json',self.executor._identity(lease))
+        limit=lease.resources['storage_mib']<<20
+        evidence=dict(source='workspace_tree',status='exceeded',used_bytes=limit+4096,limit_bytes=limit,
+                      observed_at='2026-10-25T19:00:00+00:00')
+        atomic_json(path/'stop.json',dict(reason='storage_limit',storage_check=evidence))
+        atomic_json(path/'exit.json',dict(state='stopped',execution_key=lease.execution_key,
+            outcome='storage_limit',returncode=137,storage_check=evidence))
+        (path/'work/partial.csv').write_bytes(b'fictional incomplete output')
+        self.q.finish(lease,outcome='storage_limit',stop_evidence='d'*64)
+        with self.executor.exclusive():
+            AttemptCleanup(self.q,self.executor,outputs=lambda lease:['output']).retire()
+        self.assertFalse((path/'work/partial.csv').exists())
+        saved={name:(path/name).read_bytes() for name in ('stop.json','exit.json')}
+        self.save(); self.assertTrue(self.restore()['inactive'])
+        restored=self.target/'execution'/lease.execution_key
+        self.assertEqual(saved,{name:(restored/name).read_bytes() for name in saved})
+
     def test_reviewed_cancellation_restart_and_remaining_budget_survive_inactive_restore(self):
         from jasmine_web.batch.retries import CANCELLED_REVIEW, apply, preview
         job=self.q.inspect(self.owner,self.queued)['jobs'][0]['id']

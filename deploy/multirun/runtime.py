@@ -321,6 +321,13 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                         allow_deadline_credit=local_codes,runtime_allowance=configuration_runtime(args),
                         resource_recovery=recovery,recovery_storage_ceiling_mib=recovery_storage_ceiling,
                         adaptive_cpu=adaptive)
+    administration = getattr(args, 'administration', {'enabled':False})
+    if administration['enabled']:
+        from jasmine_web.batch.administration import Administration
+        from jasmine_web.batch.administrator_password import read_credential
+        from .vm_web import administrator_verification_mail
+        service.administration = Administration(access, administration['emails'],
+            read_credential(state/'administrator-password.json'), administrator_verification_mail)
     print('Automatic resource recovery: '+('enabled for new reviews; frozen ceilings and original retry/time budgets apply'
                                           if recovery else 'disabled'),flush=True)
     from jasmine_web.batch.performance_review import PerformanceReview

@@ -188,7 +188,7 @@ def _capture(queue, state, destination, tools, *, after_snapshot=None, single_ca
                     if (state/folder).exists():
                         keys.update(folder+'/'+k for k,v in scan(state/folder).items()
                             if stat.S_ISREG(v[2]) and not any(p.startswith('.pending-') for p in Path(k).parts))
-                for key in ('session-secret','training-imports.json','.performance-fingerprint-key','performance-platform.json',
+                for key in ('session-secret','administrator-password.json','training-imports.json','.performance-fingerprint-key','performance-platform.json',
                             'release-retirement-policy.json','release-retirement.json',
                             'storage-budget.json','storage-budget-status.json'):
                     if (state/key).exists(): keys.add(key)

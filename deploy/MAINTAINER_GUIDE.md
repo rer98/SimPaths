@@ -17,8 +17,9 @@ training and user-supplied data. For MultiRun, use the separate
 [native installation runbook](multirun/VM.md).
 
 The [deployment readiness checklist](DEPLOYMENT_CHECKLIST.md) records the passing
-local evidence and remaining host-specific checks for both services. No production
-VM has been provisioned; use that checklist for installation and validation order.
+evidence and remaining acceptance work for both services. The invited VPS preview
+is now installed; use the [administrator guide](SIMPATHS_ONLINE_ADMIN_GUIDE.md)
+for routine operations and the checklist for further installation or validation.
 
 ## Updates after the first VM deployment
 

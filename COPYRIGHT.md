@@ -486,3 +486,11 @@ larger-workload qualification evidence are
 records existing public scientific files; those files retain their original
 ownership and licences. Measured resource policies, importer code, checks and
 operator notes carry attribution in their source headers.
+
+The SimPaths Online administrator guide, PDF build script, print styling,
+credential setup, configuration and recovery proofs carry attribution in their
+source headers. The generated `deploy/SimPaths-Online-Admin-Guide.pdf` and
+fictional administrator browser/database/recovery evidence are
+(C) Copyright 2026, by Ross Richardson; @author ross richardson. This does not
+claim ownership of real user addresses, private settings, existing scientific
+data or third-party software.

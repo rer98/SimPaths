@@ -17,6 +17,7 @@ from .resource_recovery_settings import DEFAULTS as RECOVERY_DEFAULTS, validate 
 
 DEFAULTS = {
     'rpc': {'socket': '/run/simpaths-executor/control.sock', 'frontend_user': 'simpaths-web'},
+    'administration': {'enabled': False, 'emails': []},
     'monitoring': {'enabled': False, 'sample_seconds': 15, 'retention_days': 30, 'max_rows': 20000},
     'compute_capacity': {'enabled': False, 'cgroup': '/sys/fs/cgroup/system.slice',
                          'reserve_cpu_millis': 0, 'reserve_memory_mib': 0},
@@ -129,6 +130,21 @@ def load_config(path):
     if any(p == root or not p.is_relative_to(root) or p.is_relative_to(state) for p in paths['prepared']):
         raise ValueError('Training imports must be under private_root, outside the service state')
     limits = sections['limits']
+    administration = sections['administration']
+    from email.headerregistry import Address
+    emails = administration['emails']
+    if (len(emails)>20 or len(emails)!=len(set(email for email in emails if isinstance(email,str)))
+            or administration['enabled'] and not emails):
+        raise ValueError('Use 1–20 distinct administrator emails when administration is enabled')
+    for email in emails:
+        try:
+            address = Address(addr_spec=email)
+            valid = (email == email.strip().lower() and len(email)<=254 and address.addr_spec==email
+                     and address.username and '.' in address.domain and not any(c in email for c in '\r\n'))
+        except (TypeError, ValueError, IndexError):
+            valid = False
+        if not valid:
+            raise ValueError('Administrator emails must be canonical lowercase email addresses')
     validate_recovery(sections['recovery'])
     monitoring = sections['monitoring']
     for key, low, high in (('sample_seconds',5,300),('retention_days',1,90),('max_rows',100,100000)):
@@ -257,6 +273,7 @@ def load_config(path):
     if not re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}',sections['rpc']['frontend_user']):
         raise ValueError('rpc.frontend_user must name a dedicated Linux account')
     options = SimpleNamespace(rpc_socket=rpc_socket,rpc_frontend_user=sections['rpc']['frontend_user'],**limits, **paths, **service, image=image,
+        administration=dict(administration),
         compute_capacity=dict(compute),
         monitoring_exports=dict(export),operational_metrics=monitoring['enabled'],metrics_sample_seconds=monitoring['sample_seconds'],
         metrics_retention_days=monitoring['retention_days'],metrics_max_rows=monitoring['max_rows'],

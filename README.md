@@ -18,6 +18,10 @@ preview services, experiment submission, results, the AI assistant and retention
 
 ## Maintaining the web deployments
 
+The [administrator guide](deploy/SIMPATHS_ONLINE_ADMIN_GUIDE.md)
+([PDF](deploy/SimPaths-Online-Admin-Guide.pdf)) covers account and dataset permissions,
+the separate administrator logins, service checks, backups and recovery.
+
 The [web release maintainer guide](deploy/MAINTAINER_GUIDE.md) describes how to
 build, validate and deploy updated Quick Start, configurable training and
 user-supplied data images. These workflows run from SimPaths with matching

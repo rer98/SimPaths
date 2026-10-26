@@ -5,6 +5,12 @@
 socket = "/run/simpaths-executor/control.sock"
 frontend_user = "simpaths-web"
 
+[administration]
+# Explicit private role list; ordinary account approval does not grant this role.
+# Enable only after schema 036, a private password and two-factor checks pass.
+enabled = false
+emails = []
+
 [service]
 origin = "https://multirun.example.org"
 port = 5002

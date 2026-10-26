@@ -55,6 +55,19 @@ async def verification_mail(email, code):
     deliver_email(message)
 
 
+async def administrator_verification_mail(email, code):
+    from jasmine_web.contact import deliver_email
+    from jasmine_web.batch.access import email_address
+    message = EmailMessage()
+    message['From'] = email_address(os.environ['SMTP_FROM_EMAIL'])
+    message['To'] = email_address(email)
+    message['Subject'] = 'Your SimPaths Online MultiRun administrator code'
+    message.set_content(f'Your MultiRun administrator sign-in code is {code}. It expires in 10 minutes.\n'
+        'This code is for the separate administrator login, after the administrator password.\n'
+        'If you did not request it, do not share the code; contact the service operator.\n')
+    deliver_email(message)
+
+
 def check_storage(options):
     for path in (options.private_root, options.state, options.frontend, *options.prepared):
         if not path.is_dir() or any(p.is_symlink() for p in (path, *path.parents)):
@@ -67,6 +80,9 @@ def check_storage(options):
     if options.dedicated_storage and (not options.private_root.is_mount() or
             options.private_root.stat().st_dev == Path('/').stat().st_dev):
         raise ValueError('Dedicated storage is required: mount private storage outside the OS filesystem')
+    if getattr(options,'administration',{}).get('enabled'):
+        from jasmine_web.batch.administrator_password import read_credential
+        read_credential(options.state/'administrator-password.json')
 
 
 def database_dsn(options):

@@ -5,6 +5,12 @@ Account approval, renewal reminders, bounded expiry grace and independent retent
 
 # MultiRun account and dataset permissions
 
+The separate [administrator interface and guide](../SIMPATHS_ONLINE_ADMIN_GUIDE.md)
+provide reviewed account and per-provider-dataset changes after schema 036 is
+installed and private administrator roles/password are explicitly configured.
+It requires its own password plus an emailed code. Ordinary user approval never
+grants administrator authority; the private CLI below remains available.
+
 An approved email address still needs the normal emailed sign-in code. Browser
 sessions expire independently of account approval. Approvals may last 1–365 days
 or have no expiry. A permanent approval remains revocable. A missing expiry with

@@ -26,6 +26,21 @@ TEMPLATE = Path(__file__).with_name('vm')/'multirun.toml.example'
 
 
 class VMConfigTests(unittest.TestCase):
+    def test_administrator_access_is_explicit_bounded_and_separate_from_ordinary_approval(self):
+        self.assertEqual(self.config().administration,dict(enabled=False,emails=[]))
+        original=self.text
+        start=original.index('[administration]')
+        base=original[:start]+original[original.index('[service]',start):]
+        block='\n[administration]\nenabled = true\nemails = ["admin@example.org", "second@example.org"]\n'
+        self.assertEqual(self.config(base+block).administration['emails'],['admin@example.org','second@example.org'])
+        for old,new in (('enabled = true','enabled = 1'),
+                        ('["admin@example.org", "second@example.org"]','[]'),
+                        ('"second@example.org"','"admin@example.org"'),
+                        ('"admin@example.org"','"Admin@example.org"'),
+                        ('"admin@example.org"','123'),
+                        ('"admin@example.org"','"missing-domain"')):
+            with self.subTest(new=new),self.assertRaises(ValueError):self.config(base+block.replace(old,new))
+
     def test_compute_capacity_configuration_is_explicit_and_preserves_host_scope(self):
         self.assertFalse(self.config().compute_capacity['enabled'])
         block='\n[compute_capacity]\nenabled = true\ncgroup = "/sys/fs/cgroup/system.slice"\nreserve_cpu_millis = 0\nreserve_memory_mib = 0\n'

@@ -7,6 +7,11 @@ Attribution scope and non-commentable/generated artifacts.
 
 # Attribution
 
+The resource-growth recovery proof and operator guidance carry inline notices.
+Generated fictional browser, backup/restore and guarded deployment receipts are
+(C) Copyright 2026, by Ross Richardson; @author ross richardson. No scientific
+simulation data or third-party software is attributed by this notice.
+
 The fresh PostgreSQL role proof carries inline attribution. Its generated
 fictional role, authentication and initialization receipts are
 (C) Copyright 2026, by Ross Richardson; @author ross richardson. PostgreSQL and

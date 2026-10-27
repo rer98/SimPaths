@@ -144,6 +144,34 @@ class LiveBackupTests(unittest.TestCase):
         self.assertEqual(retry.specification,lease.specification)
         self.assertIsNone(retry.pending_change)
 
+    def test_preventive_growth_reason_survives_restore_as_history_without_replaying_wait(self):
+        from jasmine_web.batch.policy import Resources
+        from jasmine_web.batch.resource_recovery import RecoveryPolicy
+        self.q.cancel(self.f.owner,self.f.f.job(self.f.owner,self.f.queued)['id'])
+        run=dict(id='baseline',parameters=self.f.configuration.editable_configuration())
+        self.q.submit(self.f.owner,uuid4().hex,label='Preventive memory request',model_digest=IMAGE,
+            dataset_id=self.f.dataset,seed_plan=['606'],run_sets=[run],resources=Resources(2000,4000,8000),
+            resource_recovery=RecoveryPolicy(),heap_limits={'baseline':2048})
+        lease=self.active()
+        with patch.object(self.q,'available_for_batch',return_value=dict(cpu_millis=-2000,memory_mib=512,storage_mib=20000)):
+            self.assertIsNone(self.q.reserve_resources(lease,'memory'))
+        waiting=self.f.f.sql('SELECT resource_wait FROM jobs WHERE id=%s',(lease.job_id,))[0]['resource_wait']
+        self.assertEqual(waiting,dict(kind='memory',reason='capacity',additional=dict(memory_mib=1024),
+            available=dict(memory_mib=512),limited_by=['memory_mib']))
+        notices=self.f.f.sql('SELECT id,context FROM problem_notifications WHERE job_id=%s ORDER BY id',(lease.job_id,))
+        events=self.f.f.sql('SELECT * FROM resource_events WHERE attempt_id=%s ORDER BY id',(lease.attempt_id,))
+        self.assertEqual(len(notices),2)
+        self.assertTrue(all(row['context']['waiting']=={k:v for k,v in waiting.items() if k!='kind'} for row in notices))
+        self.save();self.assertTrue(self.restore()['inactive'])
+        with self.f.target_q._connection() as c:
+            self.assertEqual(notices,c.execute('SELECT id,context FROM problem_notifications WHERE job_id=%s ORDER BY id',(lease.job_id,)).fetchall())
+            self.assertEqual(events,c.execute('SELECT * FROM resource_events WHERE attempt_id=%s ORDER BY id',(lease.attempt_id,)).fetchall())
+            job=c.execute('SELECT state,resource_wait,next_resources,next_heap_mib FROM jobs WHERE id=%s',(lease.job_id,)).fetchone()
+            self.assertEqual(job['state'],'retry_wait');self.assertIsNone(job['resource_wait'])
+            self.assertEqual(job['next_resources'],lease.resources);self.assertEqual(job['next_heap_mib'],2048)
+            self.assertEqual(c.execute("SELECT count(*) AS n FROM resource_changes WHERE state='pending'").fetchone()['n'],0)
+        self.assertEqual(self.f.f.sql('SELECT resource_wait FROM jobs WHERE id=%s',(lease.job_id,))[0]['resource_wait'],waiting)
+
     def test_cancel_retry_opt_out_exhaustion_and_revocation_remain_bounded(self):
         for case,expected in [('cancel','cancelled'),('opt-out','review'),('exhausted','review'),('revoked','review')]:
             with self.subTest(case=case):

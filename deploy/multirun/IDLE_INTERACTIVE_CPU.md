@@ -98,6 +98,24 @@ not measured utilisation. A negative ordinary batch CPU remainder while loans
 are active represents revocable boosts; new admissions still use the normal
 budget. Last-launch metadata records the selected option separately.
 
+Resource growth checks only the additional resources requested. In particular,
+a negative ordinary CPU remainder during permitted CPU borrowing does not block
+a RAM-only or storage-only increase. The increase must still fit its own shared
+budget, preserve protected preparation capacity and stay within the job's frozen
+recovery ceilings. A compute-admission pause still blocks growth. CPU recall
+preserves an already confirmed RAM increase and the original heap, parameters,
+seeds and execution-time budget.
+
+A preventive increase request does not mean that an attempt failed. The model
+can continue at its current allocation and may complete without an increase.
+New waiting records distinguish shared capacity, the frozen ceiling, an operator
+pause and an unapplied host change. Shared-capacity records include the requested
+additional amount and the amount available at that check. Older records cannot
+retrospectively identify the unavailable resource. My Jobs presents successful
+recovery as resolved history; expanding Attempt history shows the earlier
+attempts and recent recovery events. Unsent preventive notices are discarded
+when that attempt is no longer running or the recorded constraint has cleared.
+
 Online backup preserves enablement but clears launch intent in the restored
 database after retiring captured execution reservations. Offline backup retains
 the bounded timestamp. Neither restore silently lends RAM or activates work

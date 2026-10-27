@@ -258,6 +258,15 @@ remain complete; unfinished job details default to 20 and can be increased with
   release. A running application loads a changed selection on restart; accepted
   jobs keep their original pins, as explained in [RELEASES.md](RELEASES.md).
 
+The Visualiser `filesystem_bytes` headroom advisory compares outstanding storage
+commitments and safety buffers with filesystem space free at the recorded check.
+It is not a measurement of the percentage of the disk occupied by files. Review
+current reservations alongside actual usage before increasing an allowance.
+Completed jobs may have released their commitments since the warning was sent.
+The advisory alone does not establish that a simulation failed or that Visualiser
+preparation was blocked. Other Visualiser limits, such as retained publication
+bytes, remain separate measures.
+
 Application assembly records secret-free flags in mode-0600
 `operator-settings.json`. The status command labels these **last application
 launch** settings, with their timestamp. They include notification delivery,

@@ -68,6 +68,7 @@ class VisualiserBackend:
         self.manifest=manifest
         self.supports_summary_cache=(b'simpaths.visualiser.role-independent-metrics.v1'
                                      in (self.build/'runner.cjs').read_bytes())
+        self.supports_file_outputs=b'if(request.outputs)' in (self.build/'runner.cjs').read_bytes()
         self.summary_cache=None
         self.source_checks=OrderedDict()
         self.source_check_mutex=threading.Lock()
@@ -399,7 +400,14 @@ class VisualiserBackend:
                              str(self.build/'runner.cjs'),str(work/'request.json')])
             return AggregateFiles(tuple(series),notice,comparison_available=self.paired)
         output=work/'aggregate.json'
-        atomic_json(work/'request.json',dict(operation='aggregate',metrics=[m for group in groups for m in group],output=str(output)))
+        request=dict(operation='aggregate',metrics=[m for group in groups for m in group])
+        if len(sources)==1 and self.supports_file_outputs:
+            # Reuse the pinned runner's larger bounded per-configuration route.
+            # Its legacy single-file route has a fixed 16 MiB ceiling, even
+            # when the platform admits a larger long-horizon publication.
+            request['outputs']=[dict(path=str(output),role=sources[0]['configuration']['role'].lower())]
+        else:request['output']=str(output)
+        atomic_json(work/'request.json',request)
         command([self.node,'--max-old-space-size='+str(heap),
                  str(self.build/'runner.cjs'),str(work/'request.json')])
         return AggregateFiles((output,),notice,comparison_available=self.paired and len(sources)>1)

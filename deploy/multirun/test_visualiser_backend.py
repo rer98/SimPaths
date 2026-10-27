@@ -122,6 +122,14 @@ class VisualiserBackendTests(unittest.TestCase):
         self.assertEqual(scenario['paired_mean_delta'],5)
         self.assertEqual((scenario['paired_lower_ci'],scenario['paired_upper_ci']),(5,5))
 
+    def test_single_configuration_file_route_matches_legacy_rows(self):
+        selected=sources(self.root)[:1]
+        actual=self.backend.process(selected,self.work,self.command,lambda count:None)
+        self.backend.supports_file_outputs=False
+        legacy=self.root/'legacy-work';legacy.mkdir(mode=0o700)
+        expected=self.backend.process(selected,legacy,self.command,lambda count:None)
+        self.assertEqual(actual,expected)
+
     def test_platform_interface_stages_rows_without_parsing_them_in_the_server(self):
         from unittest.mock import patch
         from jasmine_web.batch.aggregate_io import AggregateFiles

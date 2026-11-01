@@ -5,6 +5,8 @@ Practical administration of SimPaths Online SingleRun and MultiRun.
 
 # SimPaths Online: administrator guide
 
+Ross Richardson · 1 November 2026
+
 This guide explains how to administer SimPaths Online, manage account permissions
 and perform everyday checks. Scientific outputs are still experimental. The
 current shared training inputs come from the public SimPaths repository; admitting confidential provider
@@ -222,12 +224,35 @@ operator report; do not assume every artifact expires with its raw output.
 See [the user-facing retention policy](SIMPATHS_ONLINE_USER_GUIDE.md#6-keep-results-manage-access-and-report-problems) and
 [Visualiser retention](multirun/VISUALISER_RETENTION.md).
 
-Daily encrypted local backups and hourly retry checks are configured. There is
-also a separately encrypted host-configuration recovery copy, containing settings
-such as stable session secrets. Online backups retain settled files and database
-state; they are not a checkpoint of the Java engine's current in-memory state.
-SingleRun controls can be briefly protected while its recovery state is captured.
-An interrupted model is recovered or retried within its existing budgets.
+Owners can free space under **Storage → Output Files** using **Delete raw outputs,
+keep Visualiser data**. This requires complete, compatible summaries for every
+repetition; a ready chart alone is insufficient. If summaries are missing, prepare
+the charts first. The review states the permanent loss of raw files and the
+existing summary deadline. Confirmation preserves available charts and permits
+later baseline comparisons while the required summaries remain valid; it extends
+neither summary nor chart retention. New calculations needing the deleted raw
+files will no longer be possible. Check the resulting Storage status and usage.
+
+The separate **Delete output files** action also withdraws hosted aggregate access.
+After raw-only deletion, this control is named **Delete results and Visualiser
+data**. Neither action recalls an aggregate ZIP already downloaded by a user.
+The administrator webpage has no user-data deletion control; operators should
+follow the reviewed lifecycle procedures rather than removing files directly.
+
+Daily encrypted local backups and hourly retry checks are configured. The complete
+scheduled invocation has a **six-hour limit**, covering source-byte verification,
+database export, compression/encryption and ciphertext checks. This is a maximum,
+not an expected duration. A failed or unfinished capture does not replace the
+previous verified backup. Check completion status rather than treating a growing
+temporary file as a recovery copy.
+
+A separate, small encrypted host-configuration copy preserves settings such as
+stable session secrets. Refresh it after configuration changes; the current copy
+includes the six-hour backup and three-hour chart limits. Online application
+backups retain settled files and database state; they are not a checkpoint of the
+Java engine's current in-memory state. SingleRun controls can be briefly protected
+while its recovery state is captured. An interrupted model is recovered or retried
+within its existing budgets.
 
 The recovery private key and its passphrase stay outside the VPS. Keep the
 verified private-key export and key metadata in a separate secure location, along
@@ -238,8 +263,8 @@ configured. Keep the present local-retention policy until remote transfer,
 readback and isolated restoration have passed.
 
 The administrator password **hash**, audit and permission state are included in
-application backups after this update; the private administrator email list is
-in the host-configuration copy. Restored administrator sessions keep their
+application backups; the private administrator email list is in the
+host-configuration copy. Restored administrator sessions keep their
 original expiry. Restore does not extend approval dates, send mail or start
 applications. Review the restored policy and invalidate administrator sessions
 before reopening a recovered service when appropriate.
@@ -259,6 +284,14 @@ configurations use the qualified resource policy selected for their model releas
 Spare CPU may boost running models and can be reclaimed for interactive work or
 Visualiser preparation. Emergency growth/retries remain bounded by the original
 attempt, runtime and storage ceilings.
+
+Each chart preparation currently has a **three-hour limit**, including source
+verification, aggregation, baseline comparisons and publication. Large outputs
+may need substantial time; this allowance is not a completion guarantee or an
+estimate of the wait. A chart-only retry reuses compatible retained per-repetition
+summaries and does not rerun simulations. CPU/RAM allowances, access checks and
+retention dates are unchanged by the longer time limit. See
+[Visualiser preparation](multirun/VISUALISER_PREPARATION.md).
 
 An upgraded host does not silently approve a larger shared CPU/RAM budget.
 Detection records spare capacity and can notify the administrator. Inspect its
@@ -306,9 +339,9 @@ sudo -u simpaths-online /opt/simpaths-online/venv/bin/python -B \
 do not turn a user into an administrator, send mail or delete data. See
 [account permissions](multirun/ACCOUNT_ACCESS.md).
 
-To enable administrator roles, the host operator edits the private
-`/etc/simpaths-online/multirun.toml`, using the reviewed configuration/reload
-procedure:
+Administrator roles are set in the private file
+`/etc/simpaths-online/multirun.toml`. The host operator edits it using the reviewed
+configuration/reload procedure:
 
 ```toml
 [administration]

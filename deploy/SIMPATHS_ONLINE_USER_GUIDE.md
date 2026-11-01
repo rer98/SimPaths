@@ -5,7 +5,7 @@ Concise user guide to the SingleRun and MultiRun SimPaths Online preview.
 
 # SimPaths Online: user guide
 
-Ross Richardson · 25 October 2026
+Ross Richardson · 1 November 2026
 
 **CeMPA group preview**
 
@@ -18,9 +18,6 @@ and runs configurations in parallel when resources permit.
 |:-----------------|:------------------------------------|:-----------------------------------------------|
 | **SingleRun** | <https://13.140.163.1:8443> | Exploring one simulation interactively |
 | **MultiRun** | <https://13.140.163.1> | Repeated simulations and policy comparisons |
-
-Use **https://**, including **:8443** for SingleRun. No local SimPaths installation
-or SSH tunnel is needed.
 
 > **This is an experimental alpha preview.** Please explore the services, push
 > their limits and report problems. Experiments may fail, outputs may be incomplete,
@@ -86,8 +83,7 @@ status before resubmitting. Automatic recovery may increase resources or retry
 an eligible failure within the recorded limits and available capacity; success
 is not guaranteed.
 
-**Cancel** requests that unfinished work stop. Cancelled jobs are shown by default;
-**Show cancelled jobs** remembers your choice. **Review retry** for a failed
+**Cancel** requests that unfinished work stop. **Review retry** for a failed
 configuration, or **Retry** for a cancelled one, opens a review. **Confirm retry**
 queues it again from the beginning with its saved settings and seeds.
 Cancellation/retry history is retained. Retries share the original attempt and
@@ -127,10 +123,17 @@ the underlying microdata. Downloads from your own inputs are described in sectio
    source and baseline. New charts and comparisons appear automatically in the
    same view; select newly available alternatives as required.
 
-Initial aggregation can take minutes or longer for large outputs or a busy server.
-Changing the baseline reuses retained per-run summaries where available, rather
-than processing the raw outputs again. Earlier comparisons are cached separately
-and can be reused within permission, retention and storage limits.
+Initial chart preparation can take minutes for small outputs and over an hour for
+large, long-running experiments. The current service allows **up to three hours
+per preparation**, including source checks, aggregation and comparison calculations;
+queueing can add to the wait. This is a time limit, not an estimated completion time.
+If Results says **Chart preparation needs retry**, request preparation again there.
+Compatible summaries from completed repetitions are reused; simulations are not
+rerun. Ready configurations can be viewed while the others prepare.
+
+Changing the baseline also reuses retained per-run summaries where available.
+Earlier comparisons are cached separately and can be reused within permission,
+retention and storage limits.
 
 Differences use **matching random seeds** between baseline and alternative.
 Variation in the paired differences across repetitions informs the uncertainty
@@ -181,6 +184,36 @@ inputs. **Download a comparison** appears only for eligible configurations.
 The Visualiser's aggregate ZIP is a separate download, also available for training
 examples.
 
+### Free space while keeping Visualiser data
+
+Use **Storage → Output Files** to remove large raw outputs once their Visualiser
+summaries are ready:
+
+1. Check the configuration's charts in **View Results** and save an aggregate ZIP
+   if you want a copy for longer-term use.
+2. Choose **Delete raw outputs, keep Visualiser data** beside that configuration.
+   Wait for the retained-data check and review the space to reclaim and summary
+   retention deadline.
+3. Read the permanent-deletion warning, then choose **Confirm raw output deletion**.
+   Check the item's status to confirm removal. Deletion can wait for a backup,
+   download or results processing to release the files.
+
+This option requires compatible saved summaries for **every repetition**. A ready
+chart alone is insufficient. If the check reports missing summaries or preparation
+needing a retry, return to Results and prepare the charts first. A failed check
+leaves the raw files in place and shows an explanation beside the action.
+
+After removal, existing charts remain available until their own expiry. You can
+choose another baseline and prepare comparisons while the required summaries
+remain valid. Raw-file downloads are lost permanently, and new variables or
+calculation versions needing the raw files cannot be prepared. **Deletion does
+not extend any retention deadline.**
+
+**Delete output files** is the full-deletion choice: it also removes access to
+dependent hosted Visualiser results. After raw-only removal, that control is named
+**Delete results and Visualiser data**. Job history and copies you already
+downloaded are kept.
+
 ## 4. SingleRun: run and explore a simulation
 
 Open SingleRun and select a model card. Public training profiles do not require
@@ -189,9 +222,9 @@ MultiRun sign-in. **Quick Start — 20,000 people** is the easiest first choice;
 `startYear` fixed at **2019** and `endYear` defaulting to **2026**, with a maximum
 of **2026**. Choose **README** inside a session for that profile's instructions.
 
-1. Check the **Parameters** sidebar, including `endYear`, `fixRandomSeed`, `randomSeedIfFixed` and
-   output options. Set `endYear` to **2020** for a shorter test. Choose export
-   settings before Build.
+1. Check the **Parameters** sidebar and output options. For a shorter test, set
+   `endYear` to **2020**. Check the seed settings (`fixRandomSeed` and
+   `randomSeedIfFixed`) and choose export settings before Build.
 2. Click **Build** and wait for **Start**. Build sets up the population, model and
    charts; it can take a while.
 3. Click **Start** to run, **Pause** to inspect progress, or **Step** to advance
@@ -289,12 +322,16 @@ does **not** renew its lifetime. Check dates and protection messages in **Storag
 **My Datasets** and Results; deletion warnings normally arrive 96 and 24 hours
 before removal. Shared training datasets do not expire under this user-file policy.
 
-Aggregate charts and reusable summaries have separate seven-day retention settings.
+Aggregate charts and reusable summaries have separate seven-day retention settings:
+chart lifetime starts when the charts become ready; summary protection is based
+on simulation completion. Use the deadlines shown in the service, especially for
+comparisons whose configurations finished at different times.
 Storage pressure can reclaim eligible charts unused for 72 hours. These can be
 regenerated on request while the required summaries or raw outputs remain available.
-Save the aggregate ZIP for longer-term viewing. Explicitly deleting source results
-can remove dependent online charts. Server backups support service recovery, not a
-promise to recover an individual's expired files.
+Save the aggregate ZIP for longer-term viewing. Use the raw-only deletion action
+above to keep eligible Visualiser data when freeing space; full deletion also
+removes hosted results. Server backups support service recovery, not a promise
+to recover an individual's deleted or expired files.
 
 For time-limited MultiRun access, renewal reminders arrive **one calendar month**
 and **seven days** before expiry. Ask the administration to renew it. At ordinary

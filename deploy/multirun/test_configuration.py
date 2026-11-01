@@ -333,5 +333,69 @@ class NativeCompatibilityTests(unittest.TestCase):
                     self.assertEqual(expected, actual, "review changed native default")
 
 
+class VisualiserDeadlineConfigurationTests(unittest.TestCase):
+    """Keep a finite preparation allowance separate from CPU/RAM and retention."""
+
+    def vm_config(self, seconds=600, *, cache_hours=168, template='multirun.toml.example'):
+        import tempfile
+        from .vm_config import load_config
+        source=(Path(__file__).parent/'vm'/template).read_text()
+        text=(source.replace('sha256:REPLACE_WITH_64_HEXADECIMAL_DIGITS','sha256:'+'a'*64)
+              .replace('timeout_seconds = 600','timeout_seconds = '+str(seconds))
+              .replace('cache_hours = 168','cache_hours = '+str(cache_hours)))
+        with tempfile.TemporaryDirectory() as temporary:
+            path=Path(temporary)/'settings.toml'
+            path.write_text(text)
+            return load_config(path)
+
+    def cli(self, *arguments):
+        from .local_web import parse_args
+        return parse_args(['approve',*arguments])
+
+    def test_vm_three_hour_allowance_preserves_defaults_and_resource_reservations(self):
+        original=self.vm_config()
+        expanded=self.vm_config(10800)
+        self.assertEqual(original.visualiser_timeout_seconds,600)
+        self.assertEqual(expanded.visualiser_timeout_seconds,10800)
+        self.assertEqual(self.vm_config(template='throughput.toml.example').visualiser_timeout_seconds,10800)
+        for key in ('capacity','holdback','visualiser_memory_mib','visualiser_cpu_millis',
+                    'visualiser_storage_mib','visualiser_cache_hours','visualiser_summary_hours'):
+            self.assertEqual(getattr(original,key),getattr(expanded,key),key)
+        self.assertEqual(self.vm_config(60).visualiser_timeout_seconds,60)
+
+    def test_vm_timeout_rejects_out_of_bounds_and_noninteger_values(self):
+        for seconds in (59,10801,'true','600.0','"600"'):
+            with self.subTest(seconds=seconds),self.assertRaisesRegex(ValueError,'visualiser.timeout_seconds'):
+                self.vm_config(seconds)
+
+    def test_vm_chart_lifetime_must_outlast_the_complete_preparation_allowance(self):
+        for seconds,hours in ((3600,1),(10800,2),(10800,3)):
+            with self.subTest(seconds=seconds,hours=hours),self.assertRaisesRegex(ValueError,'cache_hours must outlast'):
+                self.vm_config(seconds,cache_hours=hours)
+        self.assertEqual(self.vm_config(10800,cache_hours=4).visualiser_cache_hours,4)
+
+    def test_cli_accepts_finite_three_hour_allowance_without_changing_default_resources(self):
+        original=self.cli()
+        expanded=self.cli('--visualiser-timeout-seconds','10800')
+        self.assertEqual(original.visualiser_timeout_seconds,600)
+        self.assertEqual(expanded.visualiser_timeout_seconds,10800)
+        self.assertEqual(original.visualiser_memory_mib,expanded.visualiser_memory_mib)
+        self.assertEqual(original.visualiser_cache_hours,expanded.visualiser_cache_hours)
+        self.assertEqual(self.cli('--visualiser-timeout-seconds','60').visualiser_timeout_seconds,60)
+
+    def test_cli_rejects_invalid_allowances_and_short_chart_lifetimes(self):
+        from contextlib import redirect_stderr
+        import io
+        for arguments in (('--visualiser-timeout-seconds','59'),
+                          ('--visualiser-timeout-seconds','10801'),
+                          ('--visualiser-timeout-seconds','true'),
+                          ('--visualiser-timeout-seconds','10800','--visualiser-cache-hours','3')):
+            with self.subTest(arguments=arguments),redirect_stderr(io.StringIO()),self.assertRaises(SystemExit) as error:
+                self.cli(*arguments)
+            self.assertEqual(error.exception.code,2)
+        self.assertEqual(self.cli('--visualiser-timeout-seconds','10800',
+                                  '--visualiser-cache-hours','4').visualiser_cache_hours,4)
+
+
 if __name__ == "__main__":
     unittest.main()

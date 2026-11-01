@@ -98,7 +98,9 @@ summaries = true
 memory_mib = 2560
 cpu_millis = 1000
 storage_mib = 2048
-timeout_seconds = 3600
+# Finite allowance for a cold 100,000-person/52-year, ten-seed preparation or
+# its two-configuration comparison. This changes time only, not CPU/RAM.
+timeout_seconds = 10800
 # Two independent preparations; each can admit up to two seed tasks within
 # one total 5 GiB/2-vCPU group. A small protected group falls back to one task.
 # Requires the executor resources drop-in with MemoryMax >= 12 GiB.

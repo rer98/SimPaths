@@ -145,7 +145,7 @@ class BackupRehearsalTests(unittest.TestCase):
 
     def test_effective_policy_rejects_relaxed_limits_and_missing_or_changed_timer_rules(self):
         service = dict(Type='oneshot',UMask='0077',MemoryMax=str(512*1024**2),TasksMax='128',
-                       Nice='10',IOSchedulingClass='3',KillMode='control-group',TimeoutStartUSec='2h',
+                       Nice='10',IOSchedulingClass='3',KillMode='control-group',TimeoutStartUSec='6h',
                        NoNewPrivileges='yes')
         initial = '{ OnActiveUSec=1s ; next_elapse=1s }'
         after_exit = '{ OnUnitInactiveUSec=5s ; next_elapse=0 }'
@@ -154,7 +154,8 @@ class BackupRehearsalTests(unittest.TestCase):
         fixture.verify_effective_policy({**service,'IOSchedulingClass':'idle'},timer)
         for field, wrong in (('Type','simple'),('UMask','0022'),('MemoryMax','infinity'),
                              ('TasksMax','infinity'),('Nice','0'),('IOSchedulingClass','2'),
-                             ('KillMode','process'),('TimeoutStartUSec','infinity'),('NoNewPrivileges','no')):
+                             ('KillMode','process'),('TimeoutStartUSec','2h'),
+                             ('TimeoutStartUSec','infinity'),('NoNewPrivileges','no')):
             with self.subTest(field=field):
                 with self.assertRaisesRegex(AssertionError,field):
                     fixture.verify_effective_policy({**service,field:wrong},timer)
@@ -197,9 +198,12 @@ class BackupRehearsalTests(unittest.TestCase):
     def test_changed_template_policy_requires_explicit_review(self):
         policy = fixture.timer_policy()
         self.assertEqual('512M',policy['service']['MemoryMax'])
+        self.assertEqual('6h',policy['service']['TimeoutStartSec'])
         self.assertEqual('hourly',policy['timer']['OnCalendar'])
         self.assertEqual('5s',policy['adaptations']['OnUnitInactiveSec'])
         with patch.object(fixture,'SERVICE_POLICY',{**fixture.SERVICE_POLICY,'MemoryMax':'1G'}):
+            with self.assertRaises(ValueError): fixture.timer_policy()
+        with patch.object(fixture,'SERVICE_POLICY',{**fixture.SERVICE_POLICY,'TimeoutStartSec':'2h'}):
             with self.assertRaises(ValueError): fixture.timer_policy()
 
     def test_only_labelled_owned_sftp_container_can_be_stopped_or_removed(self):

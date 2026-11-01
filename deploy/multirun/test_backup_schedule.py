@@ -90,7 +90,30 @@ recipient = "operator@example.invalid"
         result=self.execute(capture=failure)
         self.assertFalse(result['passed']); self.assertEqual('capturing',result['pending_stage']); self.assertEqual([],self.messages)
         self.assertNotIn('secret',json.dumps(result))
+        self.assertEqual(result['failure']['diagnostic']['error_type'],'RuntimeError')
+        self.assertEqual(result['failure']['diagnostic']['stage'],'capturing')
+        self.assertEqual(schedule.load_status(self.storage)['incident']['diagnostic'],result['failure']['diagnostic'])
         result=self.execute(now=self.now+timedelta(minutes=31)); self.assertTrue(result['passed'])
+
+    def test_failure_diagnostic_never_serializes_private_exception_messages_or_paths(self):
+        try:
+            raise FileNotFoundError(2,'private scientific row',str(self.root/'private-user-file.csv'))
+        except FileNotFoundError as error:
+            value=schedule.failure_diagnostic(error,'capturing')
+        encoded=json.dumps(value)
+        for private in ('private scientific row','private-user-file.csv',str(self.root)):
+            self.assertNotIn(private,encoded)
+        self.assertEqual(value['error_type'],'FileNotFoundError');self.assertEqual(value['stage'],'capturing')
+        self.assertEqual(set(value),{'stage','error_type','sites'})
+
+    def test_failure_diagnostic_uses_only_fixed_error_classes_and_public_source_modules(self):
+        class UnexpectedException(Exception):pass
+        value=schedule.failure_diagnostic(UnexpectedException('private fields'),'capturing')
+        self.assertEqual(value,dict(stage='capturing',error_type='OtherError',sites=[]))
+        try:schedule.load_config(self.root/'missing-private-settings.toml')
+        except Exception as error:value=schedule.failure_diagnostic(error,'capturing')
+        self.assertTrue(value['sites'])
+        self.assertTrue(all('/' not in row['module'] and set(row)=={'module','function','line'} for row in value['sites']))
 
     def test_failed_mail_delivery_remains_pending_and_reuses_incident_identity(self):
         def fail_capture(*args): raise RuntimeError()

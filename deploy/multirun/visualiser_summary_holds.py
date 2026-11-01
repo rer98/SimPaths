@@ -269,6 +269,34 @@ class SummaryHolds:
             return dict(admitted=sum(retained[key]['admitted'] for key in requested),
                         deferred=sum(not retained[key]['admitted'] for key in requested))
 
+    def preserve(self, owner, experiment, comparison, *, calculation, owner_entries):
+        """Admit one verified source without replacing other dependency plans.
+
+        The caller holds the cache lock until raw retirement finishes. A live
+        existing promise keeps its earlier deadline; capacity failure leaves all
+        existing promises untouched.
+        """
+        if (not text(owner) or not text(experiment) or not text(calculation)
+                or type(owner_entries) is not int or not 1 <= owner_entries <= self.cache.maximum_entries):
+            raise ValueError('Invalid summary dependency request')
+        records=self.load()
+        record=dict(comparison,owner=owner,experiment=experiment,scope=calculation,admitted=True)
+        key=digest([owner,experiment,record['comparison']])
+        self._validate(key,record)
+        if key in records:
+            record=dict(record,expires_at=min(record['expires_at'],records[key]['expires_at']))
+        self._validate(key,record)
+        if record['expires_at']<=time.time():
+            raise SummaryCapacityError('Retained summary deadline has expired')
+        candidate=dict(records,**{key:record})
+        entries=self.cache._entries()
+        owned={k:r for k,r in candidate.items() if r['owner']==owner}
+        if len(self.configurations(owned))>owner_entries or not self.fits(candidate,entries):
+            raise SummaryCapacityError('Configured summary allowance cannot preserve this source')
+        self.save(candidate)
+        self.cache._evict(entries,holds=candidate)
+        return record['expires_at']
+
     def invalidate(self, records, owner, configuration=None, *, job=None, attempt=None):
         return {key: record for key, record in records.items()
                 if not (record['owner'] == owner and (configuration is None or

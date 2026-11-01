@@ -77,6 +77,61 @@ class SummaryCache:
             if not any(entry[1] == key for entry in self._entries()):
                 self.holds.before_raw(identity, records)
 
+    def verify_retained(self, identities):
+        """Atomically verify every exact summary and its live admitted hold.
+
+        This read-only snapshot releases its lock on return. Raw deletion uses
+        the backend's preservation context to keep that lock through removal.
+        Never refresh access timestamps, renew a dependency, evict entries or
+        fall back to raw-source processing.
+        """
+        with self._lock('.cache.lock'):
+            return self._verify_retained_locked(identities)
+
+    def _verify_retained_locked(self, identities, *, require_held=True):
+        """Caller holds the cache lock through any dependent physical deletion."""
+        if (not isinstance(identities, list) or not 1 <= len(identities) <= self.maximum_entries
+                or any(not isinstance(identity, dict) or not identity.get('owner')
+                       or not identity.get('configuration') for identity in identities)):
+            raise ValueError('Invalid retained summary verification request')
+        encoded = [canonical(identity) for identity in identities]
+        if any(len(value) > 64 * 1024 for value in encoded):
+            raise ValueError('Retained summary identity exceeds its bound')
+        keys = [hashlib.sha256(value).hexdigest() for value in encoded]
+        if len(set(keys)) != len(keys):
+            raise ValueError('Retained summary verification requires distinct seeds')
+        admitted = self.holds.units(self.holds.load())
+        for identity, key in zip(identities, keys):
+            if require_held and not self.holds.matches(identity, admitted):
+                raise SummaryCapacityError('Summary storage is not reserved for every retained seed')
+            try:
+                directory = self.root / key
+                receipt, _, _ = self._receipt(directory)
+                if receipt['identity'] != identity:
+                    raise ValueError('Private summary identity changed')
+                with self._open(directory / 'metrics.json') as source:
+                    before = os.fstat(source.fileno())
+                    digest = hashlib.sha256()
+                    size = 0
+                    while chunk := source.read(MIB):
+                        size += len(chunk)
+                        if size > receipt['bytes']:
+                            raise ValueError('Private summary size changed')
+                        digest.update(chunk)
+                    after = os.fstat(source.fileno())
+                if (size != receipt['bytes'] or digest.hexdigest() != receipt['sha256']
+                        or (before.st_size, before.st_mtime_ns, before.st_ctime_ns, before.st_nlink)
+                        != (after.st_size, after.st_mtime_ns, after.st_ctime_ns, after.st_nlink)):
+                    raise ValueError('Private summary content changed')
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                raise ValueError('Retained summaries are unavailable; prepare all compatible seed summaries first') from error
+        # Hashing a full set can cross a fixed deadline. An initially live
+        # promise is insufficient if it expires before verification ends.
+        admitted = self.holds.units(self.holds.load())
+        if require_held and any(not self.holds.matches(identity, admitted) for identity in identities):
+            raise SummaryCapacityError('Summary storage is not reserved for every retained seed')
+        return dict(seeds=len(keys))
+
     @contextmanager
     def _lock(self, name, *, check=None):
         fd = os.open(self.root / name, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)

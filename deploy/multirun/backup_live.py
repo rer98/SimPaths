@@ -31,7 +31,8 @@ def rows(c, queue, query, tables, args=()):
 
 def selected_files(c, queue, state):
     """Choose only snapshot-referenced uploads, prepared inputs and settled output."""
-    from .queue_adapter import read_prepared, result_catalogue
+    from .queue_adapter import read_prepared
+    from .backup_output_receipts import verify_completed_output
     from .prepared_dataset import verify_snapshot
     from .backup import source_roots
     keys = set()
@@ -57,7 +58,7 @@ def selected_files(c, queue, state):
             keys.update((path.relative_to(state)/key).as_posix() for key,info in scan(path).items() if stat.S_ISREG(info[2]))
     roots=source_roots(state,[p['location'] for p in prepared])
     attempts = rows(c,queue,'''SELECT a.*,j.configuration_id,j.resources,j.dataset_id,j.model_digest,
-        j.prepared_fingerprint,j.execution_run,e.specification,d.requested_at,d.deleted_at,
+        j.prepared_fingerprint,j.execution_run,e.specification,d.requested_at,d.deleted_at,d.reason AS deletion_reason,
         r.state AS retention_state FROM {} a JOIN {} j ON j.id=a.job_id JOIN {} e ON e.id=j.experiment_id
         LEFT JOIN {} d ON d.attempt_id=a.id LEFT JOIN {} r
           ON r.pool_id=a.pool_id AND r.kind='output' AND r.artifact_id=a.id::text
@@ -65,8 +66,12 @@ def selected_files(c, queue, state):
         ['attempts','jobs','experiments','output_deletions','artifact_retention'])
     for row in attempts:
         base=state/'execution'/row['execution_key']
+        pending_raw=(row['deletion_reason']=='raw_only' and row['requested_at'] is not None
+                     and row['deleted_at'] is None)
         # No unconfirmed/live workspace is read, even if a repetition CSV exists.
         if not base.exists():
+            if pending_raw:
+                raise ArtifactError('Pending raw-only output is missing; finish deletion before backing up')
             if row['outcome']=='success' and row['specification'].get('operation')!='prepare' and not row['requested_at'] and row['retention_state']!='deleted':
                 raise ArtifactError('A retained successful output is missing')
             continue
@@ -75,17 +80,25 @@ def selected_files(c, queue, state):
         diagnostics=base/'diagnostics'
         if diagnostics.exists():
             keys.update((diagnostics.relative_to(state)/k).as_posix() for k,v in scan(diagnostics).items() if stat.S_ISREG(v[2]))
-        if row['specification'].get('operation')=='prepare' or row['requested_at'] or row['retention_state'] in ('deleting','deleted'):
+        # A pending raw-only request can remain blocked by a missing summary.
+        # Its still-retained raw files are the recovery source until the worker
+        # confirms deletion. Never produce a rawless snapshot during that gap.
+        if (row['specification'].get('operation')=='prepare' or row['requested_at'] and not pending_raw
+                or row['retention_state'] in ('deleting','deleted') and not pending_raw):
             continue
         output=base/'work/output'
-        if not output.exists(): continue
+        if not output.exists():
+            if pending_raw:
+                raise ArtifactError('Pending raw-only output is missing; finish deletion before backing up')
+            continue
         if row['outcome']=='success':
             lease=queue._lease(row,row)
-            actual=result_catalogue(lease,base/'work')
             expected=rows(c,queue,'SELECT actual_seed,output_fingerprint FROM {} WHERE attempt_id=%s ORDER BY ordinal',
                           ['repetitions'],(row['id'],))
-            if [(v['seed'],v['fingerprint']) for v in actual] != [(v['actual_seed'],v['output_fingerprint']) for v in expected]:
-                raise ArtifactError('Retained output differs from its PostgreSQL receipts')
+            # These receipts belong to a settled successful attempt in this
+            # exported SQL snapshot. Rehash every scientific byte and frozen
+            # setting without repeating completion's expensive annual-row scan.
+            verify_completed_output(lease,base/'work',expected)
         for run in output.iterdir():
             existing_directory(run)
             csv=run/'csv'

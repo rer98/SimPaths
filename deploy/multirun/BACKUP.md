@@ -333,9 +333,20 @@ Templates in `vm/backup.toml.example`, `vm/simpaths-backup.service` and
    retry; SMTP acknowledgement loss can still produce duplicate deliveries.
 5. Manually run and inspect the configured protection before installing/enabling
    the reviewed systemd templates. The timer checks hourly, with jitter; capture
-defaults to once per 24 hours. Retry eligibility defaults to 30 minutes and is
+   defaults to once per 24 hours. Retry eligibility defaults to 30 minutes and is
    acted on at the next timer check. The service uses low CPU/I/O priority, a 512 MiB
-   memory ceiling and a two-hour process timeout, without changing model policies.
+   memory ceiling and a six-hour timeout for the complete service invocation,
+   without changing model policies.
+
+The six-hour ceiling accommodates captures containing roughly 100 GiB of retained
+simulation outputs, prepared inputs and retained chart summaries. The previous
+two-hour limit interrupted captures that were still compressing and encrypting
+these larger archives. The budget covers source receipt and byte-hash checks,
+database export, streamed archive compression/encryption, ciphertext checksum
+verification and any configured remote transfer. It remains a finite service
+deadline; the existing memory ceiling, low CPU/I/O priority, free-space checks and
+process-group termination policy still apply. The separate one-hour GnuPG wait
+covers final draining after the archive producer closes its input.
 
 An interrupted upload can leave a read-only remote `.partial` file because OpenSSH
 creates it with the local ciphertext's permissions. A retry removes that incomplete
@@ -705,7 +716,7 @@ bounded rate; it does not replace the SFTP protocol or decrypt traffic.
 
 The timer invokes the existing `backup_schedule run` command in fresh processes.
 It retains the template's oneshot execution, 512 MiB/128-task limits, low CPU/I/O
-priority, private umask, two-hour timeout and process-group termination. Test ticks
+priority, private umask, six-hour timeout and process-group termination. Test ticks
 use one second initially and five seconds after each exit, with no calendar/jitter;
 installed-host filesystem/kernel hardening is separate acceptance. The configuration
 keeps the normal 24-hour capture interval but uses the supported one-minute retry

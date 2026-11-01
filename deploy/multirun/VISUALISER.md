@@ -200,10 +200,21 @@ One processor runs per execution root. Its admission reserves 1 CPU, 1,024 MiB
 memory and 512 MiB storage from the same PostgreSQL capacity pool as simulations.
 Model admission counts this reservation too. Busy capacity or disk space leaves
 the request queued. Default processing time is 600 seconds; operators can set
-`--visualiser-memory-mib` (512–4096) and `--visualiser-timeout-seconds` (60–3600).
+`--visualiser-memory-mib` (512–4096) and `--visualiser-timeout-seconds` (60–10800).
 Node's heap limit is 256 MiB below the reservation. This limits heap allocation;
 it is not an OS-level memory or CPU sandbox. Production process isolation and
 large-output resource measurements remain deployment work.
+
+The throughput example allows up to three hours for one preparation, including
+source verification, missing per-seed summaries, comparisons and publication.
+This finite operational allowance provides more time for the current
+100,000-person, 2019–2070, ten-repetition workload and its two-configuration
+comparisons. It is an upper time limit, not a predicted completion time.
+CPU/RAM admission and the
+scientific calculations are unchanged. The ordinary local default remains ten
+minutes, and the chart retention period must exceed the preparation allowance.
+Changing only this allowance preserves compatible cached summaries and charts;
+a retry reuses completed seed summaries rather than rerunning simulations.
 
 Private intermediate metrics are processed one run at a time, never sent to HTTP,
 and removed on success/failure. The cache is bounded to 256 MiB, 64 selections and
@@ -237,6 +248,22 @@ verified native output; existing simulations are not rerun. A graceful service
 shutdown terminates processing children, leaves the request queued and waits for
 their termination before releasing resources. Output deletion waits for active
 readers, and a deletion request prevents a newly finished aggregate being published.
+
+The Storage option to delete raw output while keeping charts also preserves every
+compatible private per-seed summary needed for a later comparison or baseline
+change. It requires a complete verified summary for each repetition and capacity
+to retain them. The model adapter hashes the summaries against their immutable
+receipts and admits a persistent source hold under the same cache lock it keeps
+through physical deletion. Review, submission and deletion use the authorised
+source catalogue; none of these steps reparses the raw CSVs. A missing, corrupt,
+incompatible or expired seed summary prevents this deletion option.
+
+The source hold retains the original completion-based summary deadline, including
+across restart, backup restoration and later retention-setting increases. Normal
+permission checks and the charts' existing expiry continue to apply. While that
+deadline remains live, later comparisons can read the retained summaries using
+the stored source descriptors after the raw files have gone. Revocation and full
+source deletion still invalidate those private summaries.
 
 ## Local files and browser security
 

@@ -222,6 +222,39 @@ class SummaryBackendTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'summaries have expired'):
             self.execute(selected)
 
+    def test_physical_raw_deletion_keeps_all_seed_summaries_for_a_later_pair_and_baseline_swap(self):
+        from unittest.mock import patch
+        selected=self.selected()
+        swapped=copy.deepcopy(selected[::-1])
+        swapped[0]['configuration']['role']='Baseline';swapped[1]['configuration']['role']='Scenario'
+        fresh=VisualiserBackend(self.build,self.root)
+        expected=self.execute(selected,backend=fresh)
+        reverse=self.execute(swapped,backend=fresh)
+        self.execute([selected[0]])
+        before=self.runs();created=datetime.now(timezone.utc)
+        source=selected[0]
+        source['configuration']['completed_at']=created.isoformat()
+        source['identity'].update(configuration=source['configuration']['id'],
+            repetitions=[dict(seed=run['seed']) for run in source['configuration']['runs']])
+        with self.backend.preserve_source_summaries('alice','experiment',source['identity'],source,
+                created_at=created.timestamp(),expires_at=created.timestamp()+7*86400,owner_entries=6) as retained:
+            for entry in source['files']:(self.root/entry['path']).unlink()
+        source['retained_only']=True
+        source['configuration']['summary_expires_at']=datetime.fromtimestamp(retained['expires_at'],timezone.utc).isoformat()
+        with patch.object(self.backend,'_verified_source',wraps=self.backend._verified_source) as raw:
+            self.assertEqual(self.execute(selected),expected)
+            self.assertEqual(raw.call_count,6)  # Two raw descriptors for each new alternative seed.
+        self.assertEqual(self.runs(),before+3)
+        swapped=copy.deepcopy(selected[::-1])
+        swapped[0]['configuration']['role']='Baseline';swapped[1]['configuration']['role']='Scenario'
+        self.assertEqual(self.execute(swapped),reverse)
+        self.assertEqual(self.runs(),before+3)
+        self.backend.summary_retention_seconds=14*86400
+        with patch('deploy.multirun.visualiser_backend.time.time',return_value=retained['expires_at']+1), \
+             self.assertRaisesRegex(ValueError,'summaries have expired'):
+            self.execute(selected)
+        self.assertEqual(self.runs(),before+3)
+
     def test_standalone_then_pair_then_baseline_swap_reuse_exact_scientific_rows(self):
         selected=self.selected()
         self.execute([selected[0]])

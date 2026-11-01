@@ -18,6 +18,7 @@ job/attempt/seed identities and the reviewed calculation/build identity.
 | Event | Existing finished charts | New comparison from retained summaries |
 | --- | --- | --- |
 | Raw files expire under their retention policy | Available until chart expiry | Available while the required summaries remain valid |
+| User confirms raw-only deletion with complete protected summaries | Available until chart expiry | Available until the frozen summary deadline |
 | Dataset access or owner approval is revoked | Denied immediately on the next authorised request | Denied |
 | User/operator explicitly requests deletion of the source output | Denied, including when raw output had already expired | Denied |
 | Chart retention expires | Unavailable; an authorised request may prepare it again | Needs valid summaries or still-available raw output |
@@ -30,6 +31,31 @@ preparation actually reads a completed configuration. Setting a longer retention
 period cannot recreate a source catalogue or summary that was never retained.
 Explicit source retirement prunes that job/attempt's summaries, preserving
 same-named configurations in other experiments.
+
+## Reviewed raw-only removal
+
+Migration **037** adds a separate Storage action, **Delete raw outputs, keep
+Visualiser data**, beside the existing full-output deletion action. The review
+shows the space to reclaim and the original per-repetition summary deadline.
+It requires the exact completed attempt, current permissions, retained source
+provenance and every compatible seed summary. Missing summaries must be prepared
+before this action can be confirmed; a ready chart alone is insufficient.
+
+The signed review binds the preservation choice and deadline. The worker checks
+them again and holds both the source-output fence and summary-cache lock while
+removing the model-declared raw output. The summaries receive an admitted hold
+through the existing completion-based deadline, even when automatic retention of
+completed summaries is disabled. Neither summary nor chart retention is extended.
+Existing chart publications keep their independent expiry dates. New variables
+or calculation versions that require the deleted raw files cannot be prepared
+from summaries that do not contain the required information.
+
+The owner can subsequently choose full deletion to revoke the remaining hosted
+Visualiser data. Full deletion takes precedence over both raw-only deletion and
+ordinary expiry. If a raw-only request is waiting because a summary is unavailable,
+the raw files still follow their normal retention deadline; ordinary expiry can
+take over without losing the frozen summary deadline or protection. A stale
+raw-only review cannot reverse a full deletion or an expiry decision.
 
 The browser must still reauthorise before replaying its bounded local cache.
 Revocation/explicit deletion therefore blocks hosted access even when rows were
@@ -50,8 +76,10 @@ cache_mib = 16384
 ```
 
 `summary_hours` and `cache_hours` independently accept **1–8760 hours**. The raw
-retention policy is separate. Summary protection begins at simulation completion
-and is capped by current owner approval. Chart expiry begins when publication
+retention policy is separate. Summary protection begins at simulation completion;
+account expiry or revocation denies access without shortening normal retention.
+Dataset permissions and full-result deletion remain enforced separately.
+Chart expiry begins when publication
 becomes ready. Reads, additions to an experiment and backup/restore do not renew
 either clock. A pending pair's summary deadline starts with its first completed
 member; a later partner does not renew the earlier promise.
@@ -65,8 +93,8 @@ with finished publications, chart indices and worker scratch. These settings do
 not reserve extra RAM or filesystem capacity. Storage pressure can defer new
 preparation; the example is not a promise that every admitted simulation already
 has its future chart bytes reserved. The agreed 72-hour pressure eviction, live
-budget growth and 50/70/85% admin alerts remain TODO in
-[EXPERIMENT_ITERATION.md](EXPERIMENT_ITERATION.md).
+budget growth and 50/70/85% admin alerts are described in
+[VISUALISER_STORAGE.md](VISUALISER_STORAGE.md).
 
 ## Backup contents
 
@@ -78,7 +106,12 @@ Both retain committed Visualiser data alongside the matching PostgreSQL snapshot
 - Ready publications, status/expiry records, chart indices and every indexed
   section. Composite selections are included only with all required components.
 - Source provenance, current permissions and explicit expiry/deletion reasons
-  in the captured database.
+  in the captured database, including frozen raw-only summary deadlines.
+
+Pending raw-only deletions keep their still-present raw files in online backups
+until physical removal is durably acknowledged. The usual repetition receipts
+are verified. If a pending raw output is unexpectedly missing before that
+acknowledgement, capture fails rather than producing an incomplete recovery copy.
 
 Selection uses trusted private locks and the same database snapshot as the rest
 of the backup. Work newer than that snapshot is omitted. Ready publications take

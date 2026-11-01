@@ -31,6 +31,30 @@ behind its own operator setting, with native database acceptance passed. The che
 distinguish local and native database verification from outstanding hosted
 resource and deployment acceptance.
 
+## Finite preparation allowance — 1 November 2026
+
+The throughput example now allows **three hours per preparation**. The supported
+operator range is 60–10,800 seconds; the ordinary local default stays at 600
+seconds. This is a finite operational allowance for the current large workload,
+not a prediction based on population, years or repetition count. Chart retention
+must outlast the complete preparation allowance.
+
+The hosted 100,000-person, 2019–2070, ten-repetition preparations reached the old
+one-hour limit after 3,600.65 seconds for one configuration and 3,600.55 seconds
+for its two-configuration comparison. Individual raw-to-summary calculations
+took roughly nine to eleven minutes. Completed per-seed summaries survived both
+stops: the first configuration later finished using six saved summaries and four
+new calculations. The other configuration retained eight of its ten summaries.
+These measurements justify more time for cold preparation and source checks.
+They do not establish a different CPU/RAM requirement or change the calculations.
+
+Only the configured time allowance changes. Existing worker resource limits,
+summary identities, chart links and retention deadlines remain in force. A
+normal retry reuses compatible summaries and computes missing ones; it does not
+rerun the scientific simulations. Raising the allowance requires an explicit
+operator configuration change and service reload, and does not alter the time
+budget of preparation already running.
+
 ## Current behaviour and evidence
 
 - Results-page **Prepare Visualiser** requests still work. With automatic mode,

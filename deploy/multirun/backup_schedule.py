@@ -16,6 +16,7 @@ import re
 import shutil
 import sys
 import tomllib
+import traceback
 from uuid import uuid4
 
 from .artifacts import ArtifactError
@@ -179,7 +180,8 @@ def report(status, *, now=None, config=None):
         last_success_age_seconds=age,pending_stage=current['stage'] if current else (
             'local-cleanup' if incident and incident['stage']=='local-cleanup' and not incident.get('resolved_at') else None),
         failure=None if incident is None else dict(id=incident['id'],stage=incident['stage'],opened_at=incident['opened_at'],
-            alert_sent=incident.get('alert_sent',False),alert_pending=not incident.get('alert_sent',False)))
+            alert_sent=incident.get('alert_sent',False),alert_pending=not incident.get('alert_sent',False),
+            diagnostic=incident.get('diagnostic')))
 
 
 def verified_delivery(config, storage, job, receipt, connection, now):
@@ -292,9 +294,28 @@ def retention(root, config, status, now, *, transport=None):
             scan(child); shutil.rmtree(child)
 
 
-def record_failure(status, stage, now):
+def failure_diagnostic(error,stage):
+    """Fixed error classes and public code locations, never exception contents."""
+    classes={'ArtifactError','BackupBusy','ValueError','TypeError','KeyError','RuntimeError',
+             'OSError','FileNotFoundError','PermissionError','TimeoutExpired','JSONDecodeError',
+             'CalledProcessError'}
+    modules={'backup_schedule.py','backup_live.py','backup_files.py','backup_transport.py',
+             'backup_stream.py','backup_visualiser.py','backup_single.py','backup_postgres.py',
+             'queue_adapter.py','backup_output_receipts.py','csv_validation.py','releases.py',
+             'artifacts.py','backup_guard.py'}
+    sites=[]
+    for frame in traceback.extract_tb(error.__traceback__):
+        name=Path(frame.filename).name
+        if name in modules:
+            sites.append(dict(module=name,function=frame.name if re.fullmatch('[A-Za-z_][A-Za-z0-9_]{0,79}',frame.name) else 'code',line=frame.lineno))
+    return dict(stage=stage,error_type=type(error).__name__ if type(error).__name__ in classes else 'OtherError',
+                sites=sites[-4:])
+
+
+def record_failure(status, stage, now, *, error=None):
     if not status['incident'] or status['incident'].get('resolved_at'):
         status['incident']=dict(id=uuid4().hex,stage=stage,opened_at=now.isoformat(),alert_sent=False)
+    if error is not None:status['incident']['diagnostic']=failure_diagnostic(error,stage)
 
 
 def maintain_local(root, config, status, now, transport):
@@ -305,8 +326,8 @@ def maintain_local(root, config, status, now, transport):
             status['incident']['resolved_at']=now.isoformat()
             atomic_json(root/'status.json',status)
         return True
-    except Exception:
-        record_failure(status,'local-cleanup',now)
+    except Exception as error:
+        record_failure(status,'local-cleanup',now,error=error)
         atomic_json(root/'status.json',status)
         return False
 
@@ -425,9 +446,9 @@ def run(config, *, now=None, capture=capture_backup, encrypt=seal, transport=Non
                 status.update(current=None,last_success=latest)
                 if status['incident']: status['incident']['resolved_at']=now.isoformat()
                 atomic_json(root/'status.json',status)
-            except Exception:
+            except Exception as error:
                 job['retry_at']=(now+timedelta(minutes=policy['retry_minutes'])).isoformat()
-                record_failure(status,job['stage'],now)
+                record_failure(status,job['stage'],now,error=error)
                 atomic_json(root/'status.json',status)
         if ready:
             maintain_local(root,config,status,now,transport)

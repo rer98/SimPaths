@@ -182,11 +182,17 @@ def result_catalogue(lease, work):
     JAS-mine-web compares these fingerprints with the successful attempt's
     PostgreSQL receipts. Export named scientific CSVs and each run's options.txt.
     """
+    config = _result_configuration(lease)
+    return validate_outputs(work / 'output', config, lease.configuration_id, include_files=True)
+
+
+def _result_configuration(lease):
+    """Frozen settings and seed identity shared by strict and receipt-bound reads."""
     run = next(r for r in lease.specification['run_sets'] if r['id'] == lease.configuration_id)
     config = normalise(run['parameters'])
     if config.as_dict()['seed_plan']['seeds'] != lease.specification['seeds']:
         raise ArtifactError('Result seed plan differs from the submitted configuration')
-    return validate_outputs(work / 'output', config, lease.configuration_id, include_files=True)
+    return config
 
 
 def result_settings(lease):
@@ -238,7 +244,18 @@ def validate_outputs(output, configuration, run_set_id, *, include_files=False):
     This checks completion against the submission, not equality between repeated
     scientific executions; it does not waive the known receipt-flag RNG issue.
     """
-    from .csv_validation import validate_annual_csv
+    return _catalogue_outputs(output, configuration, run_set_id,
+                              include_files=include_files, validate_rows=True)
+
+
+def _catalogue_outputs(output, configuration, run_set_id, *, include_files, validate_rows):
+    """Hash exact CSV/options bytes and check native settings and seed identity.
+
+    Every completion and ordinary result read requests row validation. The sole
+    caller allowed to omit that repeated scan is the completed-output receipt verifier,
+    which must match these hashes to already validated successful SQL receipts
+    before accepting any file for capture.
+    """
     data = configuration.as_dict()
     seeds = data["seed_plan"]["seeds"]
     native = configuration.native_configuration(run_set_id)
@@ -269,7 +286,9 @@ def validate_outputs(output, configuration, run_set_id, *, include_files=False):
         for name in ("Person.csv", "BenefitUnit.csv"):
             if name not in manifest:
                 raise ArtifactError("Required scientific output missing")
-        validate_annual_csv([csv_dir/name for name in ("Person.csv","BenefitUnit.csv")],years_expected)
+        if validate_rows:
+            from .csv_validation import validate_annual_csv
+            validate_annual_csv([csv_dir/name for name in ("Person.csv","BenefitUnit.csv")],years_expected)
         results[seed] = {"seed": seed, "fingerprint": digest({"options": fingerprint(path), "csv": manifest})}
         if include_files:
             # options.txt is already included in the recorded repetition hash.

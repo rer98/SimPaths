@@ -208,7 +208,7 @@ def load_config(path):
         if visualiser['build'].is_relative_to(root) or root.is_relative_to(visualiser['build']):
             raise ValueError('Install the public Visualiser build outside private storage')
     number(visualiser['memory_mib'], 'visualiser.memory_mib', 512, 4096)
-    number(visualiser['timeout_seconds'], 'visualiser.timeout_seconds', 60, 3600)
+    number(visualiser['timeout_seconds'], 'visualiser.timeout_seconds', 60, 10800)
     for key, low, high in (('max_workers',1,2), ('seed_workers',1,2), ('cpu_millis',1000,2000),
             ('storage_mib',512,16384), ('summary_cache_mib',1,65536), ('cache_mib',48,131072),
             ('cache_hours',1,8760), ('summary_hours',1,8760), ('max_entries',1,4096), ('per_owner_entries',1,4096),
@@ -217,6 +217,8 @@ def load_config(path):
             ('artifact_mib',1,128), ('comparison_mib',1,256),
             ('rows_per_series',1,200000), ('comparison_rows',1,400000)):
         number(visualiser[key], 'visualiser.'+key, low, high)
+    if visualiser['cache_hours']*3600 <= visualiser['timeout_seconds']:
+        raise ValueError('visualiser.cache_hours must outlast visualiser.timeout_seconds')
     if (visualiser['cpu_millis'] % 500 or
             visualiser['per_owner_entries'] > visualiser['max_entries'] or
             visualiser['comparison_mib'] < visualiser['artifact_mib'] or

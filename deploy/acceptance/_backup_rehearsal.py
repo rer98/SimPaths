@@ -20,7 +20,7 @@ from deploy.acceptance._supervisor import safe_path
 ROOT = Path(__file__).resolve().parents[2]
 CONTEXT = ROOT/'deploy/acceptance/backup_sftp'
 SERVICE_POLICY = dict(Type='oneshot', UMask='0077', Nice='10', IOSchedulingClass='idle',
-                      TimeoutStartSec='2h', KillMode='control-group', NoNewPrivileges='true',
+                      TimeoutStartSec='6h', KillMode='control-group', NoNewPrivileges='true',
                       MemoryMax='512M', TasksMax='128')
 TIMER_POLICY = dict(OnBootSec='10min', OnCalendar='hourly', RandomizedDelaySec='5min',
                     Persistent='true', Unit='simpaths-backup.service')
@@ -46,7 +46,7 @@ def verify_effective_policy(service, timer):
     """Check applied limits and both timer rules, with useful failure evidence."""
     expected = dict(Type=('oneshot',), UMask=('0077',), MemoryMax=(str(512*1024**2),),
                     TasksMax=('128',), Nice=('10',), IOSchedulingClass=('idle','3'),
-                    KillMode=('control-group',), TimeoutStartUSec=('2h',), NoNewPrivileges=('yes',))
+                    KillMode=('control-group',), TimeoutStartUSec=('6h',), NoNewPrivileges=('yes',))
     for field, allowed in expected.items():
         observed = (service or {}).get(field)
         if observed not in allowed:

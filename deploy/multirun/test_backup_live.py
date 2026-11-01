@@ -64,6 +64,104 @@ class LiveBackupTests(unittest.TestCase):
     def restore(self, **kwargs):
         return backup.restore(self.f.target_q,self.f.backup,self.f.target,self.f.target_tools,**kwargs)
 
+    def test_completion_validates_rows_before_success_but_live_capture_reuses_exact_receipts(self):
+        from . import csv_validation
+        original=csv_validation.validate_annual_csv
+        phases=[]
+        def validate(*args,**kwargs):
+            active=self.f.f.sql("SELECT phase,outcome FROM attempts WHERE phase<>'finished'")
+            self.assertEqual(active,[dict(phase='running',outcome=None)])
+            phases.append(active[0]['phase'])
+            return original(*args,**kwargs)
+        with patch.object(csv_validation,'validate_annual_csv',side_effect=validate) as parsed:
+            completed=self.f.finish()
+        self.assertEqual(parsed.call_count,1);self.assertEqual(phases,['running'])
+        finished=self.f.f.sql('SELECT phase,outcome FROM attempts WHERE id=%s',(completed.attempt_id,))[0]
+        self.assertEqual(finished,dict(phase='finished',outcome='success'))
+        receipts=self.f.f.sql('SELECT actual_seed,output_fingerprint FROM repetitions WHERE attempt_id=%s ORDER BY ordinal',
+                              (completed.attempt_id,))
+        with patch.object(csv_validation,'validate_annual_csv',side_effect=AssertionError('Backup must not reparse validated rows')):
+            self.save()
+        manifest=backup.verify(self.f.backup)
+        key='execution/'+completed.execution_key+'/work/output/run_1/csv/Person.csv'
+        self.assertIn(key,manifest['state_tree']['files'])
+        self.assertTrue(self.restore()['inactive'])
+        with self.f.target_q._connection() as c:
+            self.assertEqual(receipts,c.execute('SELECT actual_seed,output_fingerprint FROM repetitions WHERE attempt_id=%s ORDER BY ordinal',
+                                               (completed.attempt_id,)).fetchall())
+        self.assertEqual((self.state/key).read_bytes(),(self.f.target/key).read_bytes())
+        self.assertTrue((self.f.target/GATE).exists())
+
+    def test_completed_output_receipts_use_the_same_exported_snapshot(self):
+        attempt=self.f.completed.attempt_id
+        before=self.f.f.sql('SELECT actual_seed,output_fingerprint FROM repetitions WHERE attempt_id=%s ORDER BY ordinal',
+                            (attempt,))
+        def during():
+            self.f.f.sql('UPDATE repetitions SET output_fingerprint=%s WHERE attempt_id=%s',('0'*64,attempt))
+        with patch('deploy.multirun.csv_validation.validate_annual_csv',side_effect=AssertionError('Do not reparse')):
+            self.save(after_snapshot=during)
+        self.assertEqual(self.f.f.sql('SELECT output_fingerprint FROM repetitions WHERE attempt_id=%s',(attempt,)),
+                         [dict(output_fingerprint='0'*64)])
+        self.assertTrue(self.restore()['inactive'])
+        with self.f.target_q._connection() as c:
+            self.assertEqual(before,c.execute('SELECT actual_seed,output_fingerprint FROM repetitions WHERE attempt_id=%s ORDER BY ordinal',
+                                             (attempt,)).fetchall())
+
+    def test_private_chart_sources_reuse_validated_model_receipts_without_reparsing_scientific_rows(self):
+        from .backup_output_receipts import verify_completed_output
+        from .test_backup_visualiser import NativeVisualiserRestoreTests
+        view=NativeVisualiserRestoreTests();view.f=self.f
+        service=view.service(self.q,self.state)
+        service.results.processing_catalogue=verify_completed_output
+        selection=service.results.processing_selection(None,self.f.completed.job_id,owner=self.f.owner)
+        with patch('deploy.multirun.csv_validation.validate_annual_csv',side_effect=AssertionError('Do not reparse validated rows')):
+            with service.results.processing_sources(selection) as (sources,check,locks):
+                check()
+                self.assertEqual(len(sources),1)
+                self.assertEqual([row['seed'] for row in sources[0]['configuration']['runs']],['606'])
+                for row in sources[0]['files']:
+                    receipt=file_hash(service.results.executor.root,row['path'])
+                    self.assertEqual((receipt['bytes'],receipt['sha256']),(row['bytes'],row['sha256']))
+
+    def assert_failed_output_capture_preserves_state(self,previous,before):
+        from jasmine_web.batch.backup_guard import file_guard
+        self.assertFalse(self.f.backup.exists())
+        self.assertFalse(any(path.name.startswith('.backup-incomplete-') for path in self.f.root.iterdir()))
+        self.assertEqual(previous.read_bytes(),b'previous verified ciphertext remains')
+        self.assertEqual(self.f.f.sql('SELECT phase,outcome FROM attempts ORDER BY id'),before)
+        # A failed validation must release retention locks so both ordinary
+        # housekeeping and a later backup can proceed without a service restart.
+        with file_guard(self.state):pass
+        with file_guard(self.state,backup=True):pass
+
+    def test_changed_raw_bytes_abort_live_capture_and_cleanly_allow_a_verified_retry(self):
+        previous=self.f.root/'previous-verified.tar.gpg'
+        previous.write_bytes(b'previous verified ciphertext remains')
+        path=self.f.executor.workspace(self.f.completed)/'work/output/run_1/csv/Person.csv'
+        original=path.read_bytes();path.write_bytes(original.replace(b',1,2',b',1,9'))
+        self.assertNotEqual(original,path.read_bytes())
+        before=self.f.f.sql('SELECT phase,outcome FROM attempts ORDER BY id')
+        with patch('deploy.multirun.csv_validation.validate_annual_csv',side_effect=AssertionError('Do not reparse')):
+            with self.assertRaisesRegex(ArtifactError,'differs from its PostgreSQL receipts'):self.save()
+        self.assert_failed_output_capture_preserves_state(previous,before)
+        path.write_bytes(original)
+        with patch('deploy.multirun.csv_validation.validate_annual_csv',side_effect=AssertionError('Do not reparse')):
+            self.save()
+        self.assertTrue(self.restore()['inactive'])
+        self.assertEqual(previous.read_bytes(),b'previous verified ciphertext remains')
+
+    def test_changed_success_receipt_aborts_live_capture_without_changing_source_history(self):
+        previous=self.f.root/'previous-verified.tar.gpg'
+        previous.write_bytes(b'previous verified ciphertext remains')
+        attempt=self.f.completed.attempt_id
+        self.f.f.sql('UPDATE repetitions SET output_fingerprint=%s WHERE attempt_id=%s',('0'*64,attempt))
+        before=self.f.f.sql('SELECT phase,outcome FROM attempts ORDER BY id')
+        with patch('deploy.multirun.csv_validation.validate_annual_csv',side_effect=AssertionError('Do not reparse')):
+            with self.assertRaisesRegex(ArtifactError,'differs from its PostgreSQL receipts'):self.save()
+        self.assert_failed_output_capture_preserves_state(previous,before)
+        self.assertEqual(self.f.f.sql('SELECT output_fingerprint FROM repetitions WHERE attempt_id=%s',(attempt,)),
+                         [dict(output_fingerprint='0'*64)])
+
     def test_running_attempt_new_publication_and_heartbeat_continue_while_snapshot_stays_fixed(self):
         from jasmine_web.batch.backup_guard import BackupBusy
         from jasmine_web.batch.backup import table_inventory

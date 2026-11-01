@@ -358,9 +358,10 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
         from jasmine_web.batch.performance_trace import HTTPReview
         service.monitor=HTTPReview(trace)
     from .queue_adapter import result_catalogue, result_name, result_deletion_targets, result_inputs, result_settings
+    from .backup_output_receipts import verify_completed_output
     from jasmine_web.batch.output_management import OutputManagement
     service.results=Results(service,executor,result_catalogue,name=result_name,
-                            inputs=result_inputs,settings=result_settings,
+                            inputs=result_inputs,settings=result_settings,processing_catalogue=verify_completed_output,
                             downloads=dict(threshold=args.download_threshold_mib*1024**2,
                                            capacity=args.download_cache_gib*1024**3,
                                            lifetime=args.download_cache_hours*3600))

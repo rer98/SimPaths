@@ -10,6 +10,7 @@ from collections import Counter, OrderedDict
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -183,6 +184,94 @@ class VisualiserBackend:
                     calculation={key:self.manifest['files'][key] for key in ('runner.cjs','calculation.cjs')},
                     node=self.identity['node'])
 
+    @staticmethod
+    def _summary_inputs(source, run):
+        selected=[f for f in source['files'] if f['name'].startswith(run['folder']+'/csv/')]
+        def one(kind):
+            files=[f for f in selected if kind in Path(f['name']).name.lower()]
+            if len(files)!=1:raise ValueError('Need one person and benefit file per run')
+            return files[0]
+        return [one('person'),one('benefit')]
+
+    def _summary_deadline(self, configuration):
+        from datetime import datetime
+        deadline=datetime.fromisoformat(configuration['completed_at']).timestamp()+self.summary_retention_seconds
+        promised=configuration.get('summary_expires_at')
+        if promised is not None:
+            if isinstance(promised,str):promised=datetime.fromisoformat(promised).timestamp()
+            if type(promised) not in (int,float) or not math.isfinite(promised):
+                raise ValueError('Invalid retained summary deadline')
+            deadline=min(deadline,promised)
+        if not math.isfinite(deadline):raise ValueError('Invalid retained summary deadline')
+        return deadline
+
+    def _require_summary_lifetime(self, configuration):
+        if self.summary_cache is None or self._summary_deadline(configuration)<=time.time():
+            raise ValueError('Retained intermediate summaries have expired')
+
+    def verify_retained_summaries(self, sources):
+        """Verify raw retirement preserves all authorised compatible seed summaries.
+
+        Front supplies its locked, currently authorised processing sources with
+        owner and immutable execution identity attached. Verification uses stored
+        catalogue descriptors after raw deletion too, and cannot prepare missing
+        summaries or extend the original completion-based retention deadline.
+        Physical deletion requires the preserve_source_summaries context below.
+        """
+        if self.summary_cache is None:
+            raise ValueError('Private retained summaries are unavailable')
+        if not isinstance(sources, list) or not sources:
+            raise ValueError('Retained summary verification requires sources')
+        identities=[]
+        for source in sources:
+            configuration=source['configuration']
+            self._require_summary_lifetime(configuration)
+            runs=configuration['runs']
+            if (not isinstance(runs,list) or not 1<=len(runs)<=100
+                    or len({str(run['seed']) for run in runs})!=len(runs)):
+                raise ValueError('Retained summary verification requires distinct seeds')
+            identities.extend(self._summary_identity(source,run,self._summary_inputs(source,run)) for run in runs)
+        result=self.summary_cache.verify_retained(identities)
+        for source in sources:
+            self._require_summary_lifetime(source['configuration'])
+        return dict(configurations=len(sources),**result)
+
+    @contextmanager
+    def preserve_source_summaries(self, owner, experiment, identity, source, *,
+                                  created_at, expires_at, owner_entries):
+        """Keep all exact source summaries locked through physical raw deletion.
+
+        Front holds its retention and source-output locks, supplies a currently
+        authorised catalogue and freezes the returned original expiry in SQL.
+        This operation never parses CSVs or creates missing scientific summaries.
+        """
+        from .visualiser_summary_cache import canonical
+        from .visualiser_summary_holds import scope
+        cache=self.summary_cache
+        if cache is None:raise ValueError('Private retained summaries are unavailable')
+        selected=dict(source,owner=owner,identity=identity)
+        configuration=selected['configuration']
+        if identity.get('configuration')!=configuration['id']:
+            raise ValueError('Retained summary source identity changed')
+        self._require_summary_lifetime(configuration)
+        runs=configuration['runs']
+        if (not isinstance(runs,list) or not 1<=len(runs)<=100
+                or len({str(run['seed']) for run in runs})!=len(runs)
+                or [str(run['seed']) for run in runs]!=[str(run['seed']) for run in identity['repetitions']]):
+            raise ValueError('Retained summary source seeds changed')
+        identities=[self._summary_identity(selected,run,self._summary_inputs(selected,run)) for run in runs]
+        comparison=dict(comparison=hashlib.sha256(canonical(['retained',identity['job']])).hexdigest(),
+            created_at=created_at,expires_at=min(expires_at,self._summary_deadline(configuration)),
+            configurations=[dict(configuration=configuration['id'],job=identity['job'],
+                attempt=identity['attempt'],seeds=[str(run['seed']) for run in runs])])
+        with cache._lock('.cache.lock'):
+            result=cache._verify_retained_locked(identities,require_held=False)
+            deadline=cache.holds.preserve(owner,experiment,comparison,calculation=scope(identities[0]),
+                                         owner_entries=min(owner_entries,cache.maximum_entries))
+            self._require_summary_lifetime(configuration)
+            if deadline<=time.time():raise ValueError('Retained intermediate summaries have expired')
+            yield dict(configurations=1,expires_at=deadline,**result)
+
     def allowed(self,origins,owner):
         return bool(origins) and all(origin==['user',owner] or
             len(origin)==2 and origin[0]=='provider' and origin[1] in self.public_datasets
@@ -259,21 +348,13 @@ class VisualiserBackend:
         check=getattr(command,'check',None)
         if check is not None:check()
         config=configuration['configuration']
-        selected=[f for f in configuration['files'] if f['name'].startswith(run['folder']+'/csv/')]
-        def one(kind):
-            files=[f for f in selected if kind in Path(f['name']).name.lower()]
-            if len(files)!=1:raise ValueError('Need one person and benefit file per run')
-            return files[0]
-        inputs=[one('person'),one('benefit')]
+        inputs=self._summary_inputs(configuration,run)
         identity=self._summary_identity(configuration,run,inputs) if self.summary_cache is not None else None
         if self.summary_cache is not None:self.summary_cache.preflight_entry(identity)
         with ExitStack() as stack:
             retained=configuration.get('retained_only',False)
             if retained:
-                from datetime import datetime
-                if (self.summary_cache is None or
-                        datetime.fromisoformat(config['completed_at']).timestamp()+self.summary_retention_seconds<=time.time()):
-                    raise ValueError('Retained intermediate summaries have expired')
+                self._require_summary_lifetime(config)
             descriptors=[] if retained else [stack.enter_context(self._verified_source(item,check=check)) for item in inputs]
             before=[os.fstat(f.fileno()) for f in descriptors]
             cached=(self.summary_cache.entry(identity,check=check,checkpoint=getattr(command,'checkpoint',None))

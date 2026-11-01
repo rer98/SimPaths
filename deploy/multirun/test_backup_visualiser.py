@@ -5,7 +5,7 @@ offline/online restoration after routine raw expiry. No scientific simulations.
 @author ross richardson
 """
 import asyncio
-from contextlib import redirect_stderr
+from contextlib import contextmanager,redirect_stderr
 import hashlib
 import io
 import json
@@ -16,6 +16,7 @@ import sys
 import tempfile
 import threading
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 from uuid import uuid4
@@ -30,6 +31,65 @@ from .releases import atomic_json
 from .visualiser_summary_cache import SummaryCache
 from .test_backup import DSN
 from jasmine_web.batch.downloads import lock
+
+
+class LiveRawOnlySelectionTests(unittest.TestCase):
+    def setUp(self):
+        temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)
+        self.state=Path(temporary.name)
+        self.base=self.state/'execution/batch-fictional'
+        self.csv=self.base/'work/output/run_1/csv'
+        for directory in (self.state/'execution',self.base,self.base/'work',self.base/'work/output',self.csv.parent,self.csv):
+            directory.mkdir(mode=0o700)
+        (self.csv/'Person.csv').write_bytes(b'fictional person output')
+        (self.csv/'BenefitUnit.csv').write_bytes(b'fictional benefit output')
+        (self.base/'work/output/run_1/input').mkdir(mode=0o700)
+        (self.base/'work/output/run_1/input/options.txt').write_text('fictional options')
+        atomic_json(self.base/'identity.json',dict(fictional=True))
+        self.attempt=dict(id='attempt',execution_key='batch-fictional',outcome='success',specification={},
+                          requested_at=1,deleted_at=None,deletion_reason='raw_only',retention_state='deleting')
+        self.expected=self.catalogue(None,None)
+
+    def catalogue(self,lease,work):
+        digest=hashlib.sha256()
+        for path in sorted(self.csv.iterdir()):digest.update(path.read_bytes())
+        return [dict(seed='606',fingerprint=digest.hexdigest())]
+
+    def selected(self):
+        def rows(c,queue,query,tables,args=()):
+            if tables[0]=='attempts':return [self.attempt]
+            if tables[0]=='repetitions':
+                return [dict(actual_seed=row['seed'],output_fingerprint=row['fingerprint']) for row in self.expected]
+            return []
+        with patch.object(backup_live,'rows',side_effect=rows), \
+             patch('deploy.multirun.queue_adapter.result_catalogue',side_effect=self.catalogue):
+            return backup_live.selected_files(None,SimpleNamespace(_lease=lambda *args:None),self.state)[0]
+
+    def test_pending_raw_only_keeps_raw_recovery_files_when_summaries_are_absent(self):
+        keys=self.selected()
+        self.assertIn('execution/batch-fictional/work/output/run_1/csv/Person.csv',keys)
+        self.assertIn('execution/batch-fictional/work/output/run_1/csv/BenefitUnit.csv',keys)
+        self.assertIn('execution/batch-fictional/work/output/run_1/input/options.txt',keys)
+        self.assertFalse((self.state/archive.ROOT/'summaries').exists())
+
+    def test_pending_raw_only_uses_the_normal_recorded_output_integrity_check(self):
+        (self.csv/'Person.csv').write_bytes(b'changed after scientific receipt')
+        with self.assertRaisesRegex(ArtifactError,'PostgreSQL receipts'):self.selected()
+
+    def test_pending_raw_only_missing_output_or_workspace_fails_closed(self):
+        shutil.rmtree(self.base/'work/output')
+        with self.assertRaisesRegex(ArtifactError,'Pending raw-only output is missing'):self.selected()
+        shutil.rmtree(self.base)
+        with self.assertRaisesRegex(ArtifactError,'Pending raw-only output is missing'):self.selected()
+
+    def test_full_requested_and_expiry_deletions_keep_their_existing_omission(self):
+        shutil.rmtree(self.base/'work/output')
+        for reason in ('requested','expiry'):
+            with self.subTest(reason=reason):
+                self.attempt['deletion_reason']=reason
+                self.assertFalse(any('/work/output/' in key for key in self.selected()))
+        self.attempt.update(deletion_reason='raw_only',deleted_at=2)
+        self.assertFalse(any('/work/output/' in key for key in self.selected()))
 
 
 class VisualiserBackupFilesTests(unittest.TestCase):
@@ -64,6 +124,26 @@ class VisualiserBackupFilesTests(unittest.TestCase):
         restored=SummaryCache(self.target/archive.ROOT/'summaries')
         with restored.entry(self.identity) as entry:self.assertTrue(entry.restore(self.root/'restored.json'))
         self.assertEqual((self.root/'restored.json').read_bytes(),b'[{"metric_value":1}]')
+        self.assertEqual(json.loads((self.target/archive.ROOT/self.key/'status.json').read_text())['expires_at'],2000000000)
+
+    def test_raw_only_summary_holds_and_original_deadline_survive_file_backup_restoration(self):
+        from .visualiser_summary_holds import STATE,canonical,scope
+        identity=dict(self.identity,seed='606',execution=dict(self.identity['execution'],job='baseline-job'),
+                      calculation={'runner.cjs':'a'*64,'calculation.cjs':'b'*64},node='v22.test')
+        source=self.root/'summary.json'
+        with self.summary.entry(identity) as entry:self.assertTrue(entry.publish(source))
+        created=time.time()-60;deadline=created+7*86400
+        plan=dict(comparison=hashlib.sha256(canonical(['retained','baseline-job'])).hexdigest(),
+            created_at=created,expires_at=deadline,configurations=[dict(configuration=identity['configuration'],
+                job='baseline-job',attempt=identity['execution']['attempt'],seeds=['606'])])
+        self.assertEqual(self.summary.holds.replace('alice','experiment',[plan],calculation=scope(identity),owner_entries=2),
+                         dict(admitted=1,deferred=0))
+        original=(self.summary.root/STATE).read_bytes()
+        record=self.capture();archive.verify(self.target,record)
+        restored=SummaryCache(self.target/archive.ROOT/'summaries')
+        self.assertEqual((restored.root/STATE).read_bytes(),original)
+        self.assertEqual(restored.verify_retained([identity]),dict(seeds=1))
+        self.assertEqual(next(iter(restored.holds.load().values()))['expires_at'],deadline)
         self.assertEqual(json.loads((self.target/archive.ROOT/self.key/'status.json').read_text())['expires_at'],2000000000)
 
     def test_active_shared_reader_does_not_prevent_backup(self):
@@ -201,7 +281,8 @@ class NativeVisualiserRestoreTests(unittest.TestCase):
             physical=lambda:dict(free_bytes=10**12,committed_bytes=0,growth_committed_bytes=0,reserve_bytes=1)))
         return service
 
-    def check_roundtrip(self,online,*,evicted=False):
+    def check_roundtrip(self,online,*,evicted=False,reason='expiry',pending=False,
+                        missing_summary=False,missing_raw=False):
         from jasmine_web.batch.policy import NotFound
         source=self.service(self.f.q,self.f.state)
         challenge=asyncio.run(source.access.issue('alice@example.org','fictional-client'))['challenge']
@@ -216,7 +297,7 @@ class NativeVisualiserRestoreTests(unittest.TestCase):
         from .releases import ReleaseRegistry, utc_now
         from .release_retirement import ReleaseRetirement
         from . import release_archives
-        from datetime import timedelta
+        from datetime import datetime,timedelta,timezone
         registry=ReleaseRegistry(self.f.state)
         original_default=next(iter(registry.load()))
         jar=self.f.root/'retired-model.jar';jar.write_bytes(b'fictional retired model')
@@ -235,13 +316,41 @@ class NativeVisualiserRestoreTests(unittest.TestCase):
         summary=self.f.root/'summary.json'
         summary.write_bytes(b'[{"year":2019,"scenario":"baseline","run":"606","metric_value":1}]')
         summary.chmod(0o600)
-        with cache.entry(identity) as entry:self.assertTrue(entry.publish(summary))
+        with cache.entry(identity) as entry:
+            self.assertTrue(entry.publish(summary));summary_key=entry.key
+        summary_deadline=None
+        if reason=='raw_only':
+            from .visualiser_summary_holds import canonical,scope
+            created=time.time()-60
+            summary_deadline=datetime.fromtimestamp(created+7*86400,timezone.utc)
+            plan=dict(comparison=hashlib.sha256(canonical(['retained',self.f.completed.job_id])).hexdigest(),
+                created_at=created,expires_at=summary_deadline.timestamp(),configurations=[dict(configuration='baseline',
+                    job=self.f.completed.job_id,attempt=self.f.completed.attempt_id,seeds=['606'])])
+            self.assertEqual(cache.holds.replace(self.f.owner,self.f.exp,[plan],calculation=scope(identity),owner_entries=2),
+                             dict(admitted=1,deferred=0))
         with q._transaction() as (c,_,now):
-            c.execute('''INSERT INTO output_deletions(attempt_id,pool_id,owner_id,targets,identity,requested_at,deleted_at,reason)
-                VALUES (%s,%s,%s,'["output"]',%s::jsonb,%s,%s,'expiry')''',
+            c.execute('''INSERT INTO output_deletions(attempt_id,pool_id,owner_id,targets,identity,requested_at,deleted_at,reason,summary_expires_at)
+                VALUES (%s,%s,%s,'["output"]',%s::jsonb,%s,%s,%s,%s)''',
                 (self.f.completed.attempt_id,q.pool_id,self.f.owner,
-                 json.dumps(self.f.executor._identity(self.f.completed)),now,now))
-        shutil.rmtree(self.f.executor.workspace(self.f.completed)/'work/output')
+                 json.dumps(self.f.executor._identity(self.f.completed)),now,now,reason,summary_deadline))
+            if pending:c.execute('UPDATE output_deletions SET deleted_at=NULL WHERE attempt_id=%s',(self.f.completed.attempt_id,))
+        if not pending:shutil.rmtree(self.f.executor.workspace(self.f.completed)/'work/output')
+        if missing_summary:
+            from jasmine_web.batch.output_management import OutputManagement
+            shutil.rmtree(cache.root/summary_key)
+            outputs=OutputManagement(source,self.f.executor,lambda _:['output'])
+            @contextmanager
+            def unavailable(*args,**kwargs):
+                with cache._lock('.cache.lock'):
+                    cache._verify_retained_locked([identity])
+                    yield
+            with outputs.executor.exclusive(),patch.object(outputs,'_preserve',side_effect=unavailable):outputs.retire()
+            self.assertTrue((self.f.executor.workspace(self.f.completed)/'work/output').exists())
+            with q._connection() as c:
+                deletion=c.execute('SELECT deleted_at,cleanup_failed FROM output_deletions WHERE attempt_id=%s',
+                                   (self.f.completed.attempt_id,)).fetchone()
+            self.assertEqual(deletion,dict(deleted_at=None,cleanup_failed=True))
+        if missing_raw:shutil.rmtree(self.f.executor.workspace(self.f.completed)/'work/output')
         self.assertEqual(v.data_bytes(auth['token'],key),original)
         from jasmine_web.batch.visualiser_storage import approve,budget
         approved=approve(v.root,maximum_bytes=512*1024**2)
@@ -249,16 +358,44 @@ class NativeVisualiserRestoreTests(unittest.TestCase):
             record=v._record(key);record.update(state='evicted',evicted_at=time.time())
             atomic_json(v._path(key)/'status.json',record)
             (v._path(key)/'published.json').unlink();shutil.rmtree(v._path(key)/'views')
+        if missing_raw:
+            with redirect_stderr(io.StringIO()),self.assertRaisesRegex(ArtifactError,'Pending raw-only output is missing'):
+                backup_live.create(q,self.f.state,self.f.backup,self.f.tools)
+            self.assertFalse(self.f.backup.exists())
+            self.assertFalse(list(self.f.backup.parent.glob('.backup-incomplete-*')))
+            return
         with redirect_stderr(io.StringIO()):
             if online:backup_live.create(q,self.f.state,self.f.backup,self.f.tools)
             else:self.f.save()
         manifest=backup.verify(self.f.backup)
-        self.assertEqual(manifest['visualiser']['summaries'],1)
+        self.assertEqual(manifest['visualiser']['summaries'],0 if missing_summary else 1)
         self.assertEqual(manifest['visualiser']['publications'],0 if evicted else 1)
         self.assertEqual(manifest['visualiser']['evictions'],1 if evicted else 0)
         self.assertEqual(manifest['visualiser']['experiment_views'],1)
         backup.restore(self.f.target_q,self.f.backup,self.f.target,self.f.target_tools)
+        if pending:
+            from .maintenance import GATE,service_state
+            self.assertTrue((self.f.target/GATE).exists())
+            with self.assertRaises(ArtifactError):
+                with service_state(self.f.target):self.fail('Inactive restoration must not start workers')
+            with self.f.target_q._connection() as c:
+                self.assertIsNone(c.execute('SELECT deleted_at FROM output_deletions WHERE attempt_id=%s',
+                    (self.f.completed.attempt_id,)).fetchone()['deleted_at'])
+            self.assertTrue((self.f.target/'execution'/self.f.completed.execution_key/'work/output').exists())
+        if missing_summary:
+            restored_cache=SummaryCache(self.f.target/archive.ROOT/'summaries')
+            with self.assertRaises(ValueError):restored_cache.verify_retained([identity])
+            self.assertFalse((restored_cache.root/summary_key).exists())
+            with self.f.target_q._connection() as c:
+                deletion=c.execute('SELECT deleted_at,summary_expires_at FROM output_deletions WHERE attempt_id=%s',
+                                   (self.f.completed.attempt_id,)).fetchone()
+            self.assertEqual(deletion,dict(deleted_at=None,summary_expires_at=summary_deadline))
+            return
         backup.activate(self.f.target_q,self.f.backup,self.f.target,image_check=lambda _:None,source_isolated=online)
+        if pending:
+            with self.f.target_q._connection() as c:
+                self.assertIsNone(c.execute('SELECT deleted_at FROM output_deletions WHERE attempt_id=%s',
+                    (self.f.completed.attempt_id,)).fetchone()['deleted_at'])
         restored_registry=ReleaseRegistry(self.f.target)
         self.assertEqual(release_archives.verify(restored_registry,old)['archive'],archive_identity)
         self.assertNotIn(old,restored_registry.load())
@@ -279,6 +416,47 @@ class NativeVisualiserRestoreTests(unittest.TestCase):
         with self.f.target_q._connection() as c:
             self.assertEqual(c.execute('SELECT identity FROM visualiser_sources WHERE attempt_id=%s',
                 (self.f.completed.attempt_id,)).fetchone(),source_row)
+            deletion=c.execute('SELECT reason,summary_expires_at FROM output_deletions WHERE attempt_id=%s',
+                               (self.f.completed.attempt_id,)).fetchone()
+        self.assertEqual(deletion,dict(reason=reason,summary_expires_at=summary_deadline))
+        if reason=='raw_only':
+            self.assertEqual(restored_cache.verify_retained([identity]),dict(seeds=1))
+            self.assertEqual(next(iter(restored_cache.holds.load().values()))['expires_at'],summary_deadline.timestamp())
+            if pending:
+                from jasmine_web.batch.output_management import OutputManagement
+                outputs=OutputManagement(restored,restored.results.executor,lambda _:['output'])
+                # Even an activated target must repeat the ordinary stopped
+                # execution check before entering the scientific summary fence.
+                with outputs.executor.exclusive(),patch.object(outputs.executor,'inspect',return_value=dict(state='running')), \
+                     patch.object(outputs,'_preserve') as preserve:
+                    outputs.retire();preserve.assert_not_called()
+                with self.f.target_q._connection() as c:
+                    self.assertIsNone(c.execute('SELECT deleted_at FROM output_deletions WHERE attempt_id=%s',
+                        (self.f.completed.attempt_id,)).fetchone()['deleted_at'])
+                @contextmanager
+                def protected(*args,**kwargs):
+                    with restored_cache._lock('.cache.lock'):
+                        restored_cache._verify_retained_locked([identity])
+                        yield dict(expires_at=summary_deadline.isoformat())
+                with outputs.executor.exclusive(),patch.object(outputs.executor,'inspect',wraps=outputs.executor.inspect) as stopped, \
+                     patch.object(outputs,'_preserve',side_effect=protected) as preserve:
+                    outputs.retire();self.assertTrue(stopped.called);preserve.assert_called_once()
+                with self.f.target_q._connection() as c:
+                    self.assertIsNotNone(c.execute('SELECT deleted_at FROM output_deletions WHERE attempt_id=%s',
+                        (self.f.completed.attempt_id,)).fetchone()['deleted_at'])
+                self.assertFalse((self.f.target/'execution'/self.f.completed.execution_key/'work/output').exists())
+                self.assertEqual(restored_cache.verify_retained([identity]),dict(seeds=1))
+            _,row=restored.results._selected(auth['token'],self.f.completed.job_id,processing=True)
+            self.assertTrue(row['aggregate_available'])
+            self.assertFalse(row['processable'])
+            from .visualiser_backend import VisualiserBackend
+            lifetime=VisualiserBackend.__new__(VisualiserBackend)
+            lifetime.summary_cache=restored_cache;lifetime.summary_retention_seconds=14*86400
+            configuration=dict(row['retained_source']['source']['configuration'],
+                               summary_expires_at=deletion['summary_expires_at'].isoformat())
+            with patch('deploy.multirun.visualiser_backend.time.time',return_value=summary_deadline.timestamp()+1), \
+                 self.assertRaisesRegex(ValueError,'summaries have expired'):
+                lifetime._require_summary_lifetime(configuration)
         self.f.target_q.grant_dataset(self.f.owner,self.f.dataset,seconds=None)
         with self.assertRaises(NotFound):restored.visualiser.data_bytes(auth['token'],key)
 
@@ -287,6 +465,27 @@ class NativeVisualiserRestoreTests(unittest.TestCase):
 
     def test_online_restore_preserves_summaries_charts_expiry_and_revocation_after_raw_expiry(self):
         self.check_roundtrip(True)
+
+    def test_offline_restore_preserves_raw_only_deletion_deadline_and_held_summaries(self):
+        self.check_roundtrip(False,reason='raw_only')
+
+    def test_online_restore_preserves_raw_only_deletion_deadline_and_held_summaries(self):
+        self.check_roundtrip(True,reason='raw_only')
+
+    def test_pending_raw_only_deletion_stays_inactive_until_activation_and_rechecks_worker_guards(self):
+        self.check_roundtrip(False,reason='raw_only',pending=True)
+
+    def test_online_pending_raw_only_deletion_restores_raw_and_rechecks_worker_guards(self):
+        self.check_roundtrip(True,reason='raw_only',pending=True)
+
+    def test_online_pending_raw_only_missing_summary_keeps_raw_in_recovery(self):
+        self.check_roundtrip(True,reason='raw_only',pending=True,missing_summary=True)
+
+    def test_online_backup_rejects_pending_raw_only_output_missing_before_acknowledgement(self):
+        self.check_roundtrip(True,reason='raw_only',pending=True,missing_raw=True)
+
+    def test_online_backup_rejects_pending_raw_only_when_raw_and_summary_are_missing(self):
+        self.check_roundtrip(True,reason='raw_only',pending=True,missing_summary=True,missing_raw=True)
 
     def test_offline_restore_keeps_eviction_suppression_and_live_approval(self):
         self.check_roundtrip(False,evicted=True)

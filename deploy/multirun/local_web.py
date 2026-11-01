@@ -170,7 +170,7 @@ def parse_args(argv=None):
     parser.add_argument('--visualiser-memory-mib',type=int,default=1024,
                         help='Shared processing reservation; Node heap uses 256 MiB less (512–4096 MiB)')
     parser.add_argument('--visualiser-timeout-seconds',type=int,default=600,
-                        help='Maximum time to process one selected visualisation (60–3600 seconds)')
+                        help='Maximum time to process one selected visualisation (60–10800 seconds)')
     parser.add_argument('--visualiser-cache-hours',type=int,default=168,
                         help='Finished chart lifetime in hours (1–8760); current permissions still apply')
     parser.add_argument('--visualiser-summary-hours',type=int,default=168,
@@ -198,10 +198,12 @@ def parse_args(argv=None):
         parser.error('--storage-wait-emails requires --notification-emails')
     if bool(args.visualiser_build)!=args.visualiser_preview:
         parser.error('Development visualiser requires both --visualiser-build and --visualiser-preview')
-    if not 512<=args.visualiser_memory_mib<=4096 or not 60<=args.visualiser_timeout_seconds<=3600:
-        parser.error('Visualiser limits must be 512–4096 MiB and 60–3600 seconds')
+    if not 512<=args.visualiser_memory_mib<=4096 or not 60<=args.visualiser_timeout_seconds<=10800:
+        parser.error('Visualiser limits must be 512–4096 MiB and 60–10800 seconds')
     if not 1<=args.visualiser_cache_hours<=8760 or not 1<=args.visualiser_summary_hours<=8760:
         parser.error('Visualiser chart and summary periods must each be 1–8760 hours')
+    if args.visualiser_cache_hours*3600 <= args.visualiser_timeout_seconds:
+        parser.error('--visualiser-cache-hours must outlast --visualiser-timeout-seconds')
     if args.command=='serve' and (not args.console_codes or not 1024<=args.port<=65535):
         parser.error('This local preview requires --console-codes and an unprivileged port')
     try:

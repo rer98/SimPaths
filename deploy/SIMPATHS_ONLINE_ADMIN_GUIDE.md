@@ -5,7 +5,7 @@ Practical administration of SimPaths Online SingleRun and MultiRun.
 
 # SimPaths Online: administrator guide
 
-Ross Richardson · 1 November 2026
+Ross Richardson · 3 November 2026
 
 This guide explains how to administer SimPaths Online, manage account permissions
 and perform everyday checks. Scientific outputs are still experimental. The
@@ -135,6 +135,23 @@ and refreshes every 30 seconds while open. "Available to batch" respects protect
 interactive and processing allowances; it is not the host's instantaneous idle
 CPU or free RAM. Job storage is a scheduler allowance, **not a measurement of how
 full the filesystem is**.
+
+With the capacity-reporting update installed, this page also shows the last
+CPU/RAM capacity-check time, its freshness and recent capacity incidents. These
+checks normally run every five minutes; readings older than 15 minutes are
+marked stale. The page's 30-second refresh does not itself take a new capacity
+reading. Compare detected capacity with the approved pool **plus** the service
+headroom, rather than with current usage. Failed readings are shown as unknown,
+with the last successful reading separately identified.
+
+If you receive **host capacity needs attention**, use the incident reference to
+find the cause, first/last failure and recovery time on this page. A valid
+subsequent check can restore admissions automatically, so a healthy page an hour
+later does not mean the original warning was incorrect. A recovery email follows
+a warning that was sent; repeated failures within the same incident are grouped.
+A later separate recurrence gets a new incident reference. Recent resolved
+incidents remain visible. No restart or budget increase should be inferred from
+the warning alone. See [capacity controls](multirun/COMPUTE_CAPACITY.md).
 
 For a fuller check, connect from an authorized laptop:
 

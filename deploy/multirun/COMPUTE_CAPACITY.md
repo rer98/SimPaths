@@ -68,6 +68,41 @@ If the executor is stopped, automatic checks/mail stop too. Independent
 [filesystem alerts](HOST_CAPACITY.md) remain separate. No heavy file scans,
 Docker stats, provider API calls or throughput benchmarks are performed.
 
+### Capacity warnings, recovery and recent incidents
+
+With the capacity-reporting update installed, **Administration → Service status**
+shows the last actual capacity-check time separately from the page refresh time.
+It marks readings older than 15 minutes as stale. Refreshing the page reads the
+saved result; it does not trigger a new hardware check or approve a budget.
+
+A warning distinguishes a CPU/RAM shortfall from a failed metadata reading. The
+report compares detected capacity with the approved whole-pool budget **plus**
+outside-pool service headroom, and shows any deficit. An unreadable measurement
+is unknown, not zero; the last successful reading is displayed separately. Busy
+CPU percentages and low instantaneous free RAM do not establish this condition.
+
+Each continuous interruption has its own incident reference, first/last failure
+times and recovery time/duration. A changed failure reason during that
+interruption remains part of the same incident. The latest 20 incidents are
+retained in the capacity journal, including resolved incidents, so a healthy page
+does not hide the preceding failure. A later recurrence creates a new incident
+even if its cause is identical. Existing hardware-upgrade notice deduplication
+remains separate.
+
+Repeated bad readings are grouped rather than mailed individually. Administrator
+messages contain fixed cause descriptions, timestamps and numeric capacity
+figures, without raw exceptions, internal paths, credentials or scientific data.
+When a warning has been sent, recovery queues a linked confirmation through the
+normal durable mail outbox. A warning that became obsolete before delivery is
+discarded; an obsolete recovery message must not claim that a newer outage is
+healthy. Mail retries do not restart work. As with other SMTP messages, an
+ambiguous delivery acknowledgement can result in a duplicate.
+
+The first unsafe reading still pauses new admissions immediately, and a valid
+sufficient reading resumes them. Reporting does not lower a pool budget, change
+running allocations or delay the safety response. Incident history and pending
+mail survive ordinary restart and the existing native backup/restore path.
+
 ## Administrator commands over SSH
 
 These operate on the installed private configuration. Run from the model checkout
@@ -158,6 +193,21 @@ TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 \
 
 This uses fictional jobs, captured senders, synthetic host metadata and a disposable
 PostgreSQL database. It runs no scientific simulations and sends no real emails.
+
+The focused reporting proof additionally exercises recurring interruptions,
+mail/recovery races, administrator-only browser reporting, stale checks and
+preservation of incident history through offline/online native restore:
+
+```bash
+cd ~/git/JAS-mine/JAS-mine-web &&
+TMPDIR=/tmp-codex PIP_DEFAULT_TIMEOUT=60 \
+~/simpaths-browser-tests/venv/bin/python scripts/test_batch_queue.py \
+  --proof-only \
+  --proof-script "$HOME/git/SimPathsWeb/SimPaths/deploy/multirun/capacity_reporting_proof.py" \
+  --proof-requirements "$HOME/git/SimPathsWeb/SimPaths/deploy/multirun/requirements-backup-proof.txt" \
+                       "$HOME/git/JAS-mine/JAS-mine-web/tests/browser/requirements-batch.txt" \
+  --output "/tmp-codex/capacity-reporting-$(date +%Y%m%d-%H%M%S)"
+```
 
 ### Local qualification — 22 October 2026
 

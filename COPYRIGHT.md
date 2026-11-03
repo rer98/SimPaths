@@ -7,6 +7,12 @@ Attribution scope and non-commentable/generated artifacts.
 
 # Attribution
 
+The capacity-incident reporting proof and administrator/operator guidance carry
+inline notices. Generated fictional capacity readings, captured-mail checks,
+browser screenshots, native restore reports and guarded deployment receipts are
+(C) Copyright 2026, by Ross Richardson; @author ross richardson. Scientific data,
+upstream software and third-party tools retain their existing ownership and licences.
+
 The resource-growth recovery proof and operator guidance carry inline notices.
 Generated fictional browser, backup/restore and guarded deployment receipts are
 (C) Copyright 2026, by Ross Richardson; @author ross richardson. No scientific

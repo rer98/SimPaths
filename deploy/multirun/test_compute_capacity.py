@@ -90,6 +90,27 @@ class ComputeRestoreTests(unittest.TestCase):
         # be able to reuse an approval prepared on this source machine.
         current.update(cpu_millis=24000,memory_mib=98304)
         pending=budget.preview(f.q,reader=reader)
+        # Incident evidence and its pending recovery travel through the same
+        # native snapshot as approvals. The fixture marks a warning acknowledged;
+        # actual captured SMTP/race behavior is covered by the queue tests.
+        budget.observe(f.q,reader=Mock(side_effect=PermissionError('PRIVATE CAPACITY PATH')))
+        failed=budget.status(f.q)
+        with f.q._transaction() as (connection,_,now):
+            warning=connection.execute('''UPDATE problem_notifications SET sent_at=%s
+                WHERE pool_id=%s AND incident_key=%s RETURNING *''',
+                (now,f.q.pool_id,failed['observation']['notice_key'])).fetchone()
+            budget.acknowledged(connection,f.q,now,warning)
+        budget.observe(f.q,reader=reader)
+        saved_observation=budget.status(f.q)['observation']
+        saved_report=budget.reporting(f.q)
+        self.assertEqual(len(saved_report['incidents']),1)
+        self.assertEqual(saved_report['incidents'][0]['reason'],'permission_denied')
+        self.assertIsNotNone(saved_report['incidents'][0]['recovered_at'])
+        saved_notices=f.f.sql('''SELECT incident_key,context,sent_at,resolved_at
+            FROM problem_notifications WHERE pool_id=%s AND kind='capacity_admin'
+            ORDER BY incident_key''',(f.q.pool_id,))
+        self.assertTrue(any(row['context'].get('event')=='recovered' and row['sent_at'] is None
+                            for row in saved_notices))
         if online:
             with service_state(f.state):backup_live.create(f.q,f.state,f.backup,f.tools)
         else:f.save()
@@ -97,6 +118,14 @@ class ComputeRestoreTests(unittest.TestCase):
         self.assertTrue((f.target/GATE).exists())
         result=budget.status(f.target_q)
         self.assertEqual(result['approved'],proposal['target'])
+        self.assertEqual(result['observation'],saved_observation)
+        self.assertEqual(budget.reporting(f.target_q)['incidents'],saved_report['incidents'])
+        with f.target_q._connection() as connection:
+            connection.execute('SET TRANSACTION READ ONLY')
+            restored_notices=connection.execute('''SELECT incident_key,context,sent_at,resolved_at
+                FROM problem_notifications WHERE pool_id=%s AND kind='capacity_admin'
+                ORDER BY incident_key''',(f.target_q.pool_id,)).fetchall()
+        self.assertEqual(restored_notices,saved_notices)
         self.assertEqual(len(result['proposals']),2)
         self.assertEqual(sum(row['applied_at'] is not None for row in result['proposals']),1)
         current.update(host='c'*64,boot='d'*64)

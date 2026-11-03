@@ -66,6 +66,13 @@ five-minute installed-capacity checks, deduplicated administrator mail and SSH
 status/preview/apply commands. Detection never changes a budget automatically;
 approvals preserve protected holds and running-job settings. The operator report
 includes the last observation, outside-pool headroom and any admission pause.
+The capacity-reporting update also retains the latest 20 interruptions with
+their cause, numeric capacity comparison, first/last failure and recovery time.
+The administrator **Service status** page shows this history and the age of the
+last capacity check. A healthy admission flag does not explain an earlier alert;
+use its incident record. Warnings distinguish a failed reading from a genuine
+shortfall. Recovery mail follows a warning that was sent, with obsolete notices
+suppressed. See the capacity guide for delivery and restart behavior.
 
 The independent [host capacity monitor](HOST_CAPACITY.md) checks configured root,
 PostgreSQL, Docker, private-data, backup and boot filesystems about every five

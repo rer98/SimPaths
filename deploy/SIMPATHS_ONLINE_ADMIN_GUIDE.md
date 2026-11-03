@@ -210,6 +210,27 @@ filesystems and inodes about every five minutes. It warns at 85% and clears belo
 missing mount as a fault, not an empty disk. Do not delete Docker volumes or
 application directories to silence an alert.
 
+### Pending application updates
+
+After the update coordinator is installed, **Service status → Application
+updates** shows a pending update, its phase and the work it is waiting for.
+During a drain, current simulations continue and users can submit experiments
+using available inputs; new MultiRun starts and new upload streams wait. A
+separate message explains this in the user workspace. SingleRun is unaffected.
+
+Qualified live updates can preserve running simulation containers while the
+MultiRun controllers reload. Other updates wait for affected work to finish.
+The maintenance page appears during the actual reload, rather than the whole
+waiting period. The server coordinator continues after an SSH disconnection.
+
+A failed update keeps starts paused until verified recovery or rollback. A
+timeout also leaves the drain pending; it does not cancel users' jobs or reopen
+the queue automatically. A host operator can cancel before installation starts.
+See [application updates](multirun/APPLICATION_UPDATES.md) for the exact operator
+commands. Database-format changes and host reboots still need a separate reviewed
+maintenance procedure. Initial installation of the coordinator needs one idle
+MultiRun window; the feature is not active merely because this guide is updated.
+
 ## 5. SingleRun administration
 
 Use the existing SingleRun administrator page for its active sessions, session

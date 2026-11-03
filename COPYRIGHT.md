@@ -7,6 +7,13 @@ Attribution scope and non-commentable/generated artifacts.
 
 # Attribution
 
+The planned application-update coordinator, fixed reversible installer, native
+workflow proof and operator guidance carry inline notices. Generated candidate
+manifests, rollback/progress receipts, fictional container/queue evidence and
+browser previews are (C) Copyright 2026, by Ross Richardson;
+@author ross richardson. This does not attribute scientific outputs or third-party
+software to this project or change their licences.
+
 The capacity-incident reporting proof and administrator/operator guidance carry
 inline notices. Generated fictional capacity readings, captured-mail checks,
 browser screenshots, native restore reports and guarded deployment receipts are

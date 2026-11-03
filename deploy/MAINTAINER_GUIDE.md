@@ -31,6 +31,13 @@ available according to their applicability and the affected workflows.
 
 The existing tools support subsequent releases:
 
+The [planned application-update coordinator](multirun/APPLICATION_UPDATES.md)
+adds a durable pause for new MultiRun starts, automatic draining and detached
+server execution. Its live mode is restricted to explicitly qualified,
+same-schema interface/administration/notification changes. Running simulations
+retain their containers; other application components use a drain. This needs
+the initial schema-038 installation and installed-host acceptance before use.
+
 | Change | Update route | Effect on accepted work |
 | --- | --- | --- |
 | Website code or Python dependencies | Stage the selected source and pinned environment; use the [application update/rollback runbook](multirun/VM.md#local-application-update-and-rollback-rehearsal) and relevant HTTP/browser checks | Public gateways can restart independently of private executors. Private-service/environment changes require the corresponding tested restart/recovery procedure |

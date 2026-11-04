@@ -4,7 +4,7 @@ Qualify trusted application packages and fixed reversible controller replacement
 Uses private fictional files and an in-memory host; never runs system commands.
 @author ross richardson
 """
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from copy import deepcopy
 import fcntl
 import json
@@ -115,6 +115,9 @@ class PackageTrustTests(unittest.TestCase):
                      self.info(st_mode=stat.S_IFIFO|0o600)):
             with self.subTest(info=info),self.assertRaises(ValueError):self.trusted(leaf=info)
 
+    def test_service_credential_ownership_never_relaxes_application_code_trust(self):
+        with self.assertRaises(ValueError):self.trusted(leaf=self.info(st_uid=999,st_mode=stat.S_IFREG|0o600))
+
     def test_only_canonical_application_source_paths_are_accepted(self):
         package.relative('JAS-mine-web/jasmine_web/batch/notifications.py')
         package.relative('SimPaths/deploy/multirun/runtime.py')
@@ -125,6 +128,148 @@ class PackageTrustTests(unittest.TestCase):
                       'SimPaths/input/DatabaseCountryYear.xlsx','Other/deploy/multirun/a.py',
                       'SimPaths/deploy/secrets.py'):
             with self.subTest(path=value),self.assertRaises(ValueError):package.relative(value)
+
+
+class SettingsSnapshotTests(unittest.TestCase):
+    def setUp(self):
+        temporary=tempfile.TemporaryDirectory(prefix='simpaths-settings-snapshot-')
+        self.addCleanup(temporary.cleanup);self.root=Path(temporary.name)
+        self.settings=self.root/'settings.toml';self.settings.write_text('fictional root setting');self.settings.chmod(0o640)
+        self.dsn=self.root/'postgres.dsn';self.secret='dbname=fictional password=PRIVATE_CREDENTIAL'
+        self.dsn.write_text(self.secret);self.dsn.chmod(0o600)
+        self.options=SimpleNamespace(dsn_file=self.dsn)
+        self.owners={self.dsn.stat().st_ino:999}
+        self.original_lstat=Path.lstat;self.original_fstat=os.fstat
+        stack=ExitStack();self.addCleanup(stack.close)
+        stack.enter_context(patch.object(package,'CONFIG',self.root))
+        self.account=stack.enter_context(patch.object(package.pwd,'getpwnam',return_value=SimpleNamespace(pw_uid=999)))
+        def owner(info):
+            fields=('st_dev','st_ino','st_mode','st_uid','st_gid','st_nlink','st_size','st_mtime_ns','st_ctime_ns')
+            values={key:getattr(info,key) for key in fields};values['st_uid']=self.owners.get(info.st_ino,0)
+            return SimpleNamespace(**values)
+        stack.enter_context(patch.object(Path,'lstat',lambda path:owner(self.original_lstat(path))))
+        stack.enter_context(patch.object(package.os,'fstat',lambda fd:owner(self.original_fstat(fd))))
+        # Real descriptors, inode identities, modes, sizes, links and reads are
+        # exercised. Only root/service UIDs are translated for an ordinary test
+        # user; strict installed-code trust has separate unchanged tests above.
+        def trusted(path,*,directory=False):
+            path=Path(path)
+            if directory:
+                info=path.lstat()
+                if not stat.S_ISDIR(info.st_mode) or info.st_uid!=0 or info.st_mode&0o022:
+                    raise ValueError('Invalid fictional root configuration directory')
+            return path
+        stack.enter_context(patch.object(package,'trusted',side_effect=trusted))
+
+    def snapshot(self):return package.settings_snapshot(self.options)
+
+    def test_existing_private_service_credential_and_root_settings_are_hashed_without_contents(self):
+        result=self.snapshot()
+        self.assertEqual(result,{'settings.toml':package.digest(self.settings.read_bytes()),
+                                 'postgres.dsn':package.digest(self.dsn.read_bytes())})
+        self.assertNotIn(self.secret,json.dumps(result))
+
+    def backup_file(self,body='[backup]\ninterval_hours = 24\n'):
+        path=self.root/'backup.toml';path.write_text(body);path.chmod(0o600)
+        self.owners[self.original_lstat(path).st_ino]=999
+        return path
+
+    def test_mixed_root_dsn_and_documented_service_backup_settings_are_hashed(self):
+        backup=self.backup_file()
+        result=self.snapshot()
+        self.assertEqual(result,{'settings.toml':package.digest(self.settings.read_bytes()),
+            'postgres.dsn':package.digest(self.dsn.read_bytes()),'backup.toml':package.digest(backup.read_bytes())})
+        self.assertNotIn(self.secret,json.dumps(result))
+        self.account.assert_called_once_with('simpaths-online')
+
+    def test_backup_settings_refuse_root_other_owner_public_mode_oversize_and_hardlinks(self):
+        backup=self.backup_file();inode=self.original_lstat(backup).st_ino
+        for owner in (0,1001):
+            self.owners[inode]=owner
+            with self.subTest(owner=owner),self.assertRaises(ValueError):self.snapshot()
+        self.owners[inode]=999;backup.chmod(0o604)
+        with self.assertRaises(ValueError):self.snapshot()
+        backup.chmod(0o600);backup.write_text('x'*(128*1024+1))
+        with self.assertRaises(ValueError):self.snapshot()
+        backup.write_text('fictional');os.link(backup,self.root/'backup-hardlink')
+        with self.assertRaises(ValueError):self.snapshot()
+
+    def test_backup_role_requires_a_regular_file_and_root_only_settings_need_no_service_lookup(self):
+        backup=self.root/'backup.toml';backup.mkdir(mode=0o700)
+        with self.assertRaises(ValueError):self.snapshot()
+        backup.rmdir();self.dsn.unlink();self.options=SimpleNamespace()
+        self.assertEqual(self.snapshot(),{'settings.toml':package.digest(self.settings.read_bytes())})
+        self.account.assert_not_called()
+
+    def test_backup_role_works_without_a_configured_dsn(self):
+        self.dsn.unlink();self.options=SimpleNamespace();backup=self.backup_file()
+        self.assertEqual(self.snapshot(),{'settings.toml':package.digest(self.settings.read_bytes()),
+            'backup.toml':package.digest(backup.read_bytes())})
+        self.account.assert_called_once_with('simpaths-online')
+
+    def test_other_service_owned_files_and_wrong_credential_owners_are_refused(self):
+        self.owners[self.original_lstat(self.dsn).st_ino]=1001
+        with self.assertRaises(ValueError):self.snapshot()
+        self.owners[self.original_lstat(self.dsn).st_ino]=999
+        extra=self.root/'unapproved.secret';extra.write_text('fictional');extra.chmod(0o600)
+        self.owners[self.original_lstat(extra).st_ino]=999
+        with self.assertRaises(ValueError):self.snapshot()
+
+    def test_root_owned_configured_credential_is_refused_before_service_restart(self):
+        self.owners[self.original_lstat(self.dsn).st_ino]=0
+        with self.assertRaises(ValueError):self.snapshot()
+
+    def test_credential_permissions_hardlinks_and_size_remain_strict(self):
+        self.dsn.chmod(0o604)
+        with self.assertRaises(ValueError):self.snapshot()
+        self.dsn.chmod(0o600)
+        link=self.root/'hardlink';os.link(self.dsn,link)
+        with self.assertRaises(ValueError):self.snapshot()
+        link.unlink();self.dsn.write_text('x'*8193)
+        with self.assertRaises(ValueError):self.snapshot()
+
+    def test_links_special_entries_and_writable_directories_are_refused(self):
+        link=self.root/'linked';link.symlink_to(self.dsn)
+        with self.assertRaises(ValueError):self.snapshot()
+        link.unlink();special=self.root/'fifo';os.mkfifo(special)
+        with self.assertRaises(ValueError):self.snapshot()
+        special.unlink();nested=self.root/'nested';nested.mkdir();nested.chmod(0o775)
+        with self.assertRaises(ValueError):self.snapshot()
+
+    def changing_read(self,change,path=None):
+        original=package.os.fdopen;changed=[False]
+        target=path if path is not None else self.dsn
+        class Reader:
+            def __init__(self,source):self.source=source
+            def __enter__(self):return self
+            def __exit__(self,*args):return self.source.__exit__(*args)
+            def fileno(self):return self.source.fileno()
+            def read(self,size):
+                body=self.source.read(size)
+                if body and not changed[0]:changed[0]=True;change()
+                return body
+        def opened(fd,*args,**kwargs):
+            source=original(fd,*args,**kwargs)
+            return Reader(source) if self.original_fstat(fd).st_ino==self.original_lstat(target).st_ino else source
+        return patch.object(package.os,'fdopen',side_effect=opened)
+
+    def test_identical_replacement_during_read_is_refused_by_file_identity(self):
+        def replace():
+            new=self.root/'replacement';new.write_text(self.secret);new.chmod(0o600)
+            self.owners[self.original_lstat(new).st_ino]=999;new.replace(self.dsn)
+        with self.changing_read(replace),self.assertRaises(ValueError):self.snapshot()
+
+    def test_same_inode_changed_during_read_is_refused(self):
+        def change():
+            with self.dsn.open('a') as out:out.write(' changed')
+        with self.changing_read(change),self.assertRaises(ValueError):self.snapshot()
+
+    def test_identical_backup_replacement_during_read_is_refused(self):
+        backup=self.backup_file();body=backup.read_text()
+        def replace():
+            new=self.root/'replacement';new.write_text(body);new.chmod(0o600)
+            self.owners[self.original_lstat(new).st_ino]=999;new.replace(backup)
+        with self.changing_read(replace,backup),self.assertRaises(ValueError):self.snapshot()
 
 
 class ApplicationPackageTests(unittest.TestCase):
@@ -148,6 +293,9 @@ class ApplicationPackageTests(unittest.TestCase):
         for target,value in (('ROOT',self.root),('CONFIG',self.config)):
             patcher=patch.object(package,target,value);patcher.start();self.addCleanup(patcher.stop)
         patcher=patch.object(package,'trusted',side_effect=lambda path,**kwargs:Path(path));patcher.start();self.addCleanup(patcher.stop)
+        patcher=patch.object(package,'settings_snapshot',side_effect=lambda options:{
+            str(p.relative_to(self.config)):package.digest(p.read_bytes()) for p in self.config.rglob('*') if p.is_file()})
+        patcher.start();self.addCleanup(patcher.stop)
         patcher=patch.object(package,'command',side_effect=self.host.command);patcher.start();self.addCleanup(patcher.stop)
         patcher=patch.object(package.time,'sleep',return_value=None);patcher.start();self.addCleanup(patcher.stop)
         self.plan=self.write_plan()
@@ -291,6 +439,34 @@ class ApplicationPackageTests(unittest.TestCase):
                 with self.assertRaises(ValueError):installation.rollback()
             else:installation.rollback()
             self.assertFalse(any(call[:2] in (('systemctl','start'),('systemctl','stop')) for call in self.host.calls))
+
+    def test_prepublication_failure_records_its_phase_without_secret_text_or_unit_stops(self):
+        installation=self.installation();private='PRIVATE_CREDENTIAL /private/person-level.csv'
+        with (patch.object(package.os,'geteuid',return_value=0),
+              patch.object(package.os,'chown',return_value=None),
+              patch.object(package,'Installation',return_value=installation),
+              patch.object(package,'settings_snapshot',side_effect=ValueError(private))):
+            callbacks=package.build_callbacks(SimpleNamespace(state=self.state),self.q,self.source,self.plan)
+            with self.assertRaises(ValueError):callbacks['install']()
+            result=callbacks['rollback']()
+        body=(self.source/'install-progress.json').read_text();receipt=json.loads(body)
+        self.assertNotIn(private,body);self.assertNotIn('PRIVATE_CREDENTIAL',body)
+        self.assertFalse(receipt['public_stopped']);self.assertFalse(receipt['private_stopped'])
+        self.assertEqual(receipt['changed'],[]);self.assertIsNone(receipt['snapshot'])
+        self.assertEqual(receipt['failure']['phase'],'install')
+        self.assertEqual(receipt['failure']['error_type'],'ValueError')
+        self.assertNotIn('/',receipt['failure']['callsite']['file'])
+        self.assertIsInstance(receipt['failure']['callsite']['line'],int)
+        self.assertEqual(result,package.digest(b'verified-no-publication-active-services'))
+        self.assertFalse(any(call[:2] in (('systemctl','start'),('systemctl','stop')) for call in self.host.calls))
+        for name in self.names:self.assertEqual((self.root/name).read_bytes(),self.before[name])
+
+    def test_guard_retains_original_exception_if_failure_receipt_cannot_be_written(self):
+        installation=self.installation();original=ValueError('fictional refusal')
+        def refuse():raise original
+        with patch.object(installation,'save_progress',side_effect=OSError('fictional evidence failure')):
+            with self.assertRaises(ValueError) as result:installation.guarded('verify',refuse)()
+        self.assertIs(result.exception,original);self.assertEqual(installation.failure['phase'],'verify')
 
     def test_preflight_retries_are_bounded_and_never_restart_simulations(self):
         installation=self.installation();self.host.preflight_failures=1

@@ -4,7 +4,7 @@ Fictional update coordination checks for drain, live handover and safe failures.
 No containers, services, mail, database or deployment programs are started.
 @author ross richardson
 """
-from contextlib import redirect_stderr
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from copy import deepcopy
 import hashlib
 import io
@@ -23,6 +23,126 @@ sys.path.insert(0,str(frontend_path()))
 REFERENCE = '00000000-0000-4000-8000-000000000001'
 CANDIDATE = 'a'*64
 VERIFIED = 'b'*64
+
+
+class ConfiguredQueueTests(unittest.TestCase):
+    def setUp(self):
+        from . import privilege_config,vm_config,vm_web
+        from jasmine_web.batch import store
+        temporary=tempfile.TemporaryDirectory(prefix='simpaths-update-context-')
+        self.addCleanup(temporary.cleanup);self.front=Path(temporary.name)
+        self.config=Path('/etc/simpaths-online/multirun.toml')
+        self.options=SimpleNamespace(frontend=self.front,pool_id='fictional-pool')
+        self.secret='dbname=fictional user=fictional password=PRIVATE_CREDENTIAL'
+        self.queue=object();stack=ExitStack();self.addCleanup(stack.close)
+        before=list(sys.path);self.addCleanup(lambda:sys.path.__setitem__(slice(None),before))
+        self.trusted=stack.enter_context(patch.object(privilege_config,'trusted_installation'))
+        stack.enter_context(patch.object(vm_config,'load_config',return_value=self.options))
+        self.storage=stack.enter_context(patch.object(vm_web,'check_storage'))
+        self.dsn=stack.enter_context(patch.object(vm_web,'database_dsn',return_value=self.secret))
+        self.constructor=stack.enter_context(patch.object(store,'Queue',return_value=self.queue))
+        self.uid=stack.enter_context(patch.object(update.os,'getuid',return_value=0))
+        self.euid=stack.enter_context(patch.object(update.os,'geteuid',return_value=0))
+        self.account=stack.enter_context(patch.object(update.pwd,'getpwnam',return_value=SimpleNamespace(pw_uid=999)))
+        self.child=stack.enter_context(patch.object(update.subprocess,'run',
+            return_value=SimpleNamespace(returncode=0,stdout=json.dumps(dict(dsn=self.secret)),stderr='')))
+
+    def test_root_reads_validated_service_response_without_relaxing_owner_checks(self):
+        options,queue=update.configured_queue(self.config)
+        self.assertIs(options,self.options);self.assertIs(queue,self.queue)
+        self.storage.assert_not_called();self.dsn.assert_not_called()
+        self.trusted.assert_any_call(self.config)
+        self.trusted.assert_any_call(self.front,directory=True)
+        self.account.assert_called_once_with('simpaths-online')
+        args=self.child.call_args.args[0]
+        self.assertEqual(args[:5],['runuser','-u','simpaths-online','--',str(update.ROOT/'venv/bin/python')])
+        self.assertEqual(args[5:8],['-I','-B','-c'])
+        self.assertNotIn(self.secret,' '.join(args))
+        self.assertNotIn(self.secret,str(self.child.call_args.kwargs))
+        self.assertNotIn('shell',self.child.call_args.kwargs)
+        self.assertTrue(self.child.call_args.kwargs['capture_output'])
+        self.constructor.assert_called_once_with(self.secret,self.options.pool_id)
+
+    def test_ordinary_service_still_uses_the_original_direct_validators(self):
+        self.uid.return_value=self.euid.return_value=999
+        self.assertEqual(update.configured_queue(self.config),(self.options,self.queue))
+        self.storage.assert_called_once_with(self.options);self.dsn.assert_called_once_with(self.options)
+        self.child.assert_not_called();self.account.assert_not_called()
+
+    def test_nonroot_service_validation_failure_constructs_no_queue_and_starts_no_child(self):
+        self.uid.return_value=self.euid.return_value=997
+        self.storage.side_effect=ValueError('Private storage is unavailable')
+        with self.assertRaises(ValueError):update.configured_queue(self.config)
+        self.constructor.assert_not_called();self.child.assert_not_called();self.dsn.assert_not_called()
+
+    def test_private_credential_reader_still_rejects_a_different_real_uid(self):
+        from .vm_web import private_text
+        path=self.front/'fictional.dsn';path.write_text(self.secret);path.chmod(0o600)
+        self.uid.return_value=path.stat().st_uid+1
+        with self.assertRaises(ValueError):private_text(path)
+        self.uid.return_value=path.stat().st_uid
+        self.assertEqual(private_text(path),self.secret)
+
+    def test_child_failure_and_timeout_keep_private_details_out_of_operator_errors(self):
+        failures=[SimpleNamespace(returncode=1,stdout=self.secret,stderr=self.secret),
+                  update.subprocess.TimeoutExpired('fixed-service-context',30,output=self.secret,stderr=self.secret)]
+        for failure in failures:
+            with self.subTest(failure=type(failure).__name__):
+                self.child.reset_mock();self.constructor.reset_mock()
+                if isinstance(failure,Exception):self.child.side_effect=failure
+                else:self.child.side_effect=None;self.child.return_value=failure
+                out=io.StringIO();err=io.StringIO()
+                with redirect_stdout(out),redirect_stderr(err):
+                    result=update.main(['--config',str(self.config),'status'])
+                self.assertEqual(result,1)
+                self.assertNotIn(self.secret,out.getvalue()+err.getvalue())
+                self.assertNotIn('PRIVATE_CREDENTIAL',out.getvalue()+err.getvalue())
+                self.constructor.assert_not_called()
+
+    def test_malformed_or_unbounded_child_responses_never_construct_a_queue(self):
+        bodies=['not json','null','[]',json.dumps(dict(dsn=self.secret,unexpected=True)),
+                json.dumps(dict(dsn='')),json.dumps(dict(dsn=' ')),json.dumps(dict(dsn=['unexpected'])),
+                json.dumps(dict(dsn='line\nbreak')),json.dumps(dict(dsn='\x00')),
+                json.dumps(dict(dsn='x'*8193)),' '*65537]
+        for body in bodies:
+            with self.subTest(size=len(body)):
+                self.child.return_value=SimpleNamespace(returncode=0,stdout=body,stderr='PRIVATE_CREDENTIAL')
+                with self.assertRaises(ValueError) as raised:update.configured_queue(self.config)
+                self.assertNotIn('PRIVATE_CREDENTIAL',str(raised.exception))
+                self.constructor.assert_not_called()
+
+    def test_root_alias_or_mixed_real_uid_is_refused_before_starting_a_child(self):
+        for real_uid,service_uid in ((999,999),(0,0)):
+            with self.subTest(real_uid=real_uid,service_uid=service_uid):
+                self.uid.return_value=real_uid;self.account.return_value=SimpleNamespace(pw_uid=service_uid)
+                with self.assertRaises(ValueError):update.configured_queue(self.config)
+                self.child.assert_not_called();self.constructor.assert_not_called()
+
+    def test_runtime_writable_frontend_is_rejected_before_root_imports_or_child(self):
+        def trusted(path,**options):
+            if options.get('directory'):raise ValueError('Runtime-writable code')
+        self.trusted.side_effect=trusted
+        with self.assertRaises(ValueError):update.configured_queue(self.config)
+        self.child.assert_not_called();self.constructor.assert_not_called()
+
+    def test_cli_root_status_uses_the_context_without_printing_its_credential(self):
+        from jasmine_web.batch import update_admission
+        out=io.StringIO();err=io.StringIO()
+        with (patch.object(update_admission,'status',return_value=dict(current=None)) as status,
+              redirect_stdout(out),redirect_stderr(err)):
+            result=update.main(['--config',str(self.config),'status'])
+        self.assertEqual(result,0);status.assert_called_once_with(self.queue)
+        self.assertNotIn(self.secret,out.getvalue()+err.getvalue())
+        self.child.assert_called_once();self.constructor.assert_called_once()
+
+    def test_cli_root_start_uses_the_validated_queue_before_fixed_launcher(self):
+        out=io.StringIO()
+        with patch.object(update,'launch',return_value=dict(state='pending')) as launch,redirect_stdout(out):
+            result=update.main(['--config',str(self.config),'start','--package','/root/reviewed',
+                                '--candidate',CANDIDATE])
+        self.assertEqual(result,0);self.child.assert_called_once()
+        self.assertEqual(launch.call_args.args,(self.options,self.queue,Path('/root/reviewed'),CANDIDATE))
+        self.assertNotIn(self.secret,out.getvalue())
 
 
 class Control:

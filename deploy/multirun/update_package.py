@@ -46,6 +46,63 @@ def trusted(path, *, directory=False):
     return path
 
 
+def settings_snapshot(options):
+    """Hash stable configuration bytes while preserving credential ownership.
+
+    Configuration directories and ordinary settings remain root controlled.
+    The configured private PostgreSQL credential and the installed scheduled
+    backup settings retain their existing service owner. These specific data
+    roles do not relax trust checks for executable application code.
+    """
+    root=trusted(CONFIG,directory=True)
+    credential=getattr(options,'dsn_file',None)
+    credential=Path(credential) if credential is not None else None
+    service_files={root/'backup.toml':128*1024}
+    if credential is not None:service_files[credential]=8192
+    service_uid=None
+    pending=[root];result={};entries=total=0
+    identity=lambda value:tuple(getattr(value,key) for key in (
+        'st_dev','st_ino','st_mode','st_uid','st_gid','st_nlink','st_size','st_mtime_ns','st_ctime_ns'))
+    while pending:
+        directory=pending.pop()
+        trusted(directory,directory=True)
+        for path in sorted(directory.iterdir()):
+            entries+=1
+            if entries>1024:raise ValueError('Private configuration inventory exceeds its bound')
+            observed=path.lstat()
+            private_settings=path in service_files
+            if stat.S_ISDIR(observed.st_mode) and not private_settings:
+                trusted(path,directory=True);pending.append(path);continue
+            if not stat.S_ISREG(observed.st_mode):
+                raise ValueError('Private configuration contains a link or special entry')
+            if private_settings:
+                if service_uid is None:
+                    service_uid=pwd.getpwnam('simpaths-online').pw_uid
+                    if service_uid==0:raise ValueError('Require a distinct private service account')
+            else:trusted(path)
+            limit=service_files.get(path,MAX_FILE)
+            fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+            with os.fdopen(fd,'rb') as source:
+                before=os.fstat(source.fileno())
+                if (not stat.S_ISREG(before.st_mode) or before.st_nlink!=1 or before.st_size>limit
+                        or identity(before)!=identity(observed)
+                        or private_settings and (before.st_uid!=service_uid or before.st_mode&0o077)
+                        or not private_settings and (before.st_uid!=0 or before.st_mode&0o022)):
+                    raise ValueError('Invalid private configuration file')
+                total+=before.st_size
+                if total>64*1024**2:raise ValueError('Private configuration bytes exceed their bound')
+                digestor=hashlib.sha256();amount=0
+                while block:=source.read(65536):
+                    amount+=len(block)
+                    if amount>limit:raise ValueError('Private configuration grew beyond its bound')
+                    digestor.update(block)
+                if (identity(before)!=identity(os.fstat(source.fileno()))
+                        or identity(before)!=identity(path.lstat())):
+                    raise ValueError('Private configuration changed while being read')
+            result[str(path.relative_to(root))]=digestor.hexdigest()
+    return result
+
+
 def relative(name):
     if not isinstance(name, str): raise ValueError('Require an application source path')
     path = Path(name)
@@ -136,6 +193,7 @@ class Installation:
         self.options,self.queue,self.source,self.plan=options,queue,Path(source),plan
         self.previous={};self.snapshot=None;self.single=None;self.containers={};self.changed=[]
         self.settings=None
+        self.failure=None
         self.backup_fd=None
         self.public_stopped=self.private_stopped=False
 
@@ -143,6 +201,7 @@ class Installation:
         value=dict(format=FORMAT,plan=digest(trusted(self.source/'plan.json').read_bytes()),
             snapshot=self.snapshot,single=self.single,settings=self.settings,containers=self.containers,
             public_stopped=self.public_stopped,private_stopped=self.private_stopped,changed=self.changed)
+        if self.failure is not None:value['failure']=self.failure
         body=json.dumps(value,sort_keys=True,default=str).encode()
         path=self.source/'install-progress.json'
         if not path.exists():
@@ -159,11 +218,29 @@ class Installation:
             raise ValueError('Invalid interrupted-publication receipt')
         for key in ('snapshot','single','settings','containers','public_stopped','private_stopped','changed'):
             setattr(self,key,value[key])
+        self.failure=value.get('failure')
         for name in self.changed:
             before=trusted(self.source/'rollback'/name).read_bytes()
             if digest(before)!=self.plan['targets'][name]['before']:
                 raise ValueError('A rollback preimage differs')
             self.previous[name]=before
+
+    def guarded(self, phase, callback):
+        """Preserve bounded failure metadata without copying exception contents."""
+        if phase not in ('install','verify','rollback'):raise ValueError('Invalid installation phase')
+        def invoke():
+            try:return callback()
+            except BaseException as error:
+                frame=error.__traceback__
+                while frame and frame.tb_next:frame=frame.tb_next
+                self.failure=dict(phase=phase,error_type=type(error).__name__)
+                if frame is not None:
+                    self.failure['callsite']=dict(file=Path(frame.tb_frame.f_code.co_filename).name,
+                        function=frame.tb_frame.f_code.co_name,line=frame.tb_lineno)
+                try:self.save_progress()
+                except BaseException:pass  # Preserve the original refusal if evidence cannot be written.
+                raise
+        return invoke
 
     def metadata(self):
         # Fields that must not change when a controller reconnects. Completion,
@@ -247,8 +324,7 @@ raise SystemExit(main(['preflight','--config','/etc/simpaths-online/public.toml'
                 raise ValueError('Preserve a service already requiring operator attention')
         self.backup_fence()
         self.single=self.single_identity()
-        self.settings={str(p.relative_to(CONFIG)):digest(trusted(p).read_bytes())
-                       for p in CONFIG.rglob('*') if p.is_file()}
+        self.settings=settings_snapshot(self.options)
         self.save_progress()
         self.public_stopped=True;self.save_progress();command('systemctl','stop',PUBLIC)
         self.private_stopped=True;self.save_progress();command('systemctl','stop',PRIVATE,seconds=240)
@@ -290,7 +366,7 @@ raise SystemExit(main(['preflight','--config','/etc/simpaths-online/public.toml'
         encode=lambda value:json.dumps(value,sort_keys=True,default=str)
         if encode(current)!=encode(self.snapshot):raise ValueError('Attempt identities, deadlines or pool policy changed')
         if self.single_identity()!=self.single:raise ValueError('SingleRun changed during the MultiRun update')
-        settings={str(p.relative_to(CONFIG)):digest(trusted(p).read_bytes()) for p in CONFIG.rglob('*') if p.is_file()}
+        settings=settings_snapshot(self.options)
         if settings!=self.settings:raise ValueError('Private configuration changed')
         for key,identifier in self.containers.items():
             # Finished work can be cleaned normally; unfinished work must still
@@ -333,7 +409,9 @@ raise SystemExit(main(['preflight','--config','/etc/simpaths-online/public.toml'
 def build_callbacks(options, queue, source, plan):
     if os.geteuid()!=0:raise ValueError('Only the host operator may install application updates')
     installation=Installation(options,queue,source,plan)
-    return dict(install=installation.install,verify=installation.verify,rollback=installation.rollback,ready=installation.ready)
+    return dict(install=installation.guarded('install',installation.install),
+                verify=installation.guarded('verify',installation.verify),
+                rollback=installation.guarded('rollback',installation.rollback),ready=installation.ready)
 
 
 def recovery_callbacks(options, queue, source, plan):
@@ -343,4 +421,4 @@ def recovery_callbacks(options, queue, source, plan):
         installation.load_progress()
     elif any(digest(trusted(ROOT/name).read_bytes())!=row['before'] for name,row in plan['targets'].items()):
         raise ValueError('Changed programs have no durable recovery receipt')
-    return dict(rollback=installation.rollback)
+    return dict(rollback=installation.guarded('rollback',installation.rollback))

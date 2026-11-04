@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import pwd
 import re
 import shutil
 import stat
@@ -26,6 +27,63 @@ LOCK = Path('/run/simpaths-account-update.lock')
 BOOTSTRAP = ("import sys;sys.path[:0]=['/opt/simpaths-online/SimPaths',"
              "'/opt/simpaths-online/JAS-mine-web'];"
              "from deploy.multirun.application_update import main;raise SystemExit(main())")
+
+
+def configured_queue(config):
+    """Validate private service settings under their owner before root operations.
+
+    The service validators deliberately require their real UID to own private
+    storage and credentials. A fixed service-UID child preserves those checks
+    for the root installer; its credential response stays in captured memory.
+    """
+    from .privilege_config import trusted_installation
+    from .vm_config import load_config
+    from .vm_web import check_storage, database_dsn
+    config=Path(config)
+    trusted_installation(config)
+    options=load_config(config)
+    if os.geteuid()==0:
+        if os.getuid()!=0 or pwd.getpwnam('simpaths-online').pw_uid==0:
+            raise ValueError('Require root and a distinct non-root private service account')
+        # Root must not import configured application code from runtime-writable
+        # paths, even though the ordinary service can read those directories.
+        trusted_installation(options.frontend,directory=True)
+        script="""import json,sys
+from pathlib import Path
+sys.path[:0]=[sys.argv[2],sys.argv[3]]
+from deploy.multirun.vm_config import load_config
+from deploy.multirun.vm_web import check_storage,database_dsn
+options=load_config(Path(sys.argv[1]))
+if str(options.frontend)!=sys.argv[3]:raise ValueError('Configured frontend changed')
+check_storage(options)
+body=json.dumps(dict(dsn=database_dsn(options)),ensure_ascii=True)
+if len(body)>65536:raise ValueError('Private service response exceeds its bound')
+sys.stdout.write(body)
+"""
+        try:
+            result=subprocess.run(['runuser','-u','simpaths-online','--',str(ROOT/'venv/bin/python'),
+                '-I','-B','-c',script,str(config),str(ROOT/'SimPaths'),str(options.frontend)],
+                capture_output=True,text=True,timeout=30,
+                env=dict(PATH='/usr/sbin:/usr/bin:/sbin:/bin',LANG='C.UTF-8',PYTHONDONTWRITEBYTECODE='1'))
+            if result.returncode or len(result.stdout.encode('utf-8'))>65536:
+                raise ValueError()
+            response=json.loads(result.stdout)
+            if (type(response) is not dict or set(response)!={'dsn'} or type(response['dsn']) is not str
+                    or not response['dsn'] or response['dsn'].strip()!=response['dsn']
+                    or len(response['dsn'].encode('utf-8'))>8192
+                    or any(ch in response['dsn'] for ch in ('\x00','\n','\r'))):
+                raise ValueError()
+            dsn=response['dsn']
+        except Exception:
+            # Never retain a child traceback or its stdout/stderr in an operator
+            # exception: those streams can contain private connection settings.
+            raise ValueError('Private service context could not be validated') from None
+    else:
+        check_storage(options)
+        dsn=database_dsn(options)
+    sys.path.insert(0,str(options.frontend.resolve(strict=True)))
+    from jasmine_web.batch.store import Queue
+    return options,Queue(dsn,options.pool_id)
 
 
 def digest(value):
@@ -254,16 +312,8 @@ def main(argv=None):
     command.add_argument('--candidate',required=True)
     args = parser.parse_args(argv)
     try:
-        from .privilege_config import trusted_installation
-        from .vm_config import load_config
-        from .vm_web import check_storage, database_dsn
-        trusted_installation(args.config)
-        options = load_config(args.config)
-        check_storage(options)
-        sys.path.insert(0, str(options.frontend.resolve(strict=True)))
-        from jasmine_web.batch.store import Queue
+        options,queue = configured_queue(args.config)
         from jasmine_web.batch import update_admission as control
-        queue = Queue(database_dsn(options), options.pool_id)
         if args.command == 'status':
             result = control.status(queue)
         elif args.command == 'stage':

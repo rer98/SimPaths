@@ -7,6 +7,7 @@ No upload endpoint or production isolation; the native scientific code is unchan
 """
 
 from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal, InvalidOperation
 import json
 import os
@@ -32,6 +33,13 @@ OPTIONS_NOT_EXPORTED = frozenset({"ignoreTargetsAtPopulationLoad", "lifetimeInco
 class ExecutionCommand:
     argv: tuple
     env: dict
+
+
+@dataclass(frozen=True)
+class ValidationCommand:
+    """Trusted private helper request; the platform enforces its retained budget."""
+    argv: tuple
+    input: bytes
 
 
 class WorkspaceSpaceError(ArtifactError):
@@ -120,6 +128,23 @@ class SimPathsLocalAdapter:
     def validate(self, lease, work):
         config = self._configuration(lease)
         return validate_outputs(work / "output", config, lease.configuration_id)
+
+    def validation_command(self, lease, work, *, workers):
+        """Build the bounded validation request without reading scientific rows.
+
+        The caller starts this command in the stopped model's retained resource
+        allocation, supervises its complete process tree, and checks its receipts.
+        """
+        if type(workers) is not int or workers not in (1, 2):
+            raise ArtifactError('Use one or two bounded output validation workers')
+        config = self._configuration(lease)
+        request = json.dumps(dict(output=str((Path(work) / 'output').absolute()),
+            configuration=config.editable_configuration(), run_set_id=lease.configuration_id,
+            workers=workers), allow_nan=False, separators=(',', ':')).encode('utf-8')
+        if len(request) > 1024**2:
+            raise ArtifactError('Output validation request exceeds its private limit')
+        return ValidationCommand((sys.executable, '-I', '-B',
+            str(Path(__file__).with_name('output_validation.py').resolve())), request)
 
 
 def _equals(actual, expected):
@@ -238,17 +263,17 @@ def result_inputs(lease, resolved):
                     selection=identity['selection']))
 
 
-def validate_outputs(output, configuration, run_set_id, *, include_files=False):
+def validate_outputs(output, configuration, run_set_id, *, include_files=False, workers=1):
     """Verify actual seeds, settings and required annual CSVs, then hash outputs.
 
     This checks completion against the submission, not equality between repeated
     scientific executions; it does not waive the known receipt-flag RNG issue.
     """
     return _catalogue_outputs(output, configuration, run_set_id,
-                              include_files=include_files, validate_rows=True)
+                              include_files=include_files, validate_rows=True, workers=workers)
 
 
-def _catalogue_outputs(output, configuration, run_set_id, *, include_files, validate_rows):
+def _catalogue_outputs(output, configuration, run_set_id, *, include_files, validate_rows, workers=1):
     """Hash exact CSV/options bytes and check native settings and seed identity.
 
     Every completion and ordinary result read requests row validation. The sole
@@ -256,6 +281,8 @@ def _catalogue_outputs(output, configuration, run_set_id, *, include_files, vali
     which must match these hashes to already validated successful SQL receipts
     before accepting any file for capture.
     """
+    if type(workers) is not int or workers not in (1, 2):
+        raise ArtifactError('Use one or two bounded output validation workers')
     data = configuration.as_dict()
     seeds = data["seed_plan"]["seeds"]
     native = configuration.native_configuration(run_set_id)
@@ -265,7 +292,7 @@ def _catalogue_outputs(output, configuration, run_set_id, *, include_files, vali
     options = sorted(Path(output).glob("*/input/options.txt"))
     if len(options) != len(seeds):
         raise ArtifactError("Missing or extra completed repetitions")
-    results = {}
+    repetitions, seen = [], set()
     for path in options:
         fingerprint(path)
         fields = {}
@@ -276,10 +303,15 @@ def _catalogue_outputs(output, configuration, run_set_id, *, include_files, vali
                     raise ArtifactError("Duplicate run metadata")
                 fields[key] = value
         seed = fields.get("randomSeedIfFixed")
-        if seed not in seeds or seed in results:
+        if seed not in seeds or seed in seen:
             raise ArtifactError("Unexpected or repeated native seed")
         if any(not _equals(fields.get(key), value) for key, value in expected.items()):
             raise ArtifactError("Actual model settings differ from the submitted configuration")
+        seen.add(seed)
+        repetitions.append((path, seed))
+
+    def validate_repetition(repetition):
+        path, seed = repetition
         csv_dir = path.parent.parent / "csv"
         manifest = inventory(csv_dir)
         years_expected = set(range(native["startYear"], native["endYear"] + 1))
@@ -289,15 +321,26 @@ def _catalogue_outputs(output, configuration, run_set_id, *, include_files, vali
         if validate_rows:
             from .csv_validation import validate_annual_csv
             validate_annual_csv([csv_dir/name for name in ("Person.csv","BenefitUnit.csv")],years_expected)
-        results[seed] = {"seed": seed, "fingerprint": digest({"options": fingerprint(path), "csv": manifest})}
+        result = {"seed": seed, "fingerprint": digest({"options": fingerprint(path), "csv": manifest})}
         if include_files:
             # options.txt is already included in the recorded repetition hash.
             # Other native snapshot copies and logs are never read for export.
-            results[seed]['files'] = [dict(name=name,
+            result['files'] = [dict(name=name,
                 path=(csv_dir / name).relative_to(Path(output).parent).as_posix(), **manifest[name])
                 for name in sorted(OUTPUT_CSV_FILES & manifest.keys())]
-            results[seed]['metadata'] = [dict(name='input/options.txt',
+            result['metadata'] = [dict(name='input/options.txt',
                 path=path.relative_to(Path(output).parent).as_posix(),**fingerprint(path))]
+        return result
+
+    if workers == 1:
+        validated = [validate_repetition(item) for item in repetitions]
+    else:
+        # Independent repetitions retain exactly the same per-run checks and
+        # fingerprints. The supervising platform bounds all helper descendants
+        # together; no new model execution or scientific calculation is started.
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix='output-validation') as executor:
+            validated = list(executor.map(validate_repetition, repetitions))
+    results = {item['seed']: item for item in validated}
     return [results[seed] for seed in seeds]
 
 

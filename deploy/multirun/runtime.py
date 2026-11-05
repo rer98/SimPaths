@@ -214,7 +214,9 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                           cpu_hold=scheduler.cpu_hold if scheduler else None,
                           admission_guard=(lambda:scheduler.guard) if scheduler else None,
                           after_claim=scheduler.claimed if scheduler else None,
-                          completion_handover=service.visualiser.completion_handover if scheduler else None)
+                          completion_handover=service.visualiser.completion_handover if scheduler else None,
+                          validation_scope=getattr(service,'validation_scope',None),
+                          validation_timeout_seconds=getattr(args,'validation_timeout_seconds',10800))
             from jasmine_web.batch.idle_interactive_cpu import RecallListener
             recall=(RecallListener(q,lambda:worker.rebalance_cpu(reserve_cpu_millis=0,allow_queued=False))
                     if getattr(args,'lend_idle_interactive_cpu',False) else nullcontext())
@@ -378,7 +380,17 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
         if scoped:
             from jasmine_web.batch.processing_scope import DelegatedScopes
             group_memory=max(args.visualiser_memory_mib,5120) if seed_workers>1 else args.visualiser_memory_mib
-            scopes=DelegatedScopes(minimum_memory_mib=workers*group_memory+2048)
+            validation=getattr(args,'validation_enabled',False)
+            minimum=(args.capacity['memory_mib']+2048 if validation else workers*group_memory+2048)
+            scopes=DelegatedScopes(minimum_memory_mib=minimum)
+            if validation:
+                # Validators reuse charged model reservations inside this unit;
+                # its parent must not throttle them at the old chart-only cap.
+                quota=(scopes.root/'cpu.max').read_text().split()
+                required=args.capacity['cpu_millis']+1000
+                if quota[0]!='max' and int(quota[0])*1000<int(quota[1])*required:
+                    raise ValueError('Private service CPU ceiling cannot cover retained validation allocations')
+                service.validation_scope=scopes
             if getattr(scopes,'root',None) is not None:
                 trace.services.append(('private-manager',scopes.root/'manager'))
         backend_options={}

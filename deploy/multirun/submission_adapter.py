@@ -505,6 +505,12 @@ class DispatchAdapter:
     def validate(self, lease, work):
         return self.adapter(lease).validate(lease,work)
 
+    def validation_command(self, lease, work, *, workers):
+        """Simulation completion can reuse its retained supervised allocation."""
+        if lease.specification.get('operation') == 'prepare':
+            return None
+        return self.adapter(lease).validation_command(lease, work, workers=workers)
+
     def publication(self, lease, work, receipts):
         if lease.specification.get('operation') == 'prepare':
             return self.preparation.publication(lease,work,receipts)

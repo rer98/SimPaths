@@ -268,13 +268,15 @@ def recover_database(c, queue, manifest, target):
     captured=datetime.fromisoformat(manifest['recovery']['captured_at'])
     c.execute(sql.SQL('SET LOCAL search_path TO {},pg_catalog').format(sql.Identifier(queue.schema)))
     active=rows(c,queue,'''SELECT a.*,j.state,j.auto_retry,j.cancel_requested,j.attempts,j.spent_seconds,
-        j.retry_credit_seconds,j.stop_reason,e.policy,e.owner_id,j.dataset_id FROM {} a JOIN {} j ON j.id=a.job_id
-        JOIN {} e ON e.id=j.experiment_id WHERE a.phase<>'finished' ORDER BY a.id''',['attempts','jobs','experiments'])
+        j.retry_credit_seconds,j.stop_reason,e.policy,e.owner_id,j.dataset_id,
+        v.model_finished_at,v.deadline AS validation_deadline FROM {} a JOIN {} j ON j.id=a.job_id
+        JOIN {} e ON e.id=j.experiment_id LEFT JOIN {} v ON v.attempt_id=a.id
+        WHERE a.phase<>'finished' ORDER BY a.id''',['attempts','jobs','experiments','attempt_validations'])
     if [str(r['id']) for r in active] != manifest['recovery']['interrupted_attempts']:
         raise ArtifactError('Interrupted attempt inventory differs from the recovery snapshot')
     for row in active:
         at=max(captured,row['created_at'])
-        spent=row['spent_seconds']+max(0,(at-row['created_at']).total_seconds())
+        spent=row['spent_seconds']+max(0,((row.get('model_finished_at') or at)-row['created_at']).total_seconds())
         policy=Policy(**row['policy'])
         authorised=queue._authorised(c,row['owner_id'],row['dataset_id'],at)
         outcome=('cancelled' if row['cancel_requested'] else row['stop_reason'] or ('revoked' if not authorised else
@@ -283,6 +285,10 @@ def recover_database(c, queue, manifest, target):
         state=next_state(outcome=outcome,cancelled=row['cancel_requested'],authorised=authorised,
             auto_retry=row['auto_retry'],attempts=row['attempts'],max_attempts=policy.max_attempts,
             spent_seconds=max(0,spent-row['retry_credit_seconds']),total_seconds=policy.total_seconds)
+        if row.get('validation_deadline') and state!='cancelled':
+            # A live snapshot omits unfinished private outputs. Preserve review
+            # and validation history; never rerun its completed scientific model.
+            state='review'
         evidence=hashlib.sha256((manifest['id']+':restored-interruption:'+str(row['id'])).encode()).hexdigest()
         c.execute(sql.SQL("UPDATE {} SET phase='finished',finished_at=%s,outcome=%s,stop_evidence=%s WHERE id=%s").format(
             sql.Identifier(queue.schema,'attempts')),(at,outcome,evidence,row['id']))

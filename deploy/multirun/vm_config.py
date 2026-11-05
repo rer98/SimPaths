@@ -16,6 +16,7 @@ from .resource_recovery_settings import DEFAULTS as RECOVERY_DEFAULTS, validate 
 
 
 DEFAULTS = {
+    'validation': {'enabled': False, 'timeout_seconds': 10800},
     'rpc': {'socket': '/run/simpaths-executor/control.sock', 'frontend_user': 'simpaths-web'},
     'administration': {'enabled': False, 'emails': []},
     'monitoring': {'enabled': False, 'sample_seconds': 15, 'retention_days': 30, 'max_rows': 20000},
@@ -270,11 +271,15 @@ def load_config(path):
     if len(os.fsencode(quota_socket))>100:
         raise ValueError('workspaces.quota_socket exceeds the Unix socket path bound')
     rpc_socket=absolute(sections['rpc']['socket'],'rpc.socket')
+    if sections['validation']['enabled'] and not (visualiser['preview'] and visualiser['hard_limits']):
+        raise ValueError('Supervised output validation requires the private delegated helper service')
     if len(os.fsencode(rpc_socket))>100:
         raise ValueError('rpc.socket exceeds the Unix socket path bound')
     if not re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}',sections['rpc']['frontend_user']):
         raise ValueError('rpc.frontend_user must name a dedicated Linux account')
     options = SimpleNamespace(rpc_socket=rpc_socket,rpc_frontend_user=sections['rpc']['frontend_user'],**limits, **paths, **service, image=image,
+        validation_enabled=sections['validation']['enabled'],
+        validation_timeout_seconds=number(sections['validation']['timeout_seconds'],'validation.timeout_seconds',60,10800),
         administration=dict(administration),
         compute_capacity=dict(compute),
         monitoring_exports=dict(export),operational_metrics=monitoring['enabled'],metrics_sample_seconds=monitoring['sample_seconds'],

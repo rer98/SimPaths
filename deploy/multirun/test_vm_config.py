@@ -26,6 +26,17 @@ TEMPLATE = Path(__file__).with_name('vm')/'multirun.toml.example'
 
 
 class VMConfigTests(unittest.TestCase):
+    def test_validation_workers_are_explicit_bounded_and_require_enforced_private_scopes(self):
+        self.assertFalse(self.config().validation_enabled)
+        block='\n[validation]\nenabled = true\ntimeout_seconds = 10800\n'
+        with self.assertRaisesRegex(ValueError,'private delegated'):self.config(self.text+block)
+        throughput=(TEMPLATE.parent/'throughput.toml.example').read_text().replace(
+            'sha256:REPLACE_WITH_64_HEXADECIMAL_DIGITS','sha256:'+'a'*64)
+        self.assertTrue(self.config(throughput+block).validation_enabled)
+        for bad in ('0','10801','true','"10800"'):
+            with self.subTest(bad=bad),self.assertRaises(ValueError):
+                self.config(throughput+block.replace('10800',bad))
+
     def test_administrator_access_is_explicit_bounded_and_separate_from_ordinary_approval(self):
         self.assertEqual(self.config().administration,dict(enabled=False,emails=[]))
         original=self.text

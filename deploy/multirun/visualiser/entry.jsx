@@ -142,7 +142,9 @@ function Page(){
     {mode==='online'&&experimentStatus&&!experimentComplete(experimentStatus)&&<details className="vm-experiment-status">
       <summary>{experimentStatus.ready} of {experimentStatus.total} configurations have charts ready</summary>
       <ul>{experimentStatus.configurations.map(c=><li key={c.id}>{c.name}: {c.charts==='ready'?'Charts ready':
-        c.state==='active'?'Simulation running':c.state==='queued'?'Simulation queued':
+        c.state==='active'?(c.phase==='validating'?'Validating outputs':'Simulation running'):c.state==='queued'?'Simulation queued':
+        c.state==='cancelling'?'Stopping':
+        c.state==='review'&&c.validation?'Output validation needs review':
         ['queued','processing'].includes(c.charts)?'Preparing charts':'Charts not yet available'}
         {c.charts==='ready'&&c.comparison!=='not_applicable'&&(c.comparison==='ready'?' · Baseline comparison ready':
           c.comparison==='waiting_baseline'?' · Waiting for baseline comparison':' · Baseline comparison not yet ready')}</li>)}</ul>

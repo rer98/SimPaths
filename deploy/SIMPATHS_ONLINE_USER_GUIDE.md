@@ -5,7 +5,7 @@ Concise user guide to the SingleRun and MultiRun SimPaths Online preview.
 
 # SimPaths Online: user guide
 
-Ross Richardson · 1 November 2026
+Ross Richardson · 5 November 2026
 
 **CeMPA group preview**
 
@@ -83,8 +83,15 @@ status before resubmitting. Automatic recovery may increase resources or retry
 an eligible failure within the recorded limits and available capacity; success
 is not guaranteed.
 
-**Cancel** requests that unfinished work stop. **Review retry** for a failed
-configuration, or **Retry** for a cancelled one, opens a review. **Confirm retry**
+After **all repetitions** of a configuration finish, **Validating outputs** means
+the server is checking the completed files before confirming success. These checks
+do not establish the scientific validity of the results. If they fail, the status
+is **Output validation needs review**; the simulations are not automatically rerun.
+Contact the administrator for review. Chart preparation is a separate later stage,
+with its own status and retry controls.
+
+**Cancel** requests that unfinished work stop. **Review retry** for an eligible
+failed configuration, or **Retry** for a cancelled one, opens a review. **Confirm retry**
 queues it again from the beginning with its saved settings and seeds.
 Cancellation/retry history is retained. Retries share the original attempt and
 runtime limits: cancelling after an attempt is created spends that attempt and

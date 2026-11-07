@@ -5,7 +5,7 @@ Practical administration of SimPaths Online SingleRun and MultiRun.
 
 # SimPaths Online: administrator guide
 
-Ross Richardson · 3 November 2026
+Ross Richardson · 5 November 2026
 
 This guide explains how to administer SimPaths Online, manage account permissions
 and perform everyday checks. Scientific outputs are still experimental. The
@@ -322,6 +322,24 @@ configurations use the qualified resource policy selected for their model releas
 Spare CPU may boost running models and can be reclaimed for interactive work or
 Visualiser preparation. Emergency growth/retries remain bounded by the original
 attempt, runtime and storage ceilings.
+
+After **all repetitions** finish and Java stops, **Validating outputs** uses the
+retained CPU/RAM allocation in an enforced helper: one worker below two currently
+allocated vCPUs, two at two or more. CPU recalls apply before capacity is reused.
+
+Validation's separate **three-hour maximum** deadline survives controller recovery.
+The original model deadline remains unchanged; Java must have finished within it.
+Checks do not establish scientific validity or grow memory. Success precedes the
+atomic handover to separate chart preparation.
+
+**Output validation needs review** suppresses scientific Retry; Java is not
+automatically rerun. Failed-validation raw output is protected from scratch
+cleanup for **seven days after validation fails**. Only a trusted operator can
+request validation-only recovery after proving termination, retained files,
+permissions and resources; the prior failure stays in audit history. Expiry,
+explicit deletion or legacy cleanup may already have removed files. Reopening
+cannot recover deleted raw output. See
+[output validation](multirun/OUTPUT_VALIDATION.md).
 
 Each chart preparation currently has a **three-hour limit**, including source
 verification, aggregation, baseline comparisons and publication. Large outputs

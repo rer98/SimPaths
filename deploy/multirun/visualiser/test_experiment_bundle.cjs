@@ -18,7 +18,7 @@ test('an already open experiment adds controls without resetting chart or scenar
   const console=new VirtualConsole();console.on('jsdomError',e=>errors.push(e.message));
   const dom=new JSDOM(fs.readFileSync(path.join(build,'index.html'),'utf8'),{
     url:'https://localhost/visualiser/experiment/'+experiment,runScripts:'outside-only',pretendToBeVisual:true,virtualConsole:console});
-  let stage=1,denied=false,connectionDown=true,pairsReady=false,added=false;
+  let stage=1,denied=false,connectionDown=true,pairsReady=false,added=false,pendingState='validating';
   try{
     const w=dom.window,doc=w.document;
     w.ResizeObserver=class{constructor(cb){this.cb=cb;}observe(){this.cb([{contentRect:{width:900,height:500}}]);}disconnect(){}};
@@ -39,7 +39,10 @@ test('an already open experiment adds controls without resetting chart or scenar
         format:'simpaths.visualiser.experiment.v1',experiment,url:'/visualiser/experiment/'+experiment,
         publication:catalogue().publication,ready:stage,total:added?4:3,pending:stage<3||!pairsReady||added,retryable:false,
         configurations:f.catalogue.configurations.map((c,i)=>({id:ids[i],configuration:c.id,name:c.name,
-          state:stage===1&&i!==1||stage===2&&i===2?'active':'succeeded',
+          state:stage===1&&i===0&&['cancelling','review'].includes(pendingState)?pendingState:
+            stage===1&&i!==1||stage===2&&i===2?'active':'succeeded',
+          phase:stage===1&&i===0&&pendingState==='validating'?'validating':null,
+          validation:stage===1&&i===0&&pendingState==='review'?{status:'review'}:null,
           charts:stage===1?i===1?'ready':'waiting':i<stage?'ready':'waiting',
           comparison:i===0?'not_applicable':stage>1&&i<stage?(i===2&&!pairsReady?'processing':'ready'):'waiting_baseline'})).concat(added?[{
             id:'00000000-0000-4000-8000-000000000005',configuration:'later',name:'Later scenario',
@@ -73,10 +76,22 @@ test('an already open experiment adds controls without resetting chart or scenar
       await wait(ready);const before=downloads.length;button('↓ CSV').click();
       await wait(()=>downloads.length>before);return downloads.at(-1).text();
     }
-    assert.ok((await csv()).includes('45'));const first=scenario('Policy A'),enabledStyle=first.style.cssText;first.click();
+    assert.ok((await csv()).includes('45'));
+    const publicationPoll=async()=>{await wait(()=>polls.length>0);await polls.shift()();};
+    const progress=()=>doc.querySelector('.vm-experiment-status').textContent;
+    assert.ok(progress().includes('Reference: Validating outputs'));
+    assert.ok(progress().includes('Policy B <img src="unsafe">: Simulation running'));
+    const beforeStatus=await csv();
+    pendingState='cancelling';await publicationPoll();
+    await wait(()=>progress().includes('Reference: Stopping'));
+    assert.equal(await csv(),beforeStatus,'Stopping validation preserves the current chart');
+    pendingState='review';await publicationPoll();
+    await wait(()=>progress().includes('Reference: Output validation needs review'));
+    assert.ok(!progress().includes('Reference: Simulation running'));
+    assert.equal(await csv(),beforeStatus,'Validation review preserves the current chart');
+    const first=scenario('Policy A'),enabledStyle=first.style.cssText;first.click();
     await wait(()=>scenario('Policy A').style.cssText!==enabledStyle);
     const disabledStyle=scenario('Policy A').style.cssText;
-    const publicationPoll=async()=>{await wait(()=>polls.length>0);await polls.shift()();};
     stage=2;await publicationPoll();await wait(()=>doc.body.textContent.includes('2 of 3 configurations')&&ready());
     assert.equal(scenario('Policy A').style.cssText,disabledStyle);
     assert.equal(doc.querySelector('a[href$="/archive"]').getAttribute('href'),'/api/visualiser-experiments/'+experiment+'/archive');

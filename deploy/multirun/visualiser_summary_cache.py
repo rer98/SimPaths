@@ -203,19 +203,23 @@ class SummaryCache:
         else:
             shutil.rmtree(path)
 
-    def _entries(self):
+    def _entries(self, *, read_only=False):
         entries = []
         rejected = []
         for path in self.root.iterdir():
             if path.name.startswith(('.pending-', '.holds-')):
                 # Publication holds the global lock while creating pending files,
                 # so any pending directory found under this lock is abandoned.
+                if read_only:
+                    raise ValueError('Private summary observation requires writer cleanup')
                 self._remove(path)
             elif KEY.fullmatch(path.name):
                 try:
                     receipt, size, used = self._receipt(path)
                     entries.append((used, path.name, size, receipt))
                 except (OSError, ValueError, KeyError, TypeError):
+                    if read_only:
+                        raise ValueError('Private summary observation could not verify an entry') from None
                     self._remove(path)
                     rejected.append((path.name, None, 'rejected'))
         if rejected:

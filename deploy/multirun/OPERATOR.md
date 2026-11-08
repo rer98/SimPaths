@@ -274,6 +274,25 @@ The advisory alone does not establish that a simulation failed or that Visualise
 preparation was blocked. Other Visualiser limits, such as retained publication
 bytes, remain separate measures.
 
+Blocked-preparation emails are shared service incidents, not one email per
+configuration. The storage-reporting update adds an incident reference, first
+detected and last checked times, the current blocking reason and bounded
+preparation/experiment/configuration references where known. A physical-headroom
+warning separately reports filesystem free space, outstanding commitments,
+safety and helper reserves, and the incoming publication allowance. The total
+Visualiser cache allowance and its included summary usage are separate checks;
+free space inside that allowance does not establish enough filesystem headroom.
+No user names, addresses, scientific rows or configuration values enter these
+operator emails.
+
+Before delivery, the service refreshes the storage evidence without requesting
+eviction, quota growth or preparation. A cleared condition suppresses an unsent
+warning. Repeated blocks and changes to the affected set remain in the same
+incident until fresh checks show five continuous minutes without the block;
+brief improvements do not generate another warning. An unreadable or busy check
+is reported as unverified, not as recovery. Deleting raw files can improve
+physical headroom while leaving retained chart and summary usage unchanged.
+
 Application assembly records secret-free flags in mode-0600
 `operator-settings.json`. The status command labels these **last application
 launch** settings, with their timestamp. They include notification delivery,

@@ -336,13 +336,13 @@ class NativeCompatibilityTests(unittest.TestCase):
 class VisualiserDeadlineConfigurationTests(unittest.TestCase):
     """Keep a finite preparation allowance separate from CPU/RAM and retention."""
 
-    def vm_config(self, seconds=600, *, cache_hours=168, template='multirun.toml.example'):
+    def vm_config(self, seconds=600, *, cache_hours=720, template='multirun.toml.example'):
         import tempfile
         from .vm_config import load_config
         source=(Path(__file__).parent/'vm'/template).read_text()
         text=(source.replace('sha256:REPLACE_WITH_64_HEXADECIMAL_DIGITS','sha256:'+'a'*64)
               .replace('timeout_seconds = 600','timeout_seconds = '+str(seconds))
-              .replace('cache_hours = 168','cache_hours = '+str(cache_hours)))
+              .replace('cache_hours = 720','cache_hours = '+str(cache_hours)))
         with tempfile.TemporaryDirectory() as temporary:
             path=Path(temporary)/'settings.toml'
             path.write_text(text)

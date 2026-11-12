@@ -63,6 +63,19 @@ class ParallelBackendTests(unittest.TestCase):
         self.assertEqual([s['configuration'] for s in actual['series']],['baseline','scenario_1','scenario_2'])
         self.assertEqual(self.backend.summary_cache.statistics()['counters']['raw_completed'],9)
 
+    def test_normal_parallel_processing_never_enters_compact_or_adds_a_summary_verification_pass(self):
+        from unittest.mock import patch
+        # A compact-capable adapter keeps the existing direct parallel route:
+        # exactly one task per seed and one source guard per native CSV.
+        with patch.object(self.backend,'prepare_summaries',side_effect=AssertionError('Normal preparation must stay direct')), \
+             patch.object(self.backend,'verify_retained_summaries',side_effect=AssertionError('No extra full summary scan')), \
+             patch.object(self.backend,'_seed',wraps=self.backend._seed) as seeds, \
+             patch.object(self.backend,'_verified_source',wraps=self.backend._verified_source) as inputs:
+            self.process(workers=2)
+        self.assertEqual(seeds.call_count,9)
+        self.assertEqual(inputs.call_count,18)
+        self.assertEqual(self.backend.summary_cache.statistics()['counters']['raw_completed'],9)
+
     def test_parallel_reuse_and_baseline_swap_do_not_reparse_or_change_cache_identity(self):
         expected=self.process();before=self.backend.summary_cache.statistics()['counters']['raw_started']
         self.assertEqual(self.process(),expected)

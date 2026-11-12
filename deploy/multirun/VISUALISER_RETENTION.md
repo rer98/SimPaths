@@ -44,9 +44,9 @@ before this action can be confirmed; a ready chart alone is insufficient.
 The signed review binds the preservation choice and deadline. The worker checks
 them again and holds both the source-output fence and summary-cache lock while
 removing the model-declared raw output. The summaries receive an admitted hold
-through the existing completion-based deadline, even when automatic retention of
+through the fixed canonical source deadline, even when automatic retention of
 completed summaries is disabled. Neither summary nor chart retention is extended.
-Existing chart publications keep their independent expiry dates. New variables
+Existing chart publications keep their recorded expiry dates, bounded by verified source protection. New variables
 or calculation versions that require the deleted raw files cannot be prepared
 from summaries that do not contain the required information.
 
@@ -64,29 +64,49 @@ copy; a server cannot recall it.
 
 ## Independent clocks and bounded storage
 
-The candidate settings retain the existing seven-day defaults:
+Migration **041** gives every retained source one durable summary deadline. The
+new defaults are 30 days for summaries and finished chart data:
 
 ```toml
 [visualiser]
 retain_completed_summaries = true
-summary_hours = 168
-cache_hours = 168
+summary_hours = 720
+cache_hours = 720
+idle_hours = 72
 summary_cache_mib = 8192
 cache_mib = 16384
 ```
 
-`summary_hours` and `cache_hours` independently accept **1–8760 hours**. The raw
-retention policy is separate. Summary protection begins at simulation completion;
-account expiry or revocation denies access without shortening normal retention.
-Dataset permissions and full-result deletion remain enforced separately.
-Chart expiry begins when publication
-becomes ready. Reads, additions to an experiment and backup/restore do not renew
-either clock. A pending pair's summary deadline starts with its first completed
-member; a later partner does not renew the earlier promise.
-After summary protection expires, unheld entries return to ordinary bounded LRU
-eviction. They cannot support new comparisons after raw expiry once their own
-summary period has passed. `summary_hours` is a protection/reuse period, rather
-than a guarantee of immediate physical removal of every unheld cache file.
+`summary_hours` and `cache_hours` accept **1–8760 hours**. The raw retention
+policy remains separate. A new source's summary period starts when its complete,
+compatible per-repetition set is first verified and admitted to protected storage.
+That date is committed once. Reads, new comparisons, chart regeneration and
+backup/restore do not renew it. Permissions and explicit full deletion remain
+separate checks.
+
+A chart's fixed deadline cannot exceed the protected deadline of any source it
+uses. A comparison therefore uses the earliest relevant source deadline. A later
+partner cannot renew an earlier source. Regenerating an evicted chart preserves
+its recorded deadline. Upgrading existing results requires an explicit reviewed
+qualification; changing the configured hours alone cannot renew old promises or
+claim that missing summaries exist. Existing later advertised deadlines must be
+protected before the upgrade is considered complete.
+
+Pressure eviction keeps the 72-hour inactivity threshold. Before removing a
+finished publication, the service verifies every exact seed summary and its
+storage protection through the publication's remaining lifetime. Missing,
+corrupt, incompatible, expired or unadmitted summaries leave the publication in
+place. The verification and raw-only deletion share a source guard, preventing
+an eviction followed by raw deletion from losing the last reconstructible copy.
+Heavy checks run outside the global maintenance lock. Healthy storage keeps the
+normal processing path; pressure backpressure never justifies deleting protected
+summaries.
+
+After the fixed summary deadline, unheld entries return to bounded LRU eviction.
+Protection is a reuse guarantee through that date, rather than a promise of
+immediate physical removal afterward. A new calculation can use retained
+summaries only if its required information and compatibility rules permit it;
+30-day retention does not add variables absent from the summaries.
 
 The summary ceiling sits inside the total Visualiser disk allowance, together
 with finished publications, chart indices and worker scratch. These settings do

@@ -15,7 +15,7 @@ import tempfile
 import threading
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from deploy._workflow import frontend_path
 
@@ -78,6 +78,27 @@ class FictionalResults:
 
 
 class PrivateDownloadShutdownTests(unittest.IsolatedAsyncioTestCase):
+    async def test_chart_maintenance_resumes_pending_batches_promptly_and_keeps_normal_idle_cadence(self):
+        class Stop:
+            def __init__(self):self.event=threading.Event();self.waits=[]
+            def is_set(self):return self.event.is_set()
+            def set(self):self.event.set()
+            def wait(self,seconds):
+                self.waits.append(seconds)
+                if len(self.waits)==3:self.set()
+                return self.is_set()
+        stop=Stop()
+        visualiser=SimpleNamespace(stop=threading.Event(),tick=lambda:None,
+            retire=Mock(side_effect=[True,True,False]))
+        visualiser.close=visualiser.stop.set
+        downloads=SimpleNamespace(retire=Mock(),close=Mock())
+        service=SimpleNamespace(visualiser=visualiser,results=SimpleNamespace(downloads=downloads))
+        async with private_processors(service,stop):
+            await until(stop.is_set)
+        self.assertEqual(stop.waits,[1,1,30])
+        self.assertEqual(downloads.retire.call_count,3)
+        downloads.close.assert_called_once()
+
     async def exercise_zip(self, *, cancel=False):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

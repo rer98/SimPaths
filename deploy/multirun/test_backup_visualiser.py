@@ -62,8 +62,14 @@ class LiveRawOnlySelectionTests(unittest.TestCase):
                 return [dict(actual_seed=row['seed'],output_fingerprint=row['fingerprint']) for row in self.expected]
             return []
         with patch.object(backup_live,'rows',side_effect=rows), \
-             patch('deploy.multirun.queue_adapter.result_catalogue',side_effect=self.catalogue):
-            return backup_live.selected_files(None,SimpleNamespace(_lease=lambda *args:None),self.state)[0]
+             patch('deploy.multirun.backup_output_receipts._result_configuration',return_value=
+                   SimpleNamespace(as_dict=lambda:dict(seed_plan=dict(seeds=['606'])))), \
+             patch('deploy.multirun.backup_output_receipts._catalogue_outputs',
+                   side_effect=lambda *args,**kwargs:self.catalogue(None,None)):
+            # This selection fixture supplies a confirmed successful lease and
+            # trusted seed receipts; the real retained-byte verifier still runs.
+            lease=SimpleNamespace(phase='finished',configuration_id='baseline')
+            return backup_live.selected_files(None,SimpleNamespace(_lease=lambda *args:lease),self.state)[0]
 
     def test_pending_raw_only_keeps_raw_recovery_files_when_summaries_are_absent(self):
         keys=self.selected()
@@ -282,7 +288,7 @@ class NativeVisualiserRestoreTests(unittest.TestCase):
         return service
 
     def check_roundtrip(self,online,*,evicted=False,reason='expiry',pending=False,
-                        missing_summary=False,missing_raw=False):
+                        missing_summary=False,missing_raw=False,automatic=False,started=False):
         from jasmine_web.batch.policy import NotFound
         source=self.service(self.f.q,self.f.state)
         challenge=asyncio.run(source.access.issue('alice@example.org','fictional-client'))['challenge']
@@ -334,6 +340,15 @@ class NativeVisualiserRestoreTests(unittest.TestCase):
                 (self.f.completed.attempt_id,q.pool_id,self.f.owner,
                  json.dumps(self.f.executor._identity(self.f.completed)),now,now,reason,summary_deadline))
             if pending:c.execute('UPDATE output_deletions SET deleted_at=NULL WHERE attempt_id=%s',(self.f.completed.attempt_id,))
+            if automatic:
+                self.assertEqual(reason,'raw_only')
+                c.execute('UPDATE experiments SET auto_delete_raw_default=true WHERE id=%s',(self.f.exp,))
+                c.execute('UPDATE jobs SET auto_delete_raw=true,raw_deletion_revision=3 WHERE id=%s',
+                          (self.f.completed.job_id,))
+                c.execute('UPDATE output_deletions SET automatic=true,policy_revision=3,started_at=%s WHERE attempt_id=%s',
+                          (now if started else None,self.f.completed.attempt_id))
+                expected_policy=c.execute('SELECT automatic,policy_revision,started_at FROM output_deletions WHERE attempt_id=%s',
+                                          (self.f.completed.attempt_id,)).fetchone()
         if not pending:shutil.rmtree(self.f.executor.workspace(self.f.completed)/'work/output')
         if missing_summary:
             from jasmine_web.batch.output_management import OutputManagement
@@ -373,6 +388,14 @@ class NativeVisualiserRestoreTests(unittest.TestCase):
         self.assertEqual(manifest['visualiser']['evictions'],1 if evicted else 0)
         self.assertEqual(manifest['visualiser']['experiment_views'],1)
         backup.restore(self.f.target_q,self.f.backup,self.f.target,self.f.target_tools)
+        if automatic:
+            with self.f.target_q._connection() as c:
+                self.assertEqual(c.execute('SELECT automatic,policy_revision,started_at FROM output_deletions WHERE attempt_id=%s',
+                    (self.f.completed.attempt_id,)).fetchone(),expected_policy)
+                self.assertEqual(c.execute('SELECT auto_delete_raw,raw_deletion_revision FROM jobs WHERE id=%s',
+                    (self.f.completed.job_id,)).fetchone(),dict(auto_delete_raw=True,raw_deletion_revision=3))
+                self.assertTrue(c.execute('SELECT auto_delete_raw_default FROM experiments WHERE id=%s',
+                    (self.f.exp,)).fetchone()['auto_delete_raw_default'])
         if pending:
             from .maintenance import GATE,service_state
             self.assertTrue((self.f.target/GATE).exists())
@@ -474,6 +497,15 @@ class NativeVisualiserRestoreTests(unittest.TestCase):
 
     def test_pending_raw_only_deletion_stays_inactive_until_activation_and_rechecks_worker_guards(self):
         self.check_roundtrip(False,reason='raw_only',pending=True)
+
+    def test_offline_restore_preserves_cancellable_automatic_preference_and_pending_raw_intent(self):
+        self.check_roundtrip(False,reason='raw_only',pending=True,automatic=True)
+
+    def test_online_restore_preserves_started_automatic_intent_without_replaying_science(self):
+        self.check_roundtrip(True,reason='raw_only',pending=True,automatic=True,started=True)
+
+    def test_online_restored_automatic_intent_with_missing_summary_keeps_raw(self):
+        self.check_roundtrip(True,reason='raw_only',pending=True,automatic=True,missing_summary=True)
 
     def test_online_pending_raw_only_deletion_restores_raw_and_rechecks_worker_guards(self):
         self.check_roundtrip(True,reason='raw_only',pending=True)

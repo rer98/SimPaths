@@ -5,7 +5,7 @@ Practical administration of SimPaths Online SingleRun and MultiRun.
 
 # SimPaths Online: administrator guide
 
-Ross Richardson · 5 November 2026
+Ross Richardson · 12 November 2026
 
 This guide explains how to administer SimPaths Online, manage account permissions
 and perform everyday checks. Scientific outputs are still experimental. The
@@ -23,7 +23,7 @@ address and dataset ID.
 | Access | Address or route | What it permits |
 | --- | --- | --- |
 | Ordinary MultiRun user | <https://13.140.163.1> | Emailed-code sign-in, owned experiments, permitted datasets and results |
-| MultiRun administrator | <https://13.140.163.1/admin> | Separate password **and** emailed code; account and provider-dataset permission changes, status and change history |
+| MultiRun administrator | <https://13.140.163.1/admin> | Separate password **and** emailed code; account and provider-dataset permission changes, service/storage status and change history |
 | SingleRun administrator | <https://13.140.163.1:8443/admin> | Existing SingleRun password login and session/user controls |
 | Host operator | SSH as `simpaths-admin` | Installed configuration, software, monitoring, backups, storage and recovery |
 
@@ -136,6 +136,12 @@ interactive and processing allowances; it is not the host's instantaneous idle
 CPU or free RAM. Job storage is a scheduler allowance, **not a measurement of how
 full the filesystem is**.
 
+Each configuration is counted in one current job state. **Review** means a
+stopped or failed configuration needs attention; it is a different configuration
+from one counted as **active**. Output validation can require review after the
+model stops, but waiting for Visualiser charts alone does not put a simulation
+into review. Chart preparation has its own status in the user's Results page.
+
 With the capacity-reporting update installed, this page also shows the last
 CPU/RAM capacity-check time, its freshness and recent capacity incidents. These
 checks normally run every five minutes; readings older than 15 minutes are
@@ -186,6 +192,54 @@ Keep journals and JSON exports private. Inspect a relevant unit's recent journal
 with `sudo journalctl -u UNIT_NAME --since "1 hour ago" --no-pager`. A running
 Python service alone does not prove that sign-in, dispatch, charts or mail work;
 check the affected workflow too.
+
+### Filesystem storage
+
+Open **Filesystem storage** for a read-only view of actual disk occupancy,
+file footprints, cache allowances and admission commitments. The page refreshes
+every 30 seconds while visible; **Refresh storage** requests the latest report.
+It does not delete files, change allowances, start backups or restart work.
+
+**Physical filesystems** shows total capacity, actual used space, available space
+and percentage used. Areas on the same filesystem share one row and one pool of
+free space. Available space excludes blocks reserved by the filesystem. Backup
+storage can be on a separate filesystem, which can become full independently of
+the job and Visualiser filesystem.
+
+**File footprints and cache allowances** reports allocated file blocks for job
+workspaces, uploaded/generated prepared inputs, Visualiser data, prepared downloads and
+backups. Job workspaces include raw outputs, copied working inputs and temporary
+files; their footprint is not a measurement of raw CSV files alone. Visualiser
+summaries are included in the Visualiser total, so do not add those two rows.
+The configured summary allowance is also inside the total Visualiser allowance,
+not extra capacity. These categories do not account for every file or all
+filesystem overhead.
+The generated-prepared-input category covers datasets produced by this service.
+Imported training or provider inputs stored elsewhere are not separately counted
+in that category; reported filesystem totals include all files on those filesystems.
+
+Footprint measurements run in a bounded background check and are cached for up
+to five minutes. The first reading can say **Measuring**, and a check that cannot
+finish reports **Unavailable** rather than a partial total. Refresh does not
+force a fresh scan before the cache expires. Each measurement has its own time;
+readings older than 15 minutes are marked stale. Unknown or stale measurements
+are not proof of an empty disk.
+
+**Scheduler and protected space** compares the job-storage pool allowance, its
+unreserved allowance available to batch, and actual free space on the job
+filesystem. A new configuration must satisfy both scheduler and physical-space
+checks. Outstanding unwritten workspace commitments and workspace/Visualiser
+safety and processing reserves are shown separately: these are promises and
+protected headroom, not files already occupying disk. Completing work may release
+unused commitments while its retained outputs continue using space. A storage
+headroom alert compares commitments and buffers with free space; its threshold
+is not the percentage of the disk occupied by files.
+
+**Scheduled backups** shows the last successful backup, whether it is overdue,
+the current capture stage, whether an external destination is configured and
+the configured minimum free space. Backup file occupancy is separate from this
+completion status: a large or growing file does not prove a verified recovery
+copy. Unavailable status needs the private operator check described below.
 
 ### Monitoring and email
 
@@ -271,6 +325,32 @@ later baseline comparisons while the required summaries remain valid; it extends
 neither summary nor chart retention. New calculations needing the deleted raw
 files will no longer be possible. Check the resulting Storage status and usage.
 
+Owners can also opt into **Automatically delete raw output files after Visualiser
+summaries are protected** beside the baseline choice when submitting an experiment.
+It starts **off**, applies initially to each new configuration, and is shown in
+the submission review. Existing experiments remain off unless their owner enables
+the setting. **My Jobs** provides an independent checkbox per configuration until
+the worker starts removing its files. Enabling an already eligible configuration
+can cause prompt, permanent raw deletion; the interface asks for confirmation.
+After removal starts, opting out cannot restore the files.
+
+Automatic removal requires a successful, validated attempt and complete, verified,
+protected per-seed summaries. It can proceed while companion configurations remain
+unfinished and before the final comparison publication, because compatible future
+comparisons can use those summaries. It preserves input datasets, job history and
+the existing finite summary/chart deadlines. Missing, expired or unprotected
+summaries retain raw output for attention rather than allowing a full-output
+expiry to bypass the protection check. The option does not itself create room
+for summary processing; a filesystem shortage can still need operator action.
+
+Ordinary raw-output expiry reminders are suppressed for successful configurations
+using this policy, including unsent reminders queued before the change. Completion
+messages state the current policy and distinguish raw-only removal from full
+result deletion. Older emails already delivered cannot be recalled; users should
+check current status. Turning the setting off before removal starts restores
+ordinary retention with the existing minimum 96-hour warning protection where
+needed. Input, upload, recovery and failed-partial-output policies are unaffected.
+
 The separate **Delete output files** action also withdraws hosted aggregate access.
 After raw-only deletion, this control is named **Delete results and Visualiser
 data**. Neither action recalls an aggregate ZIP already downloaded by a user.
@@ -284,9 +364,27 @@ not an expected duration. A failed or unfinished capture does not replace the
 previous verified backup. Check completion status rather than treating a growing
 temporary file as a recovery copy.
 
+The approved local rotation policy keeps **two completed full backups**. Its
+settings are `keep_latest=2` and `retention_rule="count"`. Each full archive is an
+independent recovery point. This rule removes older completed scheduled copies
+without a 30-day minimum age. The runner verifies both retained archives against
+their ciphertext checksums and matching receipts before retiring older copies;
+a missing or corrupt retained copy stops retirement. The pending capture is
+protected. A durable journal and quarantine outside the active job directories
+allow interrupted retirement to resume safely. Separate migration checkpoints
+and host-settings copies are outside this scheduled-copy rotation.
+
+Leave room for the replacement archive as well as the two completed copies,
+capture scratch, other recovery files and the configured free-space reserve.
+Backup sizes vary with retained inputs and results; keeping two does not guarantee
+that every future replacement fits. A free-space failure leaves protection
+overdue until a complete new recovery point passes its checks. Check the backup
+filesystem and current incident; deleting live raw output does not shrink an
+existing encrypted backup. Backup failures do not mark chart preparations failed.
+
 A separate, small encrypted host-configuration copy preserves settings such as
-stable session secrets. Refresh it after configuration changes; the current copy
-includes the six-hour backup and three-hour chart limits. Online application
+stable session secrets. Refresh it after configuration changes, including backup
+rotation and the finite backup/chart runtime limits. Online application
 backups retain settled files and database state; they are not a checkpoint of the
 Java engine's current in-memory state. SingleRun controls can be briefly protected
 while its recovery state is captured. An interrupted model is recovered or retried

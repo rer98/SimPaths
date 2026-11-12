@@ -110,7 +110,7 @@ seed_workers = 2
 # before admitting a replacement simulation. Requires queue migration 030.
 handover = true
 retain_completed_summaries = true
-summary_hours = 168
+summary_hours = 720
 summary_cache_mib = 8192
 cache_mib = 16384
 # Reclaim only finished chart files unused for 72 hours; summaries keep their
@@ -124,7 +124,7 @@ warning_seconds = 300
 # Additional space for OS/database, uploads, downloads and other service work;
 # model workspace promises are accounted for separately. Review on the host.
 filesystem_headroom_mib = 16384
-cache_hours = 168
+cache_hours = 720
 max_entries = 512
 per_owner_entries = 256
 artifact_mib = 96

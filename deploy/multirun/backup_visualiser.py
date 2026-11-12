@@ -116,7 +116,11 @@ def capture(state,destination,c=None,queue=None,*,stream=None):
     from jasmine_web.batch.downloads import lock
     root=Path(state)/ROOT
     result=dict(format=FORMAT,publications=0,summaries=0,evictions=0,experiment_views=0)
-    if not root.exists():return result
+    if not root.exists():
+        if c is not None:
+            from .backup_summary_retention import verify as verify_retention
+            verify_retention(c,queue,state)
+        return result
     if root.is_symlink():raise ArtifactError('Linked Visualiser storage')
     with ExitStack() as guards:
         guards.enter_context(capture_lock(root/'maintenance.lock'))
@@ -171,6 +175,9 @@ def capture(state,destination,c=None,queue=None,*,stream=None):
             for name in ('.summary-holds.json','.cache-usage.json'):
                 if (summaries/name).exists():
                     read_metadata(summaries/name);keys.add('summaries/'+name)
+        if c is not None:
+            from .backup_summary_retention import verify as verify_retention
+            verify_retention(c,queue,state)
         destination=Path(destination)/ROOT
         destination.parent.mkdir(mode=0o700,parents=True,exist_ok=True)
         if stream is None:

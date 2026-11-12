@@ -102,8 +102,13 @@ class VMConfigTests(unittest.TestCase):
             self.assertEqual(main(['check', '--config', str(self.path)]), 0)
         self.assertEqual(sorted(p.name for p in self.root.iterdir()), ['settings.toml'])
 
+    def test_visualiser_defaults_keep_thirty_day_results_and_seventy_two_hour_idle_pressure(self):
+        settings=self.config()
+        self.assertEqual((settings.visualiser_summary_hours,settings.visualiser_cache_hours,
+                          settings.visualiser_idle_hours),(720,720,72))
+
     def test_visualiser_periods_are_independent_and_can_outlast_raw_retention(self):
-        text=self.text.replace('summary_hours = 168','summary_hours = 336').replace('cache_hours = 168','cache_hours = 720')
+        text=self.text.replace('summary_hours = 720','summary_hours = 336')
         settings=self.config(text)
         self.assertEqual(settings.visualiser_summary_hours,336)
         self.assertEqual(settings.visualiser_cache_hours,720)

@@ -51,13 +51,14 @@ async def private_processors(service, stop):
     """Keep private cache and source guards until every background worker stops."""
     def maintain():
         while not stop.is_set():
+            pending=False
             try:
                 service.results.downloads.retire()
                 if hasattr(service,'visualiser'):
-                    service.visualiser.retire()
+                    pending=bool(service.visualiser.retire())
             except Exception as error:
                 print('Private cache cleanup waiting: '+type(error).__name__,flush=True)
-            stop.wait(30)
+            stop.wait(1 if pending else 30)
     def process(slot):
         while not service.visualiser.stop.is_set():
             try:
@@ -198,6 +199,7 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
     def dispatch():
         try:
             def before_claim():
+                if executor.pipeline_storage is not None:executor.pipeline_storage.retire_failed(q)
                 if not storage_budget.tick():
                     return False
                 service.attempt_cleanup.retire()
@@ -400,7 +402,7 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
         backend=VisualiserBackend(args.visualiser_build,execution,public_datasets=keys,
             memory_mib=max(256,args.visualiser_memory_mib-768) if scoped else args.visualiser_memory_mib,
             **backend_options)
-        backend.summary_retention_seconds=getattr(args,'visualiser_summary_hours',168)*3600
+        backend.summary_retention_seconds=getattr(args,'visualiser_summary_hours',720)*3600
         if backend.summary_cache is not None:
             from .visualiser_cache_usage import statistics
             from jasmine_web.batch.performance_trace import NUMBERS
@@ -419,6 +421,15 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                 idle_seconds=getattr(args,'visualiser_idle_hours',72)*3600,
                 warning_seconds=getattr(args,'visualiser_warning_seconds',300),
                 physical=DiskHeadroom(q,executor,reserve_bytes=getattr(args,'visualiser_filesystem_headroom_mib',16384)*1024**2))
+        pipeline=None
+        if getattr(args,'visualiser_pipeline_storage',False):
+            from jasmine_web.batch.pipeline_storage import PipelineStorage
+            if quotas is None:raise ValueError('Pipeline storage requires administrator workspace quotas')
+            status=quotas.pipeline_ready()
+            if status['pipeline_floor_bytes']<getattr(args,'visualiser_filesystem_headroom_mib',16384)*1024**2:
+                raise ValueError('Pipeline broker must preserve the approved Visualiser service floor')
+            pipeline=PipelineStorage(quotas,state/'artifacts')
+            executor.pipeline_storage=pipeline
         service.visualiser=Visualiser(service.results,backend,
             resources=Resources(getattr(args,'visualiser_cpu_millis',1000),args.visualiser_memory_mib,
                                 getattr(args,'visualiser_storage_mib',512)),
@@ -427,11 +438,12 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
             handover=getattr(args,'visualiser_handover',False),
             resource_scope=scopes,bounded_comparisons=getattr(args,'visualiser_bounded_comparisons',False),
             capacity=getattr(args,'visualiser_cache_mib',256)*1024**2,
-            lifetime=getattr(args,'visualiser_cache_hours',168)*3600,
+            lifetime=getattr(args,'visualiser_cache_hours',720)*3600,
             max_entries=getattr(args,'visualiser_max_entries',64),
             retain_completed_summaries=getattr(args,'visualiser_retain_completed_summaries',True),
             per_owner_entries=getattr(args,'visualiser_per_owner_entries',256) if automatic else 10,
-            publication_limits=limits,storage_policy=storage_policy)
+            publication_limits=limits,storage_policy=storage_policy,
+            compact_summaries=getattr(args,'visualiser_compact_summaries',False),pipeline_storage=pipeline)
         service.visualiser.performance=trace
         if automatic:
             from jasmine_web.batch.preparation_scheduler import PreparationScheduler
@@ -444,6 +456,9 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
     service.attempt_cleanup=AttemptCleanup(q,executor,outputs=result_deletion_targets,
                                            failed_preparation=adapter.preparation.retire_failed)
     service.storage=Storage(service,execution)
+    if getattr(service,'administration',None) is not None:
+        from .operator_status import AdministratorStorage
+        service.administration.storage_reader=AdministratorStorage(service,state,executor)
     service.notifications=Notifications(service,admin_email=args.admin_email,
         sender=smtp_sender(os.environ['SMTP_FROM_EMAIL']) if args.notification_emails else None,
         storage_wait_emails=getattr(args,'storage_wait_emails',False),

@@ -17,12 +17,16 @@ import re
 import shutil
 import subprocess
 import threading
+import tempfile
 import time
 
 
 class VisualiserBackend:
     supports_parallel_seeds=True
     supports_source_ready=True
+    # One <=64-MiB seed output, one atomic cache copy, <=64-MiB diagnostics
+    # and bounded metadata. Existing/durable cache bytes are separate.
+    summary_scratch_bytes=256*1024**2
     # Explicit public resources from the trusted application, never a public-dir
     # glob that could also expose bundled simulation data or server calculations.
     APPLICATION_ASSETS=frozenset({'index.html','visualiser.js','visualiser.css',
@@ -81,7 +85,8 @@ class VisualiserBackend:
                                             maximum_entries=summary_cache_entries)
         from .visualiser_summary_holds import SummaryCapacityError
         self.supports_summary_retention=self.summary_cache is not None
-        self.summary_retention_seconds=7*86400
+        self.supports_summary_preparation=self.summary_cache is not None
+        self.summary_retention_seconds=30*86400
         self.capacity_errors=(SummaryCapacityError,)
         self.paired=manifest['mode']=='development-paired'
         # Advertise a set only when the verified application bundle includes
@@ -199,7 +204,17 @@ class VisualiserBackend:
 
     def _summary_deadline(self, configuration):
         from datetime import datetime
-        deadline=datetime.fromisoformat(configuration['completed_at']).timestamp()+self.summary_retention_seconds
+        retained=configuration.get('summary_retention')
+        if retained is not None:
+            from jasmine_web.batch.visualiser_sources import validate_retention
+            _,deadline=validate_retention(retained)
+            if retained['backend']!=self.calculation_identity(self.identity):
+                raise ValueError('Retained summary calculation is incompatible')
+            return deadline
+        window=configuration.get('summary_legacy_seconds',self.summary_retention_seconds)
+        if type(window) not in (int,float) or not 0<window<=365*86400:
+            raise ValueError('Invalid legacy summary retention window')
+        deadline=datetime.fromisoformat(configuration['completed_at']).timestamp()+window
         promised=configuration.get('summary_expires_at')
         if promised is not None:
             if isinstance(promised,str):promised=datetime.fromisoformat(promised).timestamp()
@@ -209,11 +224,91 @@ class VisualiserBackend:
         if not math.isfinite(deadline):raise ValueError('Invalid retained summary deadline')
         return deadline
 
+    @contextmanager
+    def preserve_summary_sources(self, owner, experiment, plans, *, owner_entries, check=None, qualification=False,
+                                 before_admission=None):
+        """Protect exact complete canonical seed sets through dependent commits.
+
+        All content hashes are checked before any promise is admitted. This
+        worker-only operation never parses raw data or resets a fixed deadline.
+        Qualified installation may explicitly extend a reviewed legacy promise;
+        ordinary workers leave `qualification` false.
+        """
+        from .visualiser_summary_cache import canonical
+        from .visualiser_summary_holds import scope,digest
+        from jasmine_web.batch.visualiser_sources import validate_retention
+        cache=self.summary_cache
+        if (cache is None or not isinstance(plans,list) or not plans
+                or len(plans)>100 or type(qualification) is not bool):
+            raise ValueError('Require complete retained summary sources')
+        identities=[];comparisons=[];deadlines=[]
+        for plan in plans:
+            identity=plan['identity'];source=dict(plan['source'],owner=owner,identity=identity)
+            configuration=source['configuration'];retained=configuration['summary_retention']
+            protected_at,expires_at=validate_retention(retained)
+            self._require_summary_lifetime(configuration)
+            runs=configuration['runs']
+            if (identity.get('configuration')!=configuration['id'] or not isinstance(runs,list)
+                    or not 1<=len(runs)<=100 or len({str(run['seed']) for run in runs})!=len(runs)
+                    or [str(run['seed']) for run in runs]!=[str(run['seed']) for run in identity['repetitions']]):
+                raise ValueError('Retained summary source seeds changed')
+            identities.extend(self._summary_identity(source,run,self._summary_inputs(source,run)) for run in runs)
+            comparisons.append(dict(comparison='source-retained:'+hashlib.sha256(canonical(['retained',identity['job'],identity['attempt']])).hexdigest(),
+                created_at=protected_at,expires_at=expires_at,configurations=[dict(configuration=configuration['id'],
+                    job=identity['job'],attempt=identity['attempt'],seeds=[str(run['seed']) for run in runs])]))
+            deadlines.append(expires_at)
+        with cache._lock('.cache.lock',check=check):
+            # Admission can commit just before a controller/SQL failure. Reuse
+            # that exact first deadline on retry, never a newly calculated one.
+            existing=cache.holds.load()
+            for plan,comparison in zip(plans,comparisons):
+                key=digest([owner,experiment,comparison['comparison']])
+                previous=existing.get(key)
+                if previous is not None and not plan.get('established',True) and not qualification:
+                    if (previous['scope']!=scope(identities[0])
+                            or previous['configurations']!=comparison['configurations']):
+                        raise ValueError('The admitted source guarantee changed')
+                    comparison.update(created_at=previous['created_at'],expires_at=previous['expires_at'])
+                    from datetime import datetime,timezone
+                    plan['source']['configuration']['summary_retention'].update(
+                        protected_at=datetime.fromtimestamp(previous['created_at'],timezone.utc).isoformat(),
+                        expires_at=datetime.fromtimestamp(previous['expires_at'],timezone.utc).isoformat())
+            proof=cache._verify_retained_locked(identities,require_held=False,check=check)
+            # Start a new policy's clock only after its entire seed set has
+            # passed verification. Legacy or crash-recovered dates stay fixed.
+            for plan,comparison in zip(plans,comparisons):
+                key=digest([owner,experiment,comparison['comparison']])
+                if plan.get('anchor_on_protection') and key not in existing and not plan.get('established',True):
+                    from datetime import datetime,timezone
+                    window=comparison['expires_at']-comparison['created_at']
+                    protected_at=time.time();expires_at=protected_at+window
+                    comparison.update(created_at=protected_at,expires_at=expires_at)
+                    plan['source']['configuration']['summary_retention'].update(
+                        protected_at=datetime.fromtimestamp(protected_at,timezone.utc).isoformat(),
+                        expires_at=datetime.fromtimestamp(expires_at,timezone.utc).isoformat())
+                    # SQL and filesystem holds use the same microsecond clock.
+                    comparison.update(created_at=datetime.fromisoformat(plan['source']['configuration']['summary_retention']['protected_at']).timestamp(),
+                        expires_at=datetime.fromisoformat(plan['source']['configuration']['summary_retention']['expires_at']).timestamp())
+            deadlines=[comparison['expires_at'] for comparison in comparisons]
+            actual=cache.holds.preserve_many(owner,experiment,comparisons,calculation=scope(identities[0]),
+                owner_entries=min(owner_entries,cache.maximum_entries),qualification=qualification,
+                before_save=before_admission)
+            if actual!=deadlines:raise ValueError('Canonical summary deadline changed')
+            if check is not None:check()
+            for plan in plans:self._require_summary_lifetime(plan['source']['configuration'])
+            entries=cache._entries(read_only=True);holds=cache.holds.load()
+            promised,count,_=cache.holds.occupancy(holds,entries)
+            snapshot=dict(bytes=sum(e[2] for e in entries),entries=len(entries),
+                maximum_bytes=cache.maximum_bytes,maximum_entries=cache.maximum_entries,
+                promised_bytes=promised,promised_entries=count,
+                deferred=sum(not r['admitted'] for r in holds.values()))
+            yield dict(configurations=len(plans),expires_at=min(deadlines),storage_snapshot=snapshot,**proof)
+
     def _require_summary_lifetime(self, configuration):
         if self.summary_cache is None or self._summary_deadline(configuration)<=time.time():
             raise ValueError('Retained intermediate summaries have expired')
 
-    def verify_retained_summaries(self, sources):
+    def verify_retained_summaries(self, sources, *, checkpoint=None):
         """Verify raw retirement preserves all authorised compatible seed summaries.
 
         Front supplies its locked, currently authorised processing sources with
@@ -235,14 +330,14 @@ class VisualiserBackend:
                     or len({str(run['seed']) for run in runs})!=len(runs)):
                 raise ValueError('Retained summary verification requires distinct seeds')
             identities.extend(self._summary_identity(source,run,self._summary_inputs(source,run)) for run in runs)
-        result=self.summary_cache.verify_retained(identities)
+        result=self.summary_cache.verify_retained(identities,check=checkpoint)
         for source in sources:
             self._require_summary_lifetime(source['configuration'])
         return dict(configurations=len(sources),**result)
 
     @contextmanager
     def preserve_source_summaries(self, owner, experiment, identity, source, *,
-                                  created_at, expires_at, owner_entries):
+                                  created_at, expires_at, owner_entries, check=None):
         """Keep all exact source summaries locked through physical raw deletion.
 
         Front holds its retention and source-output locks, supplies a currently
@@ -268,10 +363,12 @@ class VisualiserBackend:
             created_at=created_at,expires_at=min(expires_at,self._summary_deadline(configuration)),
             configurations=[dict(configuration=configuration['id'],job=identity['job'],
                 attempt=identity['attempt'],seeds=[str(run['seed']) for run in runs])])
-        with cache._lock('.cache.lock'):
-            result=cache._verify_retained_locked(identities,require_held=False)
+        with cache._lock('.cache.lock',check=check):
+            result=cache._verify_retained_locked(identities,require_held=False,check=check)
+            if check is not None:check()
             deadline=cache.holds.preserve(owner,experiment,comparison,calculation=scope(identities[0]),
                                          owner_entries=min(owner_entries,cache.maximum_entries))
+            if check is not None:check()
             self._require_summary_lifetime(configuration)
             if deadline<=time.time():raise ValueError('Retained intermediate summaries have expired')
             yield dict(configurations=1,expires_at=deadline,**result)
@@ -345,6 +442,78 @@ class VisualiserBackend:
         else:
             result['rows']=artifact(files.paths[0])
         return result
+
+    def prepare_summaries(self,sources,work,command,progress,*,resource_budget,source_ready=None):
+        """Create protected seed summaries without allocating a chart publication.
+
+        The caller admits the scratch contract through the shared disk broker,
+        retains summary dependencies, holds authorised sources, and supplies the
+        same finite cancellable CPU/RAM scope as ordinary preparation. This
+        method reads raw files in place and never removes raw output. It makes
+        no change to the pinned scientific calculations.
+
+        One seed runs at a time. The reviewed runner checks its 64-MiB result
+        bound before writing; the cache makes one bounded atomic copy. The
+        workspace copy is removed before the next seed, so its peak does not
+        scale with repetitions. The shared cache and its promises are separate
+        from this scratch contract. A kernel quota on the caller's workspace
+        and bounded command diagnostics must enforce the admitted allowance.
+        """
+        from jasmine_web.batch.policy import Resources
+        if not self.supports_summary_preparation or self.summary_cache is None:
+            raise ValueError('Protected summary preparation is unavailable')
+        if (not isinstance(resource_budget,Resources) or resource_budget.cpu_millis<1000
+                or resource_budget.memory_mib<1280
+                or resource_budget.storage_mib*1024**2<self.summary_scratch_bytes):
+            raise ValueError('Summary preparation requires an admitted finite scratch budget')
+        if not isinstance(sources,list) or not 1<=len(sources)<=100:
+            raise ValueError('Summary preparation requires bounded authorised sources')
+        self._verify_code()
+        # Validate every source and its protected dependency before raw parsing.
+        identities=[]
+        for source in sources:
+            configuration=source['configuration']
+            self._require_summary_lifetime(configuration)
+            runs=configuration['runs']
+            if (not isinstance(runs,list) or not 1<=len(runs)<=100
+                    or len({str(run['seed']) for run in runs})!=len(runs)):
+                raise ValueError('Summary preparation requires distinct bounded seeds')
+            selected=[self._summary_identity(source,run,self._summary_inputs(source,run)) for run in runs]
+            with self.summary_cache._lock('.cache.lock',check=getattr(command,'check',None)):
+                records=self.summary_cache.holds.load()
+                for identity in selected:
+                    if not self.summary_cache.holds.require_admitted(identity,records):
+                        from .visualiser_summary_holds import SummaryCapacityError
+                        raise SummaryCapacityError('Every compact summary seed requires a protected storage promise')
+            identities.append(selected)
+        heap=max(128,resource_budget.memory_mib-1024)
+        completed=0
+        with tempfile.TemporaryDirectory(prefix='.summary-stage-',dir=work) as directory:
+            output=Path(directory)/'seed.json'
+            request=output.with_suffix('.request.json')
+            for source,selected in zip(sources,identities):
+                for run,identity in zip(source['configuration']['runs'],selected):
+                    with self.summary_cache._lock('.cache.lock',check=getattr(command,'check',None)):
+                        if not self.summary_cache.holds.require_admitted(identity):
+                            from .visualiser_summary_holds import SummaryCapacityError
+                            raise SummaryCapacityError('The compact summary storage promise is no longer available')
+                    try:
+                        self._seed(source,run,output,'baseline',command,heap)
+                    finally:
+                        output.unlink(missing_ok=True)
+                        output.with_name(output.name+'.pending').unlink(missing_ok=True)
+                        request.unlink(missing_ok=True)
+                    completed+=1
+                    progress(completed)
+                # Hash all exact entries under the cache lock and check their
+                # live holds again. A callback cannot turn a partial seed set
+                # into authority to retire raw output.
+                check=getattr(command,'check',None)
+                if check is not None:check()
+                self.verify_retained_summaries([source],checkpoint=getattr(command,'checkpoint',None))
+                if check is not None:check()
+                if source_ready is not None:source_ready(str(source['identity']['job']))
+        return dict(configurations=len(sources),seeds=completed)
 
     def _seed(self,configuration,run,output,role,command,heap):
         """One immutable run request; its files and descriptors are never shared."""

@@ -171,9 +171,9 @@ def parse_args(argv=None):
                         help='Shared processing reservation; Node heap uses 256 MiB less (512–4096 MiB)')
     parser.add_argument('--visualiser-timeout-seconds',type=int,default=600,
                         help='Maximum time to process one selected visualisation (60–10800 seconds)')
-    parser.add_argument('--visualiser-cache-hours',type=int,default=168,
+    parser.add_argument('--visualiser-cache-hours',type=int,default=720,
                         help='Finished chart lifetime in hours (1–8760); current permissions still apply')
-    parser.add_argument('--visualiser-summary-hours',type=int,default=168,
+    parser.add_argument('--visualiser-summary-hours',type=int,default=720,
                         help='Completed per-seed summary retention hours when summary reuse is enabled (1–8760)')
     args=parser.parse_args(argv)
     try:

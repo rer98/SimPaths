@@ -77,7 +77,7 @@ class SummaryCache:
             if not any(entry[1] == key for entry in self._entries()):
                 self.holds.before_raw(identity, records)
 
-    def verify_retained(self, identities):
+    def verify_retained(self, identities, *, check=None):
         """Atomically verify every exact summary and its live admitted hold.
 
         This read-only snapshot releases its lock on return. Raw deletion uses
@@ -85,10 +85,10 @@ class SummaryCache:
         Never refresh access timestamps, renew a dependency, evict entries or
         fall back to raw-source processing.
         """
-        with self._lock('.cache.lock'):
-            return self._verify_retained_locked(identities)
+        with self._lock('.cache.lock',check=check):
+            return self._verify_retained_locked(identities,check=check)
 
-    def _verify_retained_locked(self, identities, *, require_held=True):
+    def _verify_retained_locked(self, identities, *, require_held=True, check=None):
         """Caller holds the cache lock through any dependent physical deletion."""
         if (not isinstance(identities, list) or not 1 <= len(identities) <= self.maximum_entries
                 or any(not isinstance(identity, dict) or not identity.get('owner')
@@ -102,6 +102,7 @@ class SummaryCache:
             raise ValueError('Retained summary verification requires distinct seeds')
         admitted = self.holds.units(self.holds.load())
         for identity, key in zip(identities, keys):
+            if check is not None:check()
             if require_held and not self.holds.matches(identity, admitted):
                 raise SummaryCapacityError('Summary storage is not reserved for every retained seed')
             try:
@@ -114,6 +115,7 @@ class SummaryCache:
                     digest = hashlib.sha256()
                     size = 0
                     while chunk := source.read(MIB):
+                        if check is not None:check()
                         size += len(chunk)
                         if size > receipt['bytes']:
                             raise ValueError('Private summary size changed')
@@ -403,7 +405,17 @@ class SummaryEntry:
                     with open(temporary / 'receipt.json', 'xb') as target:
                         os.chmod(temporary / 'receipt.json', 0o600)
                         target.write(receipt); target.flush(); os.fsync(target.fileno())
+                    directory = os.open(temporary, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+                    try:
+                        os.fsync(directory)
+                    finally:
+                        os.close(directory)
                     os.rename(temporary, cache.root / self.key)
+                    directory = os.open(cache.root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+                    try:
+                        os.fsync(directory)
+                    finally:
+                        os.close(directory)
                     cache.usage.update(forget=(self.key,))
                     return True
                 finally:

@@ -14,18 +14,22 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import sys
 import tomllib
 import traceback
 from uuid import uuid4
 
 from .artifacts import ArtifactError
-from .backup_files import open_file, read_metadata
+from .backup_files import file_hash, open_file, read_metadata
 from .backup_transport import SFTP, dispose_keyring, operator_file, seal, sealed, unseal
 from .releases import atomic_json, existing_directory
 
 FORMAT='simpaths.backup.schedule.v1'
 DELIVERY_FORMAT='simpaths.backup.delivery.v1'
+ROTATION_FORMAT='simpaths.backup.count-rotation.v1'
+ROTATION_JOURNAL='retention-prune.json'
+ROTATION_FOLDER='retirement-pending'
 
 
 def utc(): return datetime.now(timezone.utc)
@@ -37,6 +41,14 @@ def local_retention(config):
     if mode not in ('retain','remote-only') or mode=='remote-only' and not config.get('remote'):
         raise ArtifactError('Choose retain, or remote-only with a configured remote backup destination')
     return mode
+
+
+def retention_rule(config):
+    """Count-only history is a separate explicit choice, never a new default."""
+    rule=config['backup'].get('retention_rule','age-and-count')
+    if rule not in ('age-and-count','count'):
+        raise ArtifactError('Choose age-and-count or explicit count-only backup retention')
+    return rule
 
 
 def source_scope(source):
@@ -76,7 +88,7 @@ def load_config(path):
     elif not {'frontend','state','dsn_file','pool','schema'} <= set(source):
         raise ArtifactError('Provide all explicit backup source settings')
     defaults=dict(interval_hours=24,retry_minutes=30,keep_days=30,keep_latest=3,minimum_free_gib=1,
-                  local_retention='retain')
+                  local_retention='retain',retention_rule='age-and-count')
     if set(policy)-{'directory','public_key','recipient',*defaults} or not {'directory','public_key','recipient'} <= set(policy):
         raise ArtifactError('Invalid encrypted backup settings')
     policy={**defaults,**policy}; value['backup']=policy
@@ -93,6 +105,7 @@ def load_config(path):
             raise ArtifactError('Supply the complete pinned remote backup settings')
         SFTP(**remote)
     local_retention(value)
+    retention_rule(value)
     alerts=value.setdefault('alerts',dict(enabled=False))
     if not isinstance(alerts,dict) or set(alerts)-{'enabled','recipient'} or type(alerts.get('enabled')) is not bool:
         raise ArtifactError('Invalid backup alert settings')
@@ -177,6 +190,7 @@ def report(status, *, now=None, config=None):
     return dict(format=FORMAT,passed=not stale and (incident is None or incident.get('resolved_at') is not None),operation='status',latest=latest,
         overdue=stale,
         local_retention=local_retention(config) if config is not None else None,
+        retention_rule=retention_rule(config) if config is not None else None,
         last_success_age_seconds=age,pending_stage=current['stage'] if current else (
             'local-cleanup' if incident and incident['stage']=='local-cleanup' and not incident.get('resolved_at') else None),
         failure=None if incident is None else dict(id=incident['id'],stage=incident['stage'],opened_at=incident['opened_at'],
@@ -262,9 +276,199 @@ def remove_local_archive(root, config, status, storage, record, now, transport):
         atomic_json(root/'status.json',status)
 
 
+def _rotation_record(path,config):
+    record=read_metadata(path/'complete.json')
+    if not isinstance(record,dict):raise ArtifactError('Invalid completed backup record')
+    if record.get('config')!=config['_digest']:return None
+    fields=('job_id','backup_id','config','finished_at','sha256','off_machine')
+    if (not set(fields)<=set(record) or record['job_id']!=path.name or
+            not re.fullmatch('[a-f0-9]{32}',str(record['backup_id'])) or
+            not re.fullmatch('[a-f0-9]{64}',str(record['sha256'])) or type(record['off_machine']) is not bool):
+        raise ArtifactError('Invalid completed backup identity')
+    try:
+        at=datetime.fromisoformat(record['finished_at'])
+        if at.tzinfo is None:raise ValueError()
+    except (TypeError,ValueError):raise ArtifactError('Invalid completed backup time') from None
+    return record
+
+
+def _rotation_completed(root,config,status):
+    folder=root/'jobs'
+    if not folder.exists():return []
+    existing_directory(folder);completed=[]
+    pending=status['current']['id'] if status['current'] else None
+    for child in folder.iterdir():
+        if child.is_symlink() or not child.is_dir() or not re.fullmatch('[a-f0-9]{32}',child.name):
+            raise ArtifactError('Unexpected scheduled backup storage')
+        if child.name==pending or not (child/'complete.json').exists():continue
+        record=_rotation_record(child,config)
+        if record is not None:completed.append((datetime.fromisoformat(record['finished_at']),child,record))
+    return sorted(completed,key=lambda row:(row[0],row[1].name),reverse=True)
+
+
+def _rotation_kept(root,config,status,kept,*,transport=None):
+    """Verify every surviving recovery copy before any count-only removal."""
+    ids={row['id'] for row in kept};latest=status['last_success']
+    if (len(ids)!=len(kept) or len(kept)!=config['backup']['keep_latest'] or
+            not latest or latest.get('config')!=config['_digest'] or latest.get('job_id') not in ids):
+        raise ArtifactError('The latest verified backup must remain in the retained set')
+    for selected in kept:
+        path=root/'jobs'/selected['id'];record=_rotation_record(path,config)
+        if (record is None or file_hash(path,'complete.json')['sha256']!=selected['complete_sha256'] or
+                any(record.get(k)!=selected['record'].get(k) for k in selected['record'])):
+            raise ArtifactError('A retained completion record changed')
+        if record['job_id']==latest['job_id'] and any(record[k]!=latest.get(k)
+                for k in ('backup_id','config','sha256','finished_at')):
+            raise ArtifactError('The latest backup and its completion record differ')
+        cipher=path/'recovery.tar.gpg'
+        if cipher.exists() or cipher.is_symlink():receipt=sealed(cipher,recipient=config['backup']['recipient'])
+        else:
+            if not config.get('remote') or record['off_machine'] is not True:
+                raise ArtifactError('A retained encrypted backup is missing')
+            delivery=delivery_record(config,path,record)
+            if delivery['local_state']!='removed':raise ArtifactError('A retained archive has no completed disposal intent')
+            receipt=delivery['receipt'];connection=transport or SFTP(**config['remote'])
+            actual=connection.remote_hash(connection.directory+'/recovery-'+receipt['backup_id']+'.tar.gpg',receipt)
+            if actual!={k:receipt[k] for k in ('bytes','sha256')}:
+                raise ArtifactError('A retained remote backup could not be verified')
+        if receipt['backup_id']!=record['backup_id'] or receipt['sha256']!=record['sha256']:
+            raise ArtifactError('A retained encrypted backup and completion record differ')
+
+
+def _rotation_sync(path):
+    fd=os.open(path,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+    try:os.fsync(fd)
+    finally:os.close(fd)
+
+
+def _rotation_tree(path):
+    """Completed scheduler jobs are closed, flat archive/receipt directories."""
+    from .backup_files import scan
+    observed=scan(path)
+    allowed={'complete.json','recovery.tar.gpg','recovery.tar.gpg.json','delivery.json'}
+    if (not {'complete.json','recovery.tar.gpg.json'}<=set(observed) or not set(observed)<=allowed
+            or any(not stat.S_ISREG(info[2]) for info in observed.values())):
+        raise ArtifactError('Unexpected files in a completed backup selected for rotation')
+    return {name:list(info) for name,info in observed.items()}
+
+
+def _rotation_validate(journal,config,status):
+    if (not isinstance(journal,dict) or set(journal)!={'format','config','keep_latest','kept','targets'} or
+            journal['format']!=ROTATION_FORMAT or journal['config']!=config['_digest'] or
+            journal['keep_latest']!=config['backup']['keep_latest'] or retention_rule(config)!='count' or
+            not isinstance(journal['kept'],list) or len(journal['kept'])!=journal['keep_latest'] or
+            not isinstance(journal['targets'],list) or not 1<=len(journal['targets'])<=10000):
+        raise ArtifactError('An existing count-only rotation needs its original verified policy')
+    kept_ids=set();target_ids=set()
+    for selected in journal['kept']:
+        if (not isinstance(selected,dict) or set(selected)!={'id','complete_sha256','record'} or
+                not re.fullmatch('[a-f0-9]{32}',str(selected['id'])) or
+                not re.fullmatch('[a-f0-9]{64}',str(selected['complete_sha256'])) or
+                not isinstance(selected['record'],dict) or selected['id'] in kept_ids):
+            raise ArtifactError('Invalid retained rotation identities')
+        kept_ids.add(selected['id'])
+    for selected in journal['targets']:
+        if (not isinstance(selected,dict) or set(selected)!={'id','directory','files','complete_sha256','detached'} or
+                not re.fullmatch('[a-f0-9]{32}',str(selected['id'])) or selected['id'] in target_ids or
+                selected['id'] in kept_ids or type(selected['detached']) is not bool or
+                not re.fullmatch('[a-f0-9]{64}',str(selected['complete_sha256'])) or
+                not isinstance(selected['directory'],list) or len(selected['directory'])!=2 or
+                any(type(v) is not int or v<0 for v in selected['directory']) or
+                not isinstance(selected['files'],dict) or not selected['files'] or
+                not set(selected['files'])<={'complete.json','recovery.tar.gpg','recovery.tar.gpg.json','delivery.json'}):
+            raise ArtifactError('Invalid exact backup rotation target')
+        for info in selected['files'].values():
+            if not isinstance(info,list) or len(info)!=6 or any(type(v) is not int or v<0 for v in info) or not stat.S_ISREG(info[2]):
+                raise ArtifactError('Invalid selected backup file identity')
+        target_ids.add(selected['id'])
+    if status['current'] and status['current']['id'] in target_ids:
+        raise ArtifactError('Pending backup work cannot be selected for rotation')
+
+
+def _rotation_resume(root,config,status,journal,*,transport=None,verified=False):
+    """Caller owns the configured backup-root exclusive file fence throughout."""
+    from .backup_files import scan
+    _rotation_validate(journal,config,status)
+    if not verified:_rotation_kept(root,config,status,journal['kept'],transport=transport)
+    jobs=existing_directory(root/'jobs');retired=root/ROTATION_FOLDER
+    retired.mkdir(mode=0o700,exist_ok=True);existing_directory(retired)
+    for selected in journal['targets']:
+        original=jobs/selected['id'];destination=retired/selected['id']
+        before=original.exists() or original.is_symlink();after=destination.exists() or destination.is_symlink()
+        if before and after:raise ArtifactError('A selected rotation identity exists in two places')
+        if before:
+            if selected['detached']:raise ArtifactError('A detached backup identity was reused')
+            existing_directory(original);info=original.stat()
+            if ([info.st_dev,info.st_ino]!=selected['directory'] or _rotation_tree(original)!=selected['files'] or
+                    file_hash(original,'complete.json')['sha256']!=selected['complete_sha256'] or
+                    _rotation_record(original,config) is None):
+                raise ArtifactError('A backup selected for rotation changed')
+            os.rename(original,destination);_rotation_sync(jobs);_rotation_sync(retired);after=True
+        if after:
+            existing_directory(destination);info=destination.stat()
+            if [info.st_dev,info.st_ino]!=selected['directory']:raise ArtifactError('A detached backup directory changed')
+            observed={name:list(info) for name,info in scan(destination).items()}
+            if (not set(observed)<=set(selected['files']) or
+                    any(observed[name]!=selected['files'][name] for name in observed) or
+                    not selected['detached'] and observed!=selected['files']):
+                raise ArtifactError('Unexpected files appeared in a detached backup')
+            if not selected['detached']:
+                selected['detached']=True;atomic_json(root/ROTATION_JOURNAL,journal)
+            for name in sorted(observed):
+                # Each unlink is bound to the journalled inode and prior scan.
+                current=(destination/name).lstat()
+                from .backup_files import identity
+                if list(identity(current))!=selected['files'][name]:raise ArtifactError('A detached backup file changed')
+                (destination/name).unlink()
+            destination.rmdir();_rotation_sync(retired)
+        elif not selected['detached']:
+            raise ArtifactError('A selected backup disappeared before detachment')
+    (root/ROTATION_JOURNAL).unlink();_rotation_sync(root)
+
+
+def count_retention(root,config,status,now,*,transport=None):
+    """Explicit count-only rotation; defaults retain their existing age floor."""
+    if retention_rule(config)!='count':raise ArtifactError('Finish the pending count-only rotation before changing policy')
+    marker=root/ROTATION_JOURNAL
+    if marker.exists() or marker.is_symlink():
+        _rotation_resume(root,config,status,read_metadata(marker),transport=transport)
+    completed=_rotation_completed(root,config,status);keep=config['backup']['keep_latest']
+    if len(completed)>keep:
+        kept=[dict(id=path.name,complete_sha256=file_hash(path,'complete.json')['sha256'],
+            record={k:record[k] for k in ('job_id','backup_id','config','finished_at','sha256','off_machine')})
+            for _,path,record in completed[:keep]]
+        targets=[]
+        for _,path,record in completed[keep:]:
+            files=_rotation_tree(path)
+            if 'recovery.tar.gpg' not in files:
+                delivery=delivery_record(config,path,record)
+                if delivery['local_state']!='removed':raise ArtifactError('A selected archive is missing without confirmed disposal')
+            receipt=read_metadata(path/'recovery.tar.gpg.json')
+            if receipt.get('backup_id')!=record['backup_id'] or receipt.get('sha256')!=record['sha256']:
+                raise ArtifactError('A selected completed backup and receipt differ')
+            info=path.stat();targets.append(dict(id=path.name,directory=[info.st_dev,info.st_ino],files=files,
+                complete_sha256=file_hash(path,'complete.json')['sha256'],detached=False))
+        journal=dict(format=ROTATION_FORMAT,config=config['_digest'],keep_latest=keep,kept=kept,targets=targets)
+        _rotation_validate(journal,config,status)
+        _rotation_kept(root,config,status,kept,transport=transport)
+        atomic_json(marker,journal)
+        _rotation_resume(root,config,status,journal,transport=transport,verified=True)
+        completed=completed[:keep]
+    # Existing remote-only disposal remains separate from historical count
+    # rotation. Previously committed disposal intents still finish after opt-out.
+    for _,path,record in completed:
+        removing=False
+        if (path/'delivery.json').exists():removing=delivery_record(config,path,record)['local_state'] in ('removing','removed')
+        if local_retention(config)=='remote-only' or removing:
+            remove_local_archive(root,config,status,path,record,now,transport)
+
+
 def retention(root, config, status, now, *, transport=None):
     """Retire completed payloads/records only; preserve every pending capture."""
     mode=local_retention(config)
+    rule=retention_rule(config)
+    if rule=='count' or (root/ROTATION_JOURNAL).exists():
+        return count_retention(root,config,status,now,transport=transport)
     folder=root/'jobs'
     if not folder.exists(): return
     existing_directory(folder)

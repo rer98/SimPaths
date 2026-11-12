@@ -108,9 +108,9 @@ preview = false
 memory_mib = 1024
 timeout_seconds = 600
 # Independent chart and per-seed-summary periods, capped by source access.
-cache_hours = 168
+cache_hours = 720
 retain_completed_summaries = true
-summary_hours = 168
+summary_hours = 720
 
 # Private admin archive/mail settings. Enable before collection on the deployed
 # host; enable mail only after notifications/admin_email and SMTP are configured.

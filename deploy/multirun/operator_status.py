@@ -7,6 +7,10 @@ Reuses verified release and pool inventories without launching or reconciling wo
 import argparse
 from datetime import datetime, timezone
 import json
+import os
+import stat
+import threading
+import time
 from pathlib import Path
 import sys
 
@@ -370,6 +374,350 @@ def main(argv=None):
             database=None,storage=None,models=None,last_launch=dict(available=False))
     print(json.dumps(report,sort_keys=True,indent=2,allow_nan=False) if args.json else render(report),end='\n' if args.json else '')
     return 0 if report['complete'] else 2
+
+
+# The administrator reader exposes bounded numeric storage observations only.
+ADMINISTRATOR_STORAGE_FORMAT = 'simpaths.administrator.storage.v1'
+AREA_IDS = ('job_workspaces', 'uploads', 'prepared_inputs', 'visualiser',
+            'visualiser_summaries', 'downloads', 'backups')
+MAX_NUMBER = 2**63-1
+
+
+def _number(value):
+    if type(value) is not int or not 0 <= value <= MAX_NUMBER:
+        raise ValueError('Invalid storage counter')
+    return value
+
+
+def _timestamp(value):
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        raise ValueError('Expected an aware storage timestamp')
+    return parsed.isoformat()
+
+
+def _now():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _directory(path):
+    """Open every configured directory component without following links."""
+    path = Path(path)
+    if not path.is_absolute() or '..' in path.parts:
+        raise ValueError('Require a configured absolute directory')
+    fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for part in path.parts[1:]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                            dir_fd=fd)
+            os.close(fd)
+            fd = child
+        result, fd = fd, None
+        return result
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def _filesystem(path):
+    fd = _directory(path)
+    try:
+        before = os.fstat(fd)
+        space = os.fstatvfs(fd)
+        after = os.fstat(fd)
+        if ((before.st_dev, before.st_ino) != (after.st_dev, after.st_ino)
+                or space.f_frsize <= 0 or space.f_blocks <= 0
+                or not 0 <= space.f_bavail <= space.f_bfree <= space.f_blocks):
+            raise ValueError('Filesystem capacity changed or is unavailable')
+        return before.st_dev, dict(available=True,
+            total_bytes=_number(space.f_blocks*space.f_frsize),
+            used_bytes=_number((space.f_blocks-space.f_bfree)*space.f_frsize),
+            available_bytes=_number(space.f_bavail*space.f_frsize))
+    finally:
+        os.close(fd)
+
+
+def _backup_snapshot(config_path):
+    """Reuse the installed schedule's validation; export an explicit subset."""
+    from .backup_schedule import FORMAT as backup_format, load_config, report
+    empty = dict(available=False, configured=False, pending_stage=None,
+                 last_success_at=None, overdue=None, remote_configured=None,
+                 minimum_free_bytes=None)
+    if config_path is None:
+        return None, empty
+    path = Path(config_path)
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return None, empty
+    empty['configured'] = True
+    root = None
+    try:
+        config = load_config(path)
+        root = Path(config['backup']['directory'])
+        # The normal backup reader permits large integrity metadata. This page
+        # needs only the small schedule record, bounded on the opened descriptor
+        # so an atomic replacement cannot bypass a prior path-size check.
+        directory = _directory(root)
+        try:
+            try:
+                fd = os.open('status.json', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                             dir_fd=directory)
+            except FileNotFoundError:
+                status = dict(format=backup_format, current=None, last_success=None, incident=None)
+            else:
+                with os.fdopen(fd, 'rb') as source:
+                    info = os.fstat(source.fileno())
+                    if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                            or info.st_uid != os.getuid() or info.st_mode & 0o077
+                            or info.st_size > 128*1024):
+                        raise ValueError('Invalid bounded backup status')
+                    body = source.read(128*1024+1)
+                    if len(body) > 128*1024:
+                        raise ValueError('Backup status exceeds its observation bound')
+                    status = json.loads(body)
+        finally:
+            os.close(directory)
+        if (not isinstance(status, dict) or status.get('format') != backup_format
+                or set(status) != {'format', 'current', 'last_success', 'incident'}):
+            raise ValueError('Invalid backup schedule observation')
+        value = report(status, config=config)
+        latest = value.get('latest')
+        last = _timestamp(latest['finished_at']) if latest else None
+        stage = value.get('pending_stage')
+        if stage not in (None, 'capturing', 'sealing', 'copying', 'complete', 'local-cleanup'):
+            raise ValueError('Invalid backup stage')
+        overdue = value.get('overdue')
+        if type(overdue) is not bool:
+            raise ValueError('Invalid backup freshness')
+        minimum = _number(config['backup']['minimum_free_gib']*1024**3)
+        return root, dict(available=True, configured=True, pending_stage=stage,
+            last_success_at=last, overdue=overdue,
+            remote_configured=bool(config.get('remote')), minimum_free_bytes=minimum)
+    except Exception:
+        return root, empty
+
+
+class AdministratorStorage:
+    """Private read callback; constructing or viewing it never controls work.
+
+    Category totals use allocated regular-file blocks, including working input
+    copies in job workspaces. Visualiser summaries are a subset of Visualiser
+    storage. Neither category totals nor scheduler promises are free disk space.
+    """
+    def __init__(self, service, state, executor, *,
+                 backup_config=Path('/etc/simpaths-online/backup.toml'),
+                 cache_seconds=300, scan_seconds=5, max_entries=200000):
+        if (type(cache_seconds) not in (int, float) or not 1 <= cache_seconds <= 3600
+                or type(scan_seconds) not in (int, float) or not 0 < scan_seconds <= 30
+                or type(max_entries) is not int or not 1 <= max_entries <= 200000):
+            raise ValueError('Invalid bounded storage observation settings')
+        self.service, self.state, self.executor = service, Path(state), executor
+        self.backup_config = backup_config
+        self.cache_seconds, self.scan_seconds, self.max_entries = cache_seconds, scan_seconds, max_entries
+        self._lock = threading.Lock()
+        self._thread = None
+        self._running = False
+        self._binding = None
+        self._sample = None
+        self._sampled = None
+
+    def _roots(self, backup):
+        visualiser = getattr(self.service, 'visualiser', None)
+        summaries = getattr(getattr(visualiser, 'backend', None), 'summary_cache', None)
+        downloads = getattr(getattr(self.service, 'results', None), 'downloads', None)
+        # Generated input datasets live under artifacts. Imported provider and
+        # training datasets can live elsewhere; filesystem totals include them,
+        # but this category deliberately does not claim a full dataset inventory.
+        return dict(job_workspaces=Path(self.executor.root),
+            uploads=Path(self.service.datasets.root), prepared_inputs=self.state/'artifacts',
+            visualiser=Path(visualiser.root) if visualiser is not None else None,
+            visualiser_summaries=Path(summaries.root) if summaries is not None else None,
+            downloads=Path(downloads.root) if downloads is not None else None,
+            backups=backup)
+
+    def _scan_tree(self, root, excluded, deadline, count, *, entry_limit=None):
+        fd = _directory(root)
+        device = os.fstat(fd).st_dev
+        maximum = self.max_entries if entry_limit is None else min(self.max_entries, entry_limit)
+        def walk(directory, relative=(), depth=0):
+            if depth > 64:
+                raise ValueError('Storage tree exceeds its depth bound')
+            total = 0
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError('Storage sample reached its time bound')
+                    count[0] += 1
+                    if count[0] > maximum:
+                        raise ValueError('Storage sample exceeds its entry bound')
+                    current = (*relative, entry.name)
+                    if current in excluded:
+                        continue
+                    info = entry.stat(follow_symlinks=False)
+                    if info.st_dev != device:
+                        raise ValueError('Storage tree contains another filesystem')
+                    if stat.S_ISREG(info.st_mode):
+                        if info.st_nlink != 1:
+                            raise ValueError('Storage tree contains linked files')
+                        total += _number(info.st_blocks*512)
+                    elif stat.S_ISDIR(info.st_mode):
+                        child = os.open(entry.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                                        dir_fd=directory)
+                        try:
+                            opened = os.fstat(child)
+                            if (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino):
+                                raise ValueError('Storage directory changed during observation')
+                            total += walk(child, current, depth+1)
+                        finally:
+                            os.close(child)
+                    else:
+                        raise ValueError('Storage tree contains an unsupported entry')
+            return _number(total)
+        try:
+            return walk(fd)
+        finally:
+            os.close(fd)
+
+    def _scan(self, roots, binding):
+        measured = {}
+        deadline, count = time.monotonic()+self.scan_seconds, [0]
+        # Small caches/backup archive inventories should remain useful when a
+        # large job tree cannot be measured within this observer's total budget.
+        # Each category receives a share of the remaining time and entries;
+        # inexpensive categories leave their unused share for later ones.
+        order = ('backups', 'downloads', 'visualiser_summaries', 'visualiser',
+                 'uploads', 'prepared_inputs', 'job_workspaces')
+        remaining = sum(root is not None for root in roots.values())
+        for area in order:
+            root = roots[area]
+            size, complete = None, False
+            if root is not None:
+                excluded = set()
+                if area == 'job_workspaces':
+                    for child in (roots['visualiser'], roots['downloads']):
+                        if child is not None:
+                            try:
+                                relative = child.relative_to(root).parts
+                                if relative:
+                                    excluded.add(relative)
+                            except ValueError:
+                                pass
+                try:
+                    now = time.monotonic()
+                    entries = self.max_entries-count[0]
+                    if now >= deadline or entries <= 0:
+                        raise TimeoutError('Storage sample reached its time bound')
+                    area_deadline = min(deadline, now+(deadline-now)/remaining)
+                    entry_limit = count[0]+max(1, entries//remaining)
+                    size = self._scan_tree(root, excluded, area_deadline, count,
+                                           entry_limit=entry_limit)
+                    complete = True
+                except Exception:
+                    pass
+                remaining -= 1
+            measured[area] = dict(id=area, bytes=size, complete=complete,
+                                  measured_at=_now() if root is not None else None)
+        result = [measured[area] for area in roots]
+        with self._lock:
+            if self._binding == binding:
+                self._sample, self._sampled = result, time.monotonic()
+            self._running = False
+
+    def _areas(self, roots):
+        binding = tuple((key, str(value) if value is not None else None)
+                        for key, value in roots.items())
+        with self._lock:
+            if self._binding != binding:
+                self._binding, self._sample, self._sampled = binding, None, None
+            if (not self._running and
+                    (self._sampled is None or time.monotonic()-self._sampled >= self.cache_seconds)):
+                self._running = True
+                self._thread = threading.Thread(target=self._scan, args=(dict(roots), binding),
+                                                name='administrator-storage-observer', daemon=True)
+                try:
+                    self._thread.start()
+                except Exception:
+                    self._running = False
+            sample = ([dict(row) for row in self._sample] if self._sample is not None else
+                      [dict(id=area, bytes=None, measured_at=None, complete=False) for area in AREA_IDS])
+            state = ('pending' if self._running else
+                     'ready' if all(row['complete'] or roots[row['id']] is None for row in sample)
+                     else 'incomplete')
+        return sample, state
+
+    def _allowances(self, roots):
+        result = dict(visualiser_bytes=None, summary_bytes=None, download_bytes=None)
+        if roots['visualiser'] is not None:
+            try:
+                from jasmine_web.batch.visualiser_storage import read_status
+                value = read_status(roots['visualiser'])
+                if value.get('available') is True and value.get('recorded') is True:
+                    budget = value['budget']
+                    result.update(visualiser_bytes=_number(budget['capacity_bytes']),
+                                  summary_bytes=_number(budget['summary_bytes']))
+            except Exception:
+                pass
+        try:
+            downloads = self.service.results.downloads
+            result['download_bytes'] = _number(downloads.capacity)
+        except Exception:
+            pass
+        return result
+
+    def _commitments(self):
+        result = dict(available=False, measured_at=None, workspace_remaining_bytes=None,
+            workspace_safety_bytes=None, visualiser_safety_bytes=None, visualiser_helper_bytes=None)
+        try:
+            broker = self.executor.workspace_quotas
+            value = broker.ready()
+            result.update(workspace_remaining_bytes=_number(value['remaining_reserved_bytes']),
+                          workspace_safety_bytes=_number(value['reserve_bytes']),
+                          available=True, measured_at=_now())
+        except Exception:
+            pass
+        try:
+            policy = self.service.visualiser.disk_storage
+            # Do not call physical(): DiskHeadroom also opens a pool transaction.
+            result['visualiser_safety_bytes'] = _number(policy.physical.reserve)
+            result['visualiser_helper_bytes'] = _number(policy._reserve())
+        except Exception:
+            pass
+        return result
+
+    def __call__(self):
+        backup_root, backup = _backup_snapshot(self.backup_config)
+        roots = self._roots(backup_root)
+        areas, state = self._areas(roots)
+        filesystems, devices, references = [], {}, {}
+        for area, root in [('system', Path('/')), *roots.items()]:
+            if root is None:
+                references[area] = None
+                continue
+            try:
+                device, values = _filesystem(root)
+                existing = devices.get(device)
+                if existing is not None:
+                    existing['areas'].append(area)
+                    references[area] = existing['id']
+                    continue
+                row = dict(id='fs-'+str(len(filesystems)+1), areas=[area], **values)
+                devices[device] = row
+            except Exception:
+                row = dict(id='fs-'+str(len(filesystems)+1), areas=[area], available=False,
+                           total_bytes=None, used_bytes=None, available_bytes=None)
+            filesystems.append(row)
+            references[area] = row['id'] if row['available'] else None
+        for row in areas:
+            row['filesystem'] = references[row['id']]
+        result = dict(format=ADMINISTRATOR_STORAGE_FORMAT, observed_at=_now(), measure_state=state,
+            filesystems=filesystems, areas=areas, allowances=self._allowances(roots),
+            commitments=self._commitments(), backup=backup)
+        # A final defensive format bound protects the private-RPC response even
+        # when a future internal dependency adds unexpected fields.
+        if len(json.dumps(result, allow_nan=False).encode()) > 16384:
+            raise ValueError('Storage observation exceeds its response bound')
+        return result
 
 
 if __name__=='__main__':

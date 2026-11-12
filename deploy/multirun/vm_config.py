@@ -45,13 +45,14 @@ DEFAULTS = {
                       'storage_wait_emails': False, 'storage_wait_hours': 6},
     'visualiser': {'build': '', 'preview': False, 'memory_mib': 1024, 'timeout_seconds': 600,
                   'automatic': False, 'max_workers': 1, 'seed_workers': 1, 'handover': False,
+                  'pipeline_storage': False, 'compact_summaries': False,
                   'cpu_millis': 1000, 'storage_mib': 512,
                   'protected': False, 'hard_limits': False, 'bounded_comparisons': False,
                   'summaries': False, 'summary_cache_mib': 2048, 'cache_mib': 256,
-                  'retain_completed_summaries': True, 'summary_hours': 168,
+                  'retain_completed_summaries': True, 'summary_hours': 720,
                   'storage_pressure': False, 'cache_max_mib': 0, 'summary_cache_max_mib': 0,
                   'idle_hours': 72, 'warning_seconds': 300, 'filesystem_headroom_mib': 16384,
-                  'cache_hours': 168, 'max_entries': 512, 'per_owner_entries': 256,
+                  'cache_hours': 720, 'max_entries': 512, 'per_owner_entries': 256,
                   'artifact_mib': 16, 'comparison_mib': 64,
                   'rows_per_series': 50000, 'comparison_rows': 200000},
     'workspaces': {'quota_socket': '/run/jasmine-workspace-quotas/broker.sock',
@@ -238,6 +239,12 @@ def load_config(path):
         raise ValueError('Parallel seeds require bounded automatic preparation with reusable summaries')
     if visualiser['handover'] and not all(visualiser[k] for k in ('automatic','hard_limits','summaries')):
         raise ValueError('Resource handover requires bounded automatic preparation with reusable summaries')
+    if visualiser['pipeline_storage'] and (not sections['service']['dedicated_storage'] or
+            not all(visualiser[k] for k in ('automatic','hard_limits','summaries','storage_pressure',
+                                           'retain_completed_summaries'))):
+        raise ValueError('Pipeline storage requires dedicated quotas and protected bounded summaries')
+    if visualiser['compact_summaries'] and not visualiser['pipeline_storage']:
+        raise ValueError('Compact summary fallback requires coordinated physical storage')
     if visualiser['storage_pressure']:
         maximum=visualiser['cache_max_mib'] or visualiser['cache_mib']
         summary_maximum=visualiser['summary_cache_max_mib'] or visualiser['summary_cache_mib']

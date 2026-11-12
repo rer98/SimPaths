@@ -23,7 +23,11 @@ preparation even when bytes are available.
   user use**, starting at its ready time if never opened. The oldest eligible
   results lead eviction. An explicit ready-result request/status read, chart
   read or comparison download records use; automatic discovery and the Results
-  inventory do not. Access does not extend the independent chart expiry.
+  inventory do not. Access does not extend the fixed chart expiry.
+  Eligibility alone cannot authorise removal: the exact complete per-repetition
+  summaries must be verified and admitted through the chart's remaining lifetime.
+  Missing, corrupt, incompatible, expired or unfunded reconstruction data keeps
+  the finished publication in place.
 - Active readers, portable downloads and preparation hold shared/exclusive job
   locks. Eviction never waits for or cancels those operations. Helper children
   inherit the existing read/preparation locks.
@@ -36,9 +40,12 @@ preparation even when bytes are available.
   immutable selection and remains eligible for automatic preparation.
 - An authorised **Prepare Visualiser** request can requeue an evicted result.
   Permission checks still apply, including revocation and explicit deletion.
-  Routine raw expiry remains independent. Regeneration from retained summaries
-  is possible only while those exact summaries remain available; the policy
-  does not promise regeneration from missing data.
+  Routine raw expiry remains independent. Regeneration preserves the recorded
+  chart deadline and stays within every source's fixed summary deadline. Source
+  verification and raw-only deletion share the same guard, so deleting raw data
+  after a safe cache eviction cannot discard the last protected reconstruction
+  data. Source hashing runs outside the global maintenance lock; healthy
+  storage does not run pressure-eviction proofs.
 
 Eviction records have their own bounded metadata allowance, equal to the
 configured publication entry limit. They do not consume publication entry slots.

@@ -57,8 +57,8 @@ finished-chart retention:
 ```toml
 [visualiser]
 retain_completed_summaries = true
-summary_hours = 168
-cache_hours = 168
+summary_hours = 720
+cache_hours = 720
 summary_cache_mib = 8192
 cache_mib = 16384
 ```
@@ -76,19 +76,19 @@ Per-seed summaries for **every authorised completed scenario** are protected fro
 ordinary LRU eviction for the configured period, including after all current
 comparisons are ready and when no baseline was selected. Protection is persisted
 under the private summary-cache lock and survives an ordinary service restart.
-It begins at validated simulation completion and is capped by owner approval,
-independently of routine raw-output expiry. Reads and draft creation do not renew it.
-Pending-comparison holds remain in addition to these completed-scenario holds;
-shared seed entries count once. Existing promises take precedence over new work.
-Capacity pressure defers preparation rather than discarding protected summaries
-or restarting simulations. Operator status separates completed-scenario holds
-from pending-comparison holds and reports deferred storage requests.
+A new source's fixed clock begins when its complete per-repetition summary set
+is first verified and admitted. Migration 041 records this deadline separately
+from raw-file expiry. Ordinary reads, comparisons, regeneration and restore do
+not renew it. Existing sources receive a longer policy only through explicit
+qualification of their exact complete summaries; changing configured hours alone
+cannot revive missing data.
 
-Finished chart files are retained for the independently configured `cache_hours`
-period, beginning when their publication becomes ready. Reads do not renew it.
-The Results page shows the chart expiry. Ready results are not evicted to admit
-new ones under the legacy fixed-budget policy. The throughput candidate enables
-the pressure policy below, which can reclaim eligible idle finished files early.
+Finished chart expiry is bounded by every contributing source deadline. A
+comparison with an older baseline therefore may have less than 30 days left.
+The 72-hour pressure-eviction threshold still applies, but the service must first
+verify a complete reconstruction set protected through the remaining chart
+lifetime. Otherwise the finished chart stays and new work waits for capacity.
+
 Byte and entry limits can still defer new preparation. No unlimited retention
 or instant preparation is promised when those limits are exhausted. The larger
 candidate budget is a planning allowance, not a measured production requirement.
@@ -143,7 +143,7 @@ native HTTP/backup acceptance command and the remaining hosted sizing checks.
 - Chart access and summary reuse survive **routine raw expiry** using verified
   source provenance, while current permissions and explicit deletion still
   control access. Independent summary/chart periods accept 1–8760 hours;
-  defaults remain seven days. New offline/online backups include committed,
+  defaults are 30 days. New offline/online backups include committed,
   verified summaries and ready publications/indices. See
   [VISUALISER_RETENTION.md](VISUALISER_RETENTION.md) for semantics, recovery and
   evidence. Old backups contain no derived Visualiser payload.

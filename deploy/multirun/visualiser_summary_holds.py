@@ -238,7 +238,11 @@ class SummaryHolds:
             entries = self.cache._entries()
             previous = {key: record for key, record in records.items()
                         if record['owner'] == owner and record['experiment'] == experiment}
-            retained = {key: record for key, record in records.items() if key not in previous}
+            # A canonical source guarantee survives baseline changes and
+            # housekeeping snapshots. Only explicit source invalidation or its
+            # fixed deadline releases it, never a comparison-plan refresh.
+            retained = {key: record for key, record in records.items() if key not in previous
+                        or record['comparison'].startswith('source-retained:')}
             requested = {}
             for comparison in comparisons:
                 record = dict(comparison, owner=owner, experiment=experiment, scope=calculation, admitted=False)
@@ -254,6 +258,10 @@ class SummaryHolds:
             for key in order:
                 record = requested[key]
                 if key in previous:
+                    if (previous[key]['comparison'].startswith('source-retained:')
+                            and any(record[k]!=previous[key][k]
+                                    for k in ('created_at','expires_at','scope','configurations'))):
+                        raise SummaryCapacityError('A canonical source guarantee requires reviewed migration')
                     record = dict(record, expires_at=min(record['expires_at'], previous[key]['expires_at']))
                 candidate = dict(retained, **{key: dict(record, admitted=True)})
                 owned = {k: r for k, r in candidate.items() if r['owner'] == owner}
@@ -296,6 +304,43 @@ class SummaryHolds:
         self.save(candidate)
         self.cache._evict(entries,holds=candidate)
         return record['expires_at']
+
+    def preserve_many(self, owner, experiment, comparisons, *, calculation, owner_entries, qualification=False,
+                      before_save=None):
+        """Atomically fund complete canonical sources without renewing any hold.
+
+        The backend verifies every exact seed before entering here. The caller
+        owns the cache guard throughout verification, admission and dependent
+        file work. A partial owner/capacity failure saves no new promise.
+        """
+        if (not text(owner) or not text(experiment) or not text(calculation)
+                or type(owner_entries) is not int or not 1 <= owner_entries <= self.cache.maximum_entries
+                or not isinstance(comparisons,list) or not 1 <= len(comparisons) <= MAX_HOLDS):
+            raise ValueError('Invalid complete-source dependency request')
+        records=self.load();candidate=dict(records);deadlines=[];seen=set()
+        for comparison in comparisons:
+            record=dict(comparison,owner=owner,experiment=experiment,scope=calculation,admitted=True)
+            key=digest([owner,experiment,record['comparison']])
+            self._validate(key,record)
+            if key in seen:raise ValueError('Duplicate complete-source dependency')
+            seen.add(key)
+            if key in records:
+                previous=records[key]
+                if (any(record[k]!=previous[k] for k in ('scope','configurations'))
+                        or not qualification and any(record[k]!=previous[k] for k in ('created_at','expires_at'))
+                        or qualification and record['expires_at']<previous['expires_at']):
+                    raise SummaryCapacityError('A canonical summary source changed')
+            if record['expires_at']<=time.time():
+                raise SummaryCapacityError('Retained summary deadline has expired')
+            candidate[key]=record;deadlines.append(record['expires_at'])
+        entries=self.cache._entries()
+        owned={k:r for k,r in candidate.items() if r['owner']==owner}
+        if len(self.configurations(owned))>owner_entries or not self.fits(candidate,entries):
+            raise SummaryCapacityError('Configured summary allowance cannot preserve complete sources')
+        if before_save is not None:before_save()
+        self.save(candidate)
+        self.cache._evict(entries,holds=candidate)
+        return deadlines
 
     def invalidate(self, records, owner, configuration=None, *, job=None, attempt=None):
         return {key: record for key, record in records.items()

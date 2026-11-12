@@ -394,16 +394,55 @@ complete local download. Oversized, interrupted, timed-out or mismatching respon
 fail verification; the child process is stopped/joined before returning. A conflicting/corrupt file fails
 protection; no overwrite fallback is used. Receipt delivery must finish too.
 
-Local encrypted-copy retention remains independently configurable. The default
-`local_retention="retain"` uses `keep_days` and `keep_latest` as before
-(30 days, at least three completed copies); they are not a recommendation for a
-small VPS volume. For an
-initial one-copy daily local policy, an operator can select `keep_days=1` and
-`keep_latest=1`: a previous complete copy remains until a replacement completes
-and the age condition permits retirement. Pending remote transfers are retained.
-Remote expiry/history must be configured separately; the runner does not prune
-remote backups. A shorter local policy is an operator choice, not applied by this
-code change. Independent off-machine restore remains necessary.
+Local encrypted-copy retention remains independently configurable. Choose the
+historical retention rule explicitly:
+
+| `retention_rule` | Completed scheduled copies retained |
+| --- | --- |
+| `"age-and-count"` (default) | Every copy within `keep_days`, plus at least the newest `keep_latest` copies |
+| `"count"` | The newest `keep_latest` copies, without a minimum age for older copies |
+
+The defaults remain `local_retention="retain"`, `retention_rule="age-and-count"`,
+`keep_days=30` and `keep_latest=3`; they are not a sizing recommendation for a
+small VPS volume. In the default rule, reducing `keep_latest` alone does not
+override the age floor. For example, `keep_days=1` and `keep_latest=1` can retain
+more than one copy while the age condition still protects older captures.
+
+The approved hosted policy is two completed local full backups. Change only
+these keys in the existing private `[backup]` section, preserving its directory,
+public key, recipient and other settings:
+
+```toml
+local_retention = "retain"
+retention_rule = "count"
+keep_latest = 2
+```
+
+`keep_days` does not apply to completed-copy retirement under `"count"`. Install
+the qualified code and configuration through the reviewed update workflow;
+older configuration readers reject `retention_rule`. Refresh the separate small
+encrypted host-settings recovery copy after changing the policy.
+
+Count-only rotation selects completed jobs for the same source configuration,
+preserves the pending job and the newest two recovery points, and verifies the
+kept ciphertexts against their checksums, recipients and completion receipts
+before removing older copies. The last-success record must belong to the kept
+set. Missing, changed, linked or corrupt kept copies refuse retirement. This
+verification is required when old copies qualify for pruning, rather than
+rehashing large retained archives on every idle timer check.
+
+Before unlinking an old copy, the runner records a durable retirement journal
+and moves the selected job directory into quarantine outside `jobs/`. A later
+runner resumes interrupted retirement from that journal; do not remove its
+quarantine or receipts manually. Separate pre-update migration archives,
+host-settings copies and the pending capture are outside this rotation.
+Each full archive is self-contained, so retiring an older recovery point does
+not create a dependency gap in a newer one. It permanently removes that older
+recovery point's local history.
+
+Pending remote transfers are retained. Remote expiry/history must be configured
+separately; the runner does not prune remote backups. Independent off-machine
+restore remains necessary.
 
 After independent external retrieval/restore is proven, the optional
 `local_retention="remote-only"` removes the local encrypted payload after the
@@ -414,12 +453,20 @@ See [remote-only retention and its laptop proof](REMOTE_BACKUP_RETENTION.md).
 
 Even a one-copy **retain** policy needs room for the previous completed archive and
 its replacement simultaneously, plus capture scratch and the free-space floor.
-Retirement runs after the capture/transfer attempt; a smaller `keep_latest` alone
-also does not override `keep_days`. With daily full backups and a 30-day local age
-floor, roughly a month of completed full archives can accumulate, regardless of
-the three-copy minimum. Include this history in capacity planning. A pending
-failed remote transfer is retried from the same local ciphertext before the
-runner starts another recovery point; it is not automatically discarded for space.
+The runner applies retention before capture and again after the capture/transfer
+attempt. Two retained copies therefore need space for a third archive while the
+next recovery point is created. Archive sizes vary: count-only rotation is not a
+guarantee that a growing replacement fits the remaining filesystem. A failed
+capture does not replace the existing verified recovery points. Inspect the
+backup filesystem and incident, and review capacity if the retained set plus a
+new archive no longer fits. Deleting source raw output does not shrink already
+created encrypted archives.
+
+With the default daily age-and-count rule and a 30-day local age floor, roughly
+a month of completed full archives can accumulate, regardless of the three-copy
+minimum. Include this history in capacity planning. A pending failed remote
+transfer is retried from the same local ciphertext before the runner starts
+another recovery point; it is not automatically discarded for space.
 
 Measure different payload types separately. Raw CSV compression does not establish
 the ratio for prepared H2 databases, retained release archives, SingleRun ZIPs or
@@ -496,7 +543,8 @@ email from this VM alone cannot alert if the VM, timer or configuration is broke
 The runner retries failed mail and sends one incident-resolution notice when
 protection recovers. Status/terminal errors disclose only safe stages/IDs.
 
-Local retention defaults to `retain`, 30 days and at least three completed encrypted copies.
+Local retention defaults to `retain`, `age-and-count`, 30 days and at least three
+completed encrypted copies. The explicit hosted `count` policy instead keeps two.
 Only this runner's completed job directories are retired; pending work and the
 newest retained copies survive. These minimum-copy rules can retain a backup longer
 than 30 days during an outage. Define expiry/access/auditing on the separate host

@@ -159,7 +159,9 @@ def create(queue, state, destination, tools):
                 if (actual['bytes'],actual['sha256'])!=(row['bytes'],row['sha256']):
                     raise ArtifactError('An upload differs from its PostgreSQL receipt')
             check_outputs(c,queue,state)
-            source_stats=[scan(state,exclude=EXCLUDE),*[scan(r['source']) for r in roots]]
+            from .backup_pipeline import scratch_exclusions
+            excluded=(*EXCLUDE,*scratch_exclusions(state))
+            source_stats=[scan(state,exclude=excluded),*[scan(r['source']) for r in roots]]
             estimate=sum(info[3] for tree in source_stats for info in tree.values() if stat.S_ISREG(info[2]))
             if shutil.disk_usage(parent).free<estimate+RESERVE:
                 raise ArtifactError('Insufficient free space for the complete private backup')
@@ -168,7 +170,7 @@ def create(queue, state, destination, tools):
                 print('Saving the offline PostgreSQL snapshot and verified private files.',file=sys.stderr,flush=True)
                 database=table_inventory(c,queue)
                 tools.dump(staging/'database.dump',schema=queue.schema,snapshot=snapshot)
-                state_tree,_=copy_tree(state,staging/'state',exclude=EXCLUDE)
+                state_tree,_=copy_tree(state,staging/'state',exclude=excluded)
                 from .backup_visualiser import capture,inventory as visualiser_inventory
                 visualiser=capture(state,staging/'state',c,queue)
                 state_tree=visualiser_inventory(staging/'state')
@@ -176,7 +178,7 @@ def create(queue, state, destination, tools):
                 for root in roots:
                     root['tree'],_=copy_tree(Path(root['source']),staging/root['directory'])
                 # A file changed after its individual copy is also a mismatch.
-                if [scan(state,exclude=EXCLUDE),*[scan(r['source']) for r in roots]]!=source_stats:
+                if [scan(state,exclude=excluded),*[scan(r['source']) for r in roots]]!=source_stats:
                     raise ArtifactError('Source files changed during backup; no backup was published')
                 images={r['image'] for r in releases.values()}
                 images.update(r['model_digest'] for r in c.execute(sql.SQL('SELECT model_digest FROM {}').format(
@@ -480,8 +482,11 @@ def restore_workspace_quotas(c, queue, target, quotas):
             raise ArtifactError('Restored prepared artifact has no attempt identity directory')
 
 
-def activate(queue, backup, target, *, image_check=installed_image, source_isolated=False, workspace_quotas=None):
+def activate(queue, backup, target, *, image_check=installed_image, source_isolated=False,
+             workspace_quotas=None,pipeline_storage=False):
     from jasmine_web.batch.backup import frozen_database
+    if type(pipeline_storage) is not bool or pipeline_storage and workspace_quotas is None:
+        raise ArtifactError('Pipeline activation requires the destination quota broker')
     target=existing_directory(target); backup=existing_directory(backup)
     manifest=verify(backup)
     live=manifest['format'] in LIVE_FORMATS
@@ -504,9 +509,14 @@ def activate(queue, backup, target, *, image_check=installed_image, source_isola
             raise ArtifactError('Complete and verify restoration before activation')
         check_restored_files(backup,manifest,target)
         restored_database(c,queue,manifest,target)
+        from .backup_summary_retention import verify as verify_retention
+        verify_retention(c,queue,target)
         for image in manifest['images']: image_check(image)
         if workspace_quotas is not None:
             restore_workspace_quotas(c,queue,target,workspace_quotas)
+            if pipeline_storage:
+                from .backup_pipeline import restore_promises
+                restore_promises(c,queue,target,workspace_quotas)
         (target/GATE).unlink()
         sync_tree(target)
     return summary(manifest,'activate',inactive=False)
@@ -573,7 +583,8 @@ def main(argv=None):
                 if args.config:
                     from .vm_web import workspace_quotas
                     quotas=workspace_quotas(options)
-                result=activate(queue,args.backup,state,source_isolated=args.source_isolated,workspace_quotas=quotas)
+                result=activate(queue,args.backup,state,source_isolated=args.source_isolated,workspace_quotas=quotas,
+                    pipeline_storage=bool(args.config and getattr(options,'visualiser_pipeline_storage',False)))
             else:
                 tools=PostgresTools(dsn,container=args.client_container)
                 creator=create

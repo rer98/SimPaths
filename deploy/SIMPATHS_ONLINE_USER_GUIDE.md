@@ -5,7 +5,7 @@ Concise user guide to the SingleRun and MultiRun SimPaths Online preview.
 
 # SimPaths Online: user guide
 
-Ross Richardson · 5 November 2026
+Ross Richardson · 10 November 2026
 
 **CeMPA group preview**
 
@@ -62,7 +62,10 @@ and per-user limits. Running jobs are not interrupted to admit another user's wo
 6. Choose a reference under **Baseline for later comparisons**, or leave it unset.
    Choosing one now lets comparisons prepare automatically as configurations finish.
    You can choose or change the visualisation baseline later without rerunning
-   simulations.
+   simulations. The optional **Automatically delete raw output files after
+   Visualiser summaries are protected** checkbox starts **off**. Selecting it
+   applies to each new configuration; read the permanent-deletion warning in the
+   review before submitting. See the automatic-deletion guidance below.
 7. Click **Review experiment**. Check the highlighted differences, inputs, seeds,
    simulation count and runtime/storage allowances. Use **Back to edit** for
    corrections. Nothing runs yet.
@@ -193,6 +196,42 @@ examples.
 
 ### Free space while keeping Visualiser data
 
+#### Automatically remove eligible raw outputs
+
+The checkbox beside the experiment's baseline choice is **off by default**.
+When selected, the service can permanently remove each configuration's raw
+outputs after the simulation finishes successfully, output validation passes,
+and complete, compatible summaries for **every repetition** are verified and
+protected. It uses the same safeguards as **Delete raw outputs, keep Visualiser
+data**. It does not remove input datasets, settings or job history.
+
+In **My Jobs**, each configuration has its own checkbox. You can enable or disable
+it while queued or running, or after completion **until file removal starts**.
+Enabling it for completed, eligible work can lead to deletion immediately; the
+confirmation explains this. Once removal starts, the control is disabled and
+raw-file deletion cannot be cancelled or undone. The status distinguishes waiting
+for simulation completion, waiting for summaries, queued removal and deletion.
+
+The final baseline comparison does not have to be published before raw removal.
+Verified summaries retain the seed information needed for supported comparisons,
+so another configuration in the experiment can finish later. Charts and summaries
+keep their existing finite expiry dates; this option does not extend them or
+preserve calculations that require different raw variables or calculation versions.
+Save permitted raw downloads before enabling the option if you need them.
+
+Missing, expired or unprotected summaries keep the raw files in place. Automatic
+raw deletion does not bypass a storage shortage preventing summary preparation.
+If progress is blocked, read the status and contact the operator. Turning the
+option off before removal starts restores ordinary output retention, with its
+existing minimum warning period where needed.
+
+Successful outputs using this option do **not** receive ordinary seven-day
+raw-output deletion reminders. Check the current website status if an older
+email describes a previous choice. Input-dataset, upload, recovery and failed
+partial-output notices keep their own rules.
+
+#### Remove raw outputs manually
+
 Use **Storage → Output Files** to remove large raw outputs once their Visualiser
 summaries are ready:
 
@@ -322,6 +361,8 @@ cannot fit, use **Output → Review storage cleanup**, save needed files and rev
 deletions before confirming.
 
 **MultiRun normally retains successful output files for seven days after completion.**
+An explicit automatic raw-deletion choice instead removes eligible raw outputs
+after their summaries are protected, as described above.
 Prepared datasets and uploads also have seven-day policies, with clocks linked to
 creation/editing and actual processing use. Dependencies protect files needed by
 unfinished work or retained datasets. Viewing, selecting or downloading an item

@@ -15,13 +15,15 @@ allowance of **16 GiB**; additional total storage needs explicit operator approv
 
 Before admitting preparation, the policy applies normal expiry, checks the
 shared budget and physical capacity, attempts approved growth, then reclaims
-eligible finished publications/chart files only as needed. Otherwise preparation
+eligible finished publications/chart files only to fund a refused chart-preparation
+admission. A full filesystem alone does not trigger publication eviction. Otherwise preparation
 waits and retries; simulations are not rerun. Entry limits can also defer new
 preparation even when bytes are available.
 
-- A finished publication becomes eligible after **72 hours without authorised
+- A finished publication becomes eligible after **seven days (168 hours) without authorised
   user use**, starting at its ready time if never opened. The oldest eligible
-  results lead eviction. An explicit ready-result request/status read, chart
+  results lead eviction; successful removal restarts selection from the oldest
+  remaining eligible result. An explicit ready-result request/status read, chart
   read or comparison download records use; automatic discovery and the Results
   inventory do not. Access does not extend the fixed chart expiry.
   Eligibility alone cannot authorise removal: the exact complete per-repetition
@@ -46,6 +48,11 @@ preparation even when bytes are available.
   after a safe cache eviction cannot discard the last protected reconstruction
   data. Source hashing runs outside the global maintenance lock; healthy
   storage does not run pressure-eviction proofs.
+
+The default inactivity threshold is now `visualiser.idle_hours = 168`. Existing
+configurations with an explicit `idle_hours = 72` keep that value until an operator
+changes it. This is a policy setting only: no schema migration, deadline renewal,
+allowance increase or change to worker parallelism is required.
 
 Eviction records have their own bounded metadata allowance, equal to the
 configured publication entry limit. They do not consume publication entry slots.

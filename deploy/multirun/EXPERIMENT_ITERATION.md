@@ -59,6 +59,7 @@ finished-chart retention:
 retain_completed_summaries = true
 summary_hours = 720
 cache_hours = 720
+idle_hours = 168
 summary_cache_mib = 8192
 cache_mib = 16384
 ```
@@ -85,7 +86,8 @@ cannot revive missing data.
 
 Finished chart expiry is bounded by every contributing source deadline. A
 comparison with an older baseline therefore may have less than 30 days left.
-The 72-hour pressure-eviction threshold still applies, but the service must first
+Pressure eviction applies only to fund waiting chart preparation after seven days
+(168 hours) without authorised use, oldest eligible result first. The service must first
 verify a complete reconstruction set protected through the remaining chart
 lifetime. Otherwise the finished chart stays and new work waits for capacity.
 
@@ -110,8 +112,9 @@ commands and native verification status are in
 [VISUALISER_STORAGE.md](VISUALISER_STORAGE.md):
 
 - Make finished publications/chart files eligible for pressure-driven eviction
-  after 72 hours without authorised user use, measured from publication when
-  never opened. Reclaim least recently used eligible results only as needed.
+  after seven days without authorised user use, measured from publication when
+  never opened. Reclaim least recently used eligible results only to fund
+  waiting chart preparation after admission refuses it.
   Preserve intermediate summaries and protect active reads/downloads/preparation.
 - Persist an explicit marker for intentional eviction. Periodic discovery must
   not immediately regenerate an evicted publication. An authorised user request
@@ -134,7 +137,7 @@ commands and native verification status are in
   summary limit is a ceiling inside the total, not a preallocated partition.
 
 The repetition-speed benchmark does not enable these actions. Correctness checks
-use controlled clocks, tiny fictional files and captured senders; no 72-hour wait
+use controlled clocks, tiny fictional files and captured senders; no seven-day wait
 or scientific simulations are needed. The storage guide records the separate
 native HTTP/backup acceptance command and the remaining hosted sizing checks.
 

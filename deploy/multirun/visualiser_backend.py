@@ -22,6 +22,7 @@ import time
 
 
 class VisualiserBackend:
+    supports_bounded_summary_retention=True
     supports_parallel_seeds=True
     supports_source_ready=True
     # One <=64-MiB seed output, one atomic cache copy, <=64-MiB diagnostics
@@ -128,7 +129,7 @@ class VisualiserBackend:
         return self.summary_cache.prune(owner=owner,configuration=configuration,job=job,
                                        attempt=attempt,unless_held=unless_held)
 
-    def retain_summaries(self, owner, experiment, comparisons, *, owner_entries):
+    def retain_summaries(self, owner, experiment, comparisons, *, owner_entries,check=None,wait_seconds=5):
         """Retain authorised dependency plans, independently of worker resources."""
         from .visualiser_summary_holds import scope
         if self.summary_cache is None:
@@ -136,7 +137,7 @@ class VisualiserBackend:
         return self.summary_cache.holds.replace(owner,experiment,comparisons,
             calculation=scope(dict(calculation={key:self.manifest['files'][key]
                 for key in ('runner.cjs','calculation.cjs')},node=self.identity['node'])),
-            owner_entries=min(owner_entries,self.summary_cache.maximum_entries))
+            owner_entries=min(owner_entries,self.summary_cache.maximum_entries),check=check,wait_seconds=wait_seconds)
 
     def summary_retention_experiments(self):
         if self.summary_cache is None:

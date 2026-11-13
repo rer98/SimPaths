@@ -102,10 +102,21 @@ class VMConfigTests(unittest.TestCase):
             self.assertEqual(main(['check', '--config', str(self.path)]), 0)
         self.assertEqual(sorted(p.name for p in self.root.iterdir()), ['settings.toml'])
 
-    def test_visualiser_defaults_keep_thirty_day_results_and_seventy_two_hour_idle_pressure(self):
+    def test_visualiser_defaults_keep_thirty_day_results_and_one_week_idle_pressure(self):
         settings=self.config()
         self.assertEqual((settings.visualiser_summary_hours,settings.visualiser_cache_hours,
-                          settings.visualiser_idle_hours),(720,720,72))
+                          settings.visualiser_idle_hours),(720,720,168))
+
+    def test_one_week_chart_pressure_policy_preserves_storage_admission_and_existing_explicit_settings(self):
+        text=(TEMPLATE.parent/'throughput.toml.example').read_text().replace(
+            'sha256:REPLACE_WITH_64_HEXADECIMAL_DIGITS','sha256:'+'a'*64)
+        settings=self.config(text)
+        self.assertTrue(settings.visualiser_storage_pressure)
+        self.assertEqual(settings.visualiser_idle_hours,168)
+        self.assertEqual((settings.visualiser_cache_hours,settings.visualiser_summary_hours),(720,720))
+        self.assertEqual((settings.visualiser_cache_mib,settings.visualiser_cache_max_mib),(16384,16384))
+        self.assertEqual(self.config(text.replace('idle_hours = 168','idle_hours = 72')).visualiser_idle_hours,72)
+        self.assertEqual(self.config(text.replace('idle_hours = 168\n','')).visualiser_idle_hours,168)
 
     def test_visualiser_periods_are_independent_and_can_outlast_raw_retention(self):
         text=self.text.replace('summary_hours = 720','summary_hours = 336')
@@ -166,7 +177,7 @@ class VMConfigTests(unittest.TestCase):
                         ('summary_cache_max_mib = 12288','summary_cache_max_mib = 65536'),
                         ('summary_cache_max_mib = 12288','summary_cache_max_mib = 4096'),
                         ('storage_pressure = true','storage_pressure = 1'),
-                        ('idle_hours = 72','idle_hours = 0'),
+                        ('idle_hours = 168','idle_hours = 0'),
                         ('warning_seconds = 300','warning_seconds = 0'),
                         ('filesystem_headroom_mib = 16384','filesystem_headroom_mib = 0')):
             with self.subTest(new=new),self.assertRaises(ValueError):self.config(text.replace(old,new))

@@ -72,7 +72,7 @@ new defaults are 30 days for summaries and finished chart data:
 retain_completed_summaries = true
 summary_hours = 720
 cache_hours = 720
-idle_hours = 72
+idle_hours = 168
 summary_cache_mib = 8192
 cache_mib = 16384
 ```
@@ -92,7 +92,9 @@ qualification; changing the configured hours alone cannot renew old promises or
 claim that missing summaries exist. Existing later advertised deadlines must be
 protected before the upgrade is considered complete.
 
-Pressure eviction keeps the 72-hour inactivity threshold. Before removing a
+Pressure eviction applies only after a refused chart-preparation admission and
+uses a seven-day (168-hour) inactivity threshold, oldest authorised use first.
+A full filesystem without waiting chart preparation does not trigger it. Before removing a
 finished publication, the service verifies every exact seed summary and its
 storage protection through the publication's remaining lifetime. Missing,
 corrupt, incompatible, expired or unadmitted summaries leave the publication in
@@ -112,7 +114,7 @@ The summary ceiling sits inside the total Visualiser disk allowance, together
 with finished publications, chart indices and worker scratch. These settings do
 not reserve extra RAM or filesystem capacity. Storage pressure can defer new
 preparation; the example is not a promise that every admitted simulation already
-has its future chart bytes reserved. The agreed 72-hour pressure eviction, live
+has its future chart bytes reserved. The agreed seven-day pressure eviction, live
 budget growth and 50/70/85% admin alerts are described in
 [VISUALISER_STORAGE.md](VISUALISER_STORAGE.md).
 

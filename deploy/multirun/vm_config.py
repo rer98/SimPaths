@@ -51,7 +51,7 @@ DEFAULTS = {
                   'summaries': False, 'summary_cache_mib': 2048, 'cache_mib': 256,
                   'retain_completed_summaries': True, 'summary_hours': 720,
                   'storage_pressure': False, 'cache_max_mib': 0, 'summary_cache_max_mib': 0,
-                  'idle_hours': 72, 'warning_seconds': 300, 'filesystem_headroom_mib': 16384,
+                  'idle_hours': 168, 'warning_seconds': 300, 'filesystem_headroom_mib': 16384,
                   'cache_hours': 720, 'max_entries': 512, 'per_owner_entries': 256,
                   'artifact_mib': 16, 'comparison_mib': 64,
                   'rows_per_series': 50000, 'comparison_rows': 200000},

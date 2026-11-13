@@ -209,12 +209,13 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                 service.outputs.retire()
                 service.lifecycle.reconcile()
                 if hasattr(service,'preparation_scheduler'):
-                    return service.preparation_scheduler.before_claim(worker)
+                    service.preparation_scheduler.refresh()
             scheduler=getattr(service,'preparation_scheduler',None)
             worker=Worker(q,executor,adapter,'local-browser-worker' if local_codes else 'vm-browser-worker',
                           before_claim=before_claim,
                           cpu_hold=scheduler.cpu_hold if scheduler else None,
                           admission_guard=(lambda:scheduler.guard) if scheduler else None,
+                          admission_check=(lambda:scheduler.admit(worker)) if scheduler else None,
                           after_claim=scheduler.claimed if scheduler else None,
                           completion_handover=service.visualiser.completion_handover if scheduler else None,
                           validation_scope=getattr(service,'validation_scope',None),
@@ -418,7 +419,7 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
             storage_policy=dict(enabled=True,
                 maximum_bytes=(getattr(args,'visualiser_cache_max_mib',0) or args.visualiser_cache_mib)*1024**2,
                 summary_maximum_bytes=(getattr(args,'visualiser_summary_cache_max_mib',0) or args.visualiser_summary_cache_mib)*1024**2,
-                idle_seconds=getattr(args,'visualiser_idle_hours',72)*3600,
+                idle_seconds=getattr(args,'visualiser_idle_hours',168)*3600,
                 warning_seconds=getattr(args,'visualiser_warning_seconds',300),
                 physical=DiskHeadroom(q,executor,reserve_bytes=getattr(args,'visualiser_filesystem_headroom_mib',16384)*1024**2))
         pipeline=None
@@ -459,6 +460,8 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
     if getattr(service,'administration',None) is not None:
         from .operator_status import AdministratorStorage
         service.administration.storage_reader=AdministratorStorage(service,state,executor)
+        from .account_storage import AccountStorage
+        service.administration.account_storage_reader=AccountStorage(service,state,executor)
     service.notifications=Notifications(service,admin_email=args.admin_email,
         sender=smtp_sender(os.environ['SMTP_FROM_EMAIL']) if args.notification_emails else None,
         storage_wait_emails=getattr(args,'storage_wait_emails',False),

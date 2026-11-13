@@ -113,13 +113,14 @@ retain_completed_summaries = true
 summary_hours = 720
 summary_cache_mib = 8192
 cache_mib = 16384
-# Reclaim only finished chart files unused for 72 hours; summaries keep their
-# independent protection. No total allowance growth beyond 16 GiB is approved
-# here. The private operator command can raise the ceiling without a restart.
+# Reclaim only finished chart files unused for seven days when new preparation
+# needs room; summaries keep their independent protection. No total allowance
+# growth beyond 16 GiB is approved here. The private operator command can raise
+# the ceiling without a restart.
 storage_pressure = true
 cache_max_mib = 16384
 summary_cache_max_mib = 12288
-idle_hours = 72
+idle_hours = 168
 warning_seconds = 300
 # Additional space for OS/database, uploads, downloads and other service work;
 # model workspace promises are accounted for separately. Review on the host.

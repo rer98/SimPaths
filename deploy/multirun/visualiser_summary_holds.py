@@ -228,12 +228,24 @@ class SummaryHolds:
         size, count, _ = self.occupancy(records, retained)
         return size <= self.cache.maximum_bytes and count <= self.cache.maximum_entries
 
-    def replace(self, owner, experiment, comparisons, *, calculation, owner_entries):
+    def replace(self, owner, experiment, comparisons, *, calculation, owner_entries,check=None,wait_seconds=None):
         if (not text(owner) or not text(experiment) or not text(calculation)
                 or type(owner_entries) is not int or not 1 <= owner_entries <= self.cache.maximum_entries
                 or not isinstance(comparisons, list) or len(comparisons) > MAX_HOLDS):
             raise ValueError('Invalid summary dependency request')
-        with self.cache._lock('.cache.lock'):
+        if (check is not None and not callable(check) or wait_seconds is not None and
+                (type(wait_seconds) not in (int,float) or not math.isfinite(wait_seconds)
+                 or not 0<wait_seconds<=15)):
+            raise ValueError('Invalid summary dependency lock wait')
+        waiting=True
+        deadline=None if wait_seconds is None else time.monotonic()+wait_seconds
+        def checkpoint():
+            if check is not None:check()
+            if waiting and deadline is not None and time.monotonic()>=deadline:
+                raise BlockingIOError('Summary dependency lock is in use')
+        with self.cache._lock('.cache.lock',check=checkpoint if check is not None or deadline is not None else None):
+            waiting=False
+            checkpoint()
             records = self.load()
             entries = self.cache._entries()
             previous = {key: record for key, record in records.items()
@@ -245,6 +257,7 @@ class SummaryHolds:
                         or record['comparison'].startswith('source-retained:')}
             requested = {}
             for comparison in comparisons:
+                checkpoint()
                 record = dict(comparison, owner=owner, experiment=experiment, scope=calculation, admitted=False)
                 key = digest([owner, experiment, record['comparison']])
                 self._validate(key, record)
@@ -256,6 +269,7 @@ class SummaryHolds:
             order = sorted(requested, key=lambda key: (not previous.get(key, {}).get('admitted', False),
                                                        requested[key]['created_at'], key))
             for key in order:
+                checkpoint()
                 record = requested[key]
                 if key in previous:
                     if (previous[key]['comparison'].startswith('source-retained:')
@@ -272,6 +286,9 @@ class SummaryHolds:
                 retained[key] = record
             if not self.fits(retained, entries):
                 raise SummaryCapacityError('Existing retained summaries exceed the configured allowance')
+            # A cancelled wait or expired worker cannot commit a new dependency
+            # plan. The check is deliberately local: no SQL under .cache.lock.
+            checkpoint()
             self.save(retained)
             self.cache._evict(entries, holds=retained)
             return dict(admitted=sum(retained[key]['admitted'] for key in requested),

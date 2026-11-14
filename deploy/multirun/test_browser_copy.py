@@ -169,7 +169,7 @@ class BrowserCopyTests(unittest.TestCase):
         from jasmine_web.batch.experiment_extensions import draft
         spec=self.specification();before=deepcopy(spec)
         identifier='8bd1b6fa-7209-4656-ae1f-af8c0c884def'
-        root=dict(id=identifier,specification=spec)
+        root=dict(id=identifier,specification=spec,auto_delete_raw_default=False,description='')
         connection=Mock()
         connection.execute.return_value.fetchall.return_value=[dict(configuration_id=r['id'],
             execution_run=None,auto_retry=False) for r in spec['run_sets']]
@@ -179,7 +179,8 @@ class BrowserCopyTests(unittest.TestCase):
             access=SimpleNamespace(owner=Mock(return_value='alice')),_yaml_datasets=Mock(return_value=[]))
         with patch('jasmine_web.batch.experiment_extensions.view',return_value=(root,{identifier:root})):
             added=draft(service,'token','csrf',identifier)
-        request=self.model.browser_configuration(added['dataset'],added['form'])
+        self.assertEqual(added['form']['description'],'')
+        request=self.model.browser_configuration(added['dataset'],{k:v for k,v in added['form'].items() if k!='description'})
         canonical=normalise(request['configuration']).as_dict()
         old=normalise(spec['run_sets'][-1]['parameters']).as_dict()
         self.assertEqual(canonical['seed_plan']['seeds'],spec['seeds'])

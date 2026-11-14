@@ -25,7 +25,7 @@ def empty():return dict.fromkeys((*FIELDS,'total_bytes'))
 
 
 class AccountStorage:
-    """One asynchronous sampler; at most eight bounded page snapshots in memory."""
+    """Shared personal/admin sampler; at most eight bounded snapshots in memory."""
     def __init__(self,service,state,executor,*,cache_seconds=300,scan_seconds=5,max_entries=200000):
         if (type(cache_seconds) not in (int,float) or not 1<=cache_seconds<=3600
                 or type(scan_seconds) not in (int,float) or not 0<scan_seconds<=30
@@ -44,15 +44,22 @@ class AccountStorage:
                         measure_state='ready',accounts={})
         key=tuple(sorted(owners))
         with self._lock:
-            cached=self._cache.get(key)
-            fresh=cached is not None and time.monotonic()-cached[0]<self.cache_seconds
-            if fresh:
-                self._cache.move_to_end(key)
-                return json.loads(json.dumps(cached[1]))
+            # Reuse a fresh administrator page snapshot for a personal request.
+            # Return only the requested owners, never another account's fields.
+            now=time.monotonic()
+            for selected in reversed(self._cache):
+                stamp,report=self._cache[selected]
+                if now-stamp<self.cache_seconds and set(key).issubset(selected):
+                    result={**report,'accounts':{owner:report['accounts'][owner] for owner in key}}
+                    if report['observed_at'] is not None:
+                        result['measure_state']='ready' if all(result['accounts'][owner]['total_bytes'] is not None
+                            for owner in key) else 'incomplete'
+                    self._cache.move_to_end(selected)
+                    return json.loads(json.dumps(result))
             if not self._running:
                 self._running=True
                 self._thread=threading.Thread(target=self._sample,args=(key,),
-                    name='administrator-account-storage-observer',daemon=True)
+                    name='account-storage-observer',daemon=True)
                 try:self._thread.start()
                 except Exception:self._running=False
             return dict(format=FORMAT,observed_at=None,measure_state='pending',

@@ -231,6 +231,32 @@ class PrivateDownloadShutdownTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any(t.is_alive() and t.name.startswith('multirun-private-visualiser')
                              for t in threading.enumerate()))
 
+    async def test_handover_supervision_runs_beside_both_slots_and_joins_before_exit(self):
+        stopped,closed,donation_started,donation_joined=(threading.Event() for _ in range(4))
+        slots=[threading.Event(),threading.Event()]
+        visualiser=SimpleNamespace(stop=threading.Event(),max_workers=2,handover_enabled=True,
+            tick=lambda slot=0:slots[slot].set(),retire=lambda:None)
+        workers=[]
+        def handovers():
+            if workers:return
+            def work():
+                donation_started.set();visualiser.stop.wait()
+                donation_joined.set()
+            worker=threading.Thread(target=work,name='fictional-funded-handover')
+            workers.append(worker);worker.start()
+        def join():
+            for worker in workers:worker.join(2)
+            self.assertTrue(donation_joined.is_set())
+        visualiser.handover_tick=handovers;visualiser.join_handovers=join
+        visualiser.close=visualiser.stop.set
+        downloads=SimpleNamespace(retire=lambda:None,close=closed.set)
+        service=SimpleNamespace(results=SimpleNamespace(downloads=downloads),visualiser=visualiser)
+        async with private_processors(service,stopped):
+            for event in (*slots,donation_started):self.assertTrue(await asyncio.to_thread(event.wait,2))
+        self.assertTrue(closed.is_set());self.assertTrue(donation_joined.is_set())
+        self.assertFalse(any(t.is_alive() and (t.name=='multirun-private-handovers'
+            or t.name=='fictional-funded-handover') for t in threading.enumerate()))
+
     async def test_executor_cancellation_drains_rpc_before_entering_cache_shutdown(self):
         closing, release, storage_closed = (threading.Event() for _ in range(3))
         loop = asyncio.get_running_loop()

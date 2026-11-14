@@ -69,11 +69,19 @@ async def private_processors(service, stop):
             except Exception as error:
                 print('Private Visualiser processor waiting: '+type(error).__name__,flush=True)
             service.visualiser.stop.wait(1)
+    def handovers():
+        while not service.visualiser.stop.is_set():
+            try:service.visualiser.handover_tick()
+            except Exception as error:
+                print('Private handover admission waiting: '+type(error).__name__,flush=True)
+            service.visualiser.stop.wait(1)
     maintenance=threading.Thread(target=maintain,name='multirun-private-cache',daemon=True)
     processors=([threading.Thread(target=process,args=(slot,),
                     name='multirun-private-visualiser'+('-'+str(slot) if slot else ''),daemon=True)
                  for slot in range(getattr(service.visualiser,'max_workers',1))]
                 if hasattr(service,'visualiser') else [])
+    if processors and getattr(service.visualiser,'handover_enabled',False):
+        processors.append(threading.Thread(target=handovers,name='multirun-private-handovers',daemon=True))
     try:
         maintenance.start()
         for processor in processors:
@@ -92,6 +100,8 @@ async def private_processors(service, stop):
             for processor in processors:
                 if processor.ident is not None:
                     await asyncio.to_thread(processor.join)
+            if hasattr(service,'visualiser') and hasattr(service.visualiser,'join_handovers'):
+                await asyncio.to_thread(service.visualiser.join_handovers)
         await finish_before_cancelling(asyncio.create_task(shutdown()))
 
 
@@ -384,16 +394,17 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
             from jasmine_web.batch.processing_scope import DelegatedScopes
             group_memory=max(args.visualiser_memory_mib,5120) if seed_workers>1 else args.visualiser_memory_mib
             validation=getattr(args,'validation_enabled',False)
-            minimum=(args.capacity['memory_mib']+2048 if validation else workers*group_memory+2048)
+            handed=getattr(args,'visualiser_handover',False)
+            minimum=(args.capacity['memory_mib']+2048 if validation or handed else workers*group_memory+2048)
             scopes=DelegatedScopes(minimum_memory_mib=minimum)
-            if validation:
-                # Validators reuse charged model reservations inside this unit;
-                # its parent must not throttle them at the old chart-only cap.
+            if validation or handed:
+                # Validators and donated chart groups reuse model reservations;
+                # the parent must cover that pool rather than a two-slot cap.
                 quota=(scopes.root/'cpu.max').read_text().split()
                 required=args.capacity['cpu_millis']+1000
                 if quota[0]!='max' and int(quota[0])*1000<int(quota[1])*required:
-                    raise ValueError('Private service CPU ceiling cannot cover retained validation allocations')
-                service.validation_scope=scopes
+                    raise ValueError('Private service CPU ceiling cannot cover retained model allocations')
+                if validation:service.validation_scope=scopes
             if getattr(scopes,'root',None) is not None:
                 trace.services.append(('private-manager',scopes.root/'manager'))
         backend_options={}
@@ -457,11 +468,12 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
     service.attempt_cleanup=AttemptCleanup(q,executor,outputs=result_deletion_targets,
                                            failed_preparation=adapter.preparation.retire_failed)
     service.storage=Storage(service,execution)
+    from .account_storage import AccountStorage
+    service.access.account_storage_reader=AccountStorage(service,state,executor)
     if getattr(service,'administration',None) is not None:
         from .operator_status import AdministratorStorage
         service.administration.storage_reader=AdministratorStorage(service,state,executor)
-        from .account_storage import AccountStorage
-        service.administration.account_storage_reader=AccountStorage(service,state,executor)
+        service.administration.account_storage_reader=service.access.account_storage_reader
     service.notifications=Notifications(service,admin_email=args.admin_email,
         sender=smtp_sender(os.environ['SMTP_FROM_EMAIL']) if args.notification_emails else None,
         storage_wait_emails=getattr(args,'storage_wait_emails',False),

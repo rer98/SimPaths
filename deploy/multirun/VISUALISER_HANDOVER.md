@@ -23,9 +23,10 @@ enables it; editing that template does not change an installed service.
    No files are parsed and no helpers start inside this transaction.
 3. The pending reservation identifies its source attempt and root experiment,
    including additions to an existing experiment. It survives a process restart.
-4. A preparation slot takes its normal lifecycle/output locks, rechecks current
-   permissions and atomically adopts the pending reservation. The actual admitted
-   CPU/RAM/scratch budget becomes the enforced helper-group budget.
+4. A separate worker for each funded donation takes inherited lifecycle/output
+   locks, rechecks current permissions and adopts the same durable reservation
+   identity. It does not consume an independent request slot. Its donated
+   CPU/RAM/scratch allocation becomes the enforced helper-group budget.
 5. That group prepares the configuration's per-seed summaries, standalone
    estimates and indexed chart sections. The calculation adapter reports each
    configuration ready only when all its exact seed summaries have completed.
@@ -33,15 +34,20 @@ enables it; editing that template does not change an installed service.
    eligible baseline/alternative pairs lead other standalone raw work. The group
    continues through available comparisons and publications without releasing
    its reservation or entering another capacity queue between tasks.
-7. When no eligible unclaimed work remains, or preparation fails or is
-   backpressured, helpers are stopped/joined and the group is verified empty
-   before its reservation releases. It does not wait idle for an unfinished
-   simulation or another configuration's summaries.
+7. When no eligible work remains or preparation fails permanently, helpers are
+   stopped/joined and the group is verified empty before its reservation releases.
+   Bounded transient task retries retain the same funding. It does not hold idle
+   capacity for an unfinished simulation or missing partner summaries. During a
+   planned pause, it finishes its current task and leaves any continuation pending;
+   pending donations do not block the update drain.
 
 Each task retains its existing processing deadline. Continuation is also bounded
 by the configured per-owner entry limit, so newly submitted additions cannot
-extend one admission forever. The configured number of independent preparation
-slots and the shared CPU/RAM/disk admission checks still apply.
+extend one admission forever. The shared CPU/RAM/disk admission checks still apply.
+The configured one/two independent slots apply to later requests and unfunded
+preparation, in addition to simulation-funded groups. There is no fixed global
+worker-count ceiling for funded initial chart pipelines. Their existing fair
+model allocations remain charged; they cannot take capacity assigned elsewhere.
 
 ## Resource choices
 
@@ -50,13 +56,10 @@ slots and the shared CPU/RAM/disk admission checks still apply.
 - Otherwise use the configured compact allowance (**2.5 GiB** in the candidate)
   with **1–2 vCPUs**, retaining fractional CPU where available. This returns
   surplus model RAM immediately instead of holding it idle for one seed task.
-- A small model cannot initially donate more than its original memory allowance.
+- A model cannot donate more than its original CPU, memory or scratch allowance.
   Any memory added from the emergency growth allowance returns to that allowance.
-- Adoption can enlarge a compact transfer when the shared ledger admits the
-  difference, including legitimate use of the primary worker's protected budget.
-  CPU demand requests only the missing CPU, rather than counting a funded
-  transfer as an entirely new preparation. Only confirmed revocable simulation
-  boosts can be reclaimed; running models keep their existing CPU floors.
+- Adoption preserves the donated CPU/RAM allocation. Independent requests cannot
+  use that funding or count it as an additional request for borrowed capacity.
 - Protected SingleRun and emergency model-memory capacity remain protected.
   The transfer is a resource reservation, not a transfer of JVM memory pages or
   a guarantee of physical processor cores on a shared VPS.
@@ -128,17 +131,24 @@ transfer per source attempt. Duplicate completion receipts cannot create another
 
 - A failure before completion commit rolls back model release and transfer.
 - A crash after commit leaves an accounted pending reservation for recovery.
-- A crash after adoption leaves the normal slot reservation charged. Its inherited
+- A crash after adoption leaves the same donation identity charged. Its inherited
   lock and delegated-group recovery must establish that old helpers have stopped
-  before the next slot owner releases it.
+  before that identity is readopted or released.
 - Cleanup of pending reservations cannot remove an adopted reservation. Two
   adopters compete under the same pool lock; at most one wins.
-- A queued task temporarily locked during admission keeps its pending transfer.
-  A concurrent reconciliation cannot refund that capacity before adoption.
-- Revoked, already finished and storage-backpressured pending work releases
-  unused transfers. Disabling handover lets the existing processor/scheduler
-  reconciliation release unstarted transfers; active groups still require their
-  normal cleanup fences.
+- Each worker owns its own donation. If another worker has already claimed all
+  eligible tasks, the unused donation can return without affecting that worker.
+- A bounded transient retry stays in its original pipeline, including after a
+  restart. A paused update creates no new helper scope, quota promise or scratch
+  workspace. Unstarted funding remains pending for resumption.
+- The service joins every dynamically started worker during shutdown. A compact
+  low-space pass takes an inherited exclusive phase lock; ordinary donated and
+  independent groups take its shared form. Managed headroom counts active groups
+  of both kinds. Each waiting donation admits its own scratch envelope atomically
+  with its active SQL marker, preventing mutually blocked future reservations.
+- An uncertain scope exit leaves a durable admission fence. Before another helper
+  starts, it must confirm the affected cgroup is empty, including descendants that
+  closed inherited descriptors; the original reservation remains charged.
 
 Offline backup's existing idle check includes these reservations. Online backup
 copies their database state, and restored inactive copies clear processor

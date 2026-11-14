@@ -50,6 +50,7 @@ def until(function):
 class FixtureExecutor(LocalExecutor):
     """A stopped-process cleanup contract for the fictional VM assembly."""
     workspace_quotas=None
+    pipeline_storage=None
 
     def cleanup(self,lease):
         self._require_guard()
@@ -106,6 +107,21 @@ class VMRuntimeTests(unittest.TestCase):
         client.headers['X-CSRF-Token'] = result.json()['csrf']
         return result
 
+    def test_personal_storage_reader_is_wired_without_requiring_an_administrator_role(self):
+        from .account_storage import AccountStorage
+        app=self.app()
+        self.assertIsInstance(self.access.account_storage_reader,AccountStorage)
+        reader=self.access.account_storage_reader
+        self.addCleanup(lambda:reader._thread and reader._thread.join(10))
+        with TestClient(app,base_url=self.origin) as client:
+            self.sign_in(client)
+            value=client.get('/api/account/storage')
+            self.assertEqual(value.status_code,200,value.text)
+            if reader._thread:reader._thread.join(10)
+            value=client.get('/api/account/storage').json()
+            self.assertIn(value['measure_state'],('ready','incomplete'))
+            self.assertEqual(set(value),{'format','observed_at','measure_state','usage'})
+            self.assertNotIn(self.owner,str(value))
     def dataset(self, provider=False):
         if provider:
             key = self.datasets.register_provider('b'*64)

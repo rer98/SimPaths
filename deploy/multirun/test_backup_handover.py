@@ -60,11 +60,18 @@ class RecoveryBackend(Backend):
     supports_selective_views=True
     summary_retention_seconds=7*86400
     capacity_errors=(SummaryCapacityError,)
-    identity=dict(revision='fictional-handover-recovery-v1',node='fictional-parser')
-    manifest=dict(files={'runner.cjs':'c'*64,'calculation.cjs':'d'*64})
+    manifest=dict(format='simpaths.visualiser.build.v1',mode='development-levels',
+        revision='a'*40,files={'runner.cjs':'c'*64,'calculation.cjs':'d'*64})
+    identity=dict(build=manifest,node='fictional-parser',publication='fictional-handover-recovery-v1')
     retain_summaries=VisualiserBackend.retain_summaries
     summary_retention_experiments=VisualiserBackend.summary_retention_experiments
     check_summary_dependencies=VisualiserBackend.check_summary_dependencies
+    preserve_summary_sources=VisualiserBackend.preserve_summary_sources
+    calculation_identity=staticmethod(VisualiserBackend.calculation_identity)
+    _summary_identity=VisualiserBackend._summary_identity
+    _summary_inputs=staticmethod(VisualiserBackend._summary_inputs)
+    _summary_deadline=VisualiserBackend._summary_deadline
+    _require_summary_lifetime=VisualiserBackend._require_summary_lifetime
     storage_snapshot=VisualiserBackend.storage_snapshot
     prune_summaries=VisualiserBackend.prune_summaries
     prune_source_summaries=VisualiserBackend.prune_source_summaries
@@ -87,10 +94,8 @@ class RecoveryBackend(Backend):
             # Single-seed fixtures exercise the real cache/hold identities, not
             # the scientific summariser's numerical or resource performance.
             self.assert_single_seed(configuration)
-            identity=dict(owner=source['owner'],configuration=configuration['id'],
-                seed=str(configuration['runs'][0]['seed']),
-                execution={k:selected[k] for k in ('job','attempt')},
-                calculation=self.manifest['files'],node=self.identity['node'])
+            run=configuration['runs'][0]
+            identity=self._summary_identity(source,run,self._summary_inputs(source,run))
             metrics=work/('summary-'+str(index)+'.json')
             with self.summary_cache.entry(identity) as entry:
                 if entry.restore(metrics):self.hits+=1
@@ -150,16 +155,37 @@ class RecoveryBackendTests(unittest.TestCase):
 
     def test_retained_metrics_reopen_without_raw_files_and_do_not_freeze_the_role(self):
         import hashlib
+        from datetime import datetime,timezone
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);backend=RecoveryBackend(root)
-            raw=root/'raw.csv';raw.write_bytes(b'fictional input');raw.chmod(0o600)
-            source=dict(owner='alice',identity=dict(job='job',attempt='attempt'),
-                configuration=dict(id='baseline',role='Scenario',runs=[dict(seed='606')]),
-                files=[dict(path=raw.name,bytes=raw.stat().st_size,sha256=hashlib.sha256(raw.read_bytes()).hexdigest())])
+            files=[]
+            for name in ('Person.csv','BenefitUnit.csv'):
+                raw=root/name;raw.write_bytes(b'fictional input');raw.chmod(0o600)
+                files.append(dict(name='Scenario/run_1/csv/'+name,path=name,
+                    bytes=raw.stat().st_size,sha256=hashlib.sha256(raw.read_bytes()).hexdigest()))
+            source=dict(owner='alice',identity=dict(job='job',attempt='attempt',configuration='baseline',
+                    repetitions=[dict(seed='606')]),
+                configuration=dict(id='baseline',role='Scenario',model='fictional-model',dataset='fictional-input',
+                    completed_at=datetime.now(timezone.utc).isoformat(),
+                    runs=[dict(seed='606',folder='Scenario/run_1')]),files=files)
             work=root/'work';work.mkdir(mode=0o700)
             callback=Mock()
             first=backend.process([source],work,Mock(),Mock(),source_ready=callback)
-            raw.unlink();source['retained_only']=True;source['configuration']['role']='Baseline'
+            # Exercise the current production preservation contract before raw
+            # removal, including canonical calculation/source identities.
+            from datetime import timedelta
+            protected=datetime.now(timezone.utc)
+            retained=dict(protected_at=protected.isoformat(),expires_at=(protected+timedelta(days=7)).isoformat(),
+                backend=backend.calculation_identity(backend.identity))
+            source['configuration']['summary_retention']=retained
+            commit=Mock()
+            with backend.preserve_summary_sources('alice','fictional-experiment',
+                    [dict(identity=source['identity'],source=source)],owner_entries=64,before_admission=commit) as proof:
+                self.assertEqual(proof['seeds'],1)
+                self.assertEqual(proof['expires_at'],(protected+timedelta(days=7)).timestamp())
+            commit.assert_called_once()
+            for item in files:(root/item['path']).unlink()
+            source['retained_only']=True;source['configuration']['role']='Baseline'
             second=backend.process([source],work,Mock(),Mock(),source_ready=callback)
             self.assertEqual((backend.raw_reads,backend.hits),(1,1))
             self.assertEqual(first['rows'][0]['mean_value'],second['rows'][0]['mean_value'])
@@ -282,7 +308,9 @@ class NativeHandoverRecoveryTests(unittest.TestCase):
         future=None;pool=None
         if running:
             v.backend.pause=True;pool=ThreadPoolExecutor(max_workers=1)
-            future=pool.submit(v.tick)
+            from jasmine_web.batch.visualiser_handover import HandoverWorker
+            offered=self.q.processing_handovers(v.handover_prefix)
+            future=pool.submit(v._tick,HandoverWorker(offered[0]))
         try:
             if running:
                 deadline=time.monotonic()+20
@@ -375,9 +403,7 @@ class NativeHandoverRecoveryTests(unittest.TestCase):
         target.finish(lease,outcome='cancelled',stop_evidence='f'*64)
         self.expire_restored_raw(target,first,second)
         self.assertEqual(rv.status(auth['token'],pair_key)['state'],'ready')
-        with target._connection() as c:
-            c.execute('UPDATE dataset_grants SET valid_until=clock_timestamp() WHERE pool_id=%s AND owner_id=%s AND dataset_id=%s',
-                (target.pool_id,self.f.owner,self.f.dataset))
+        target.grant_dataset(self.f.owner,self.f.dataset,seconds=None)
         with self.assertRaises(NotFound):rv.data_bytes(auth['token'],pair_key)
 
     def expire_restored_raw(self,queue,*leases):

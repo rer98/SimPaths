@@ -223,6 +223,24 @@ class AccountStorageTests(unittest.TestCase):
         self.assertIsNone(report['accounts']['alice']['total_bytes'])
         self.assertTrue(all(value is None for value in report['accounts']['alice'].values()))
 
+    def test_personal_request_reuses_the_exact_admin_page_measurement_without_another_scan(self):
+        self.sampler._sample(('alice','bob'))
+        page=self.sampler(('alice','bob'))
+        with patch.object(self.sampler,'measure',side_effect=AssertionError('Do not rescan a fresh page')):
+            personal=self.sampler(('alice',))
+        self.assertEqual(personal['observed_at'],page['observed_at'])
+        self.assertEqual(personal['accounts'],{'alice':page['accounts']['alice']})
+        personal['accounts']['alice']['raw_bytes']=999
+        self.assertEqual(self.sampler(('alice','bob'))['accounts']['alice']['raw_bytes'],0)
+
+    def test_a_different_accounts_incomplete_category_does_not_make_personal_totals_unknown(self):
+        self.sampler._sample(('alice','bob'))
+        report=self.sampler._cache[('alice','bob')][1]
+        report['measure_state']='incomplete';report['accounts']['bob']=empty()
+        self.assertEqual(self.sampler(('alice',))['measure_state'],'ready')
+        self.assertEqual(self.sampler(('bob',))['measure_state'],'incomplete')
+        self.assertIsNone(self.sampler(('bob',))['accounts']['bob']['total_bytes'])
+
     def test_empty_page_and_invalid_requests_start_no_worker(self):
         with patch('deploy.multirun.account_storage.threading.Thread') as worker:
             self.assertEqual(self.sampler(())['accounts'],{})

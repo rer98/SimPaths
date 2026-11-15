@@ -7,6 +7,7 @@ No simulation, file preparation, admission or authorisation is performed here.
 """
 
 import argparse
+from copy import deepcopy
 from dataclasses import dataclass
 from decimal import Decimal, localcontext
 import hashlib
@@ -204,6 +205,17 @@ class NormalisedExperiment:
 
     def editable_yaml(self):
         return yaml.safe_dump(self.editable_configuration(), sort_keys=True)
+
+    def run_configurations(self):
+        """Yield detached execution inputs without repeatedly decoding the experiment."""
+        data=self.as_dict();base=self.editable_configuration()
+        base.pop('run_sets',None);base.pop('sweep',None)
+        for original in data['run_sets']:
+            item=deepcopy(original);editable=deepcopy(base)
+            editable['dataset_revision']=item.pop('dataset_revision',editable['dataset_revision'])
+            editable['common']=item.pop('common',editable['common'])
+            editable['run_sets']=[item]
+            yield editable
 
     def run_configuration(self, run_set_id):
         """Collapse inheritance to one self-contained executable configuration."""

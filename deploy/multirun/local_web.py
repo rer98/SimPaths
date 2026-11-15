@@ -131,7 +131,7 @@ def parse_args(argv=None):
     parser.add_argument('--max-repetitions',type=int,default=DEFAULT_MAX_REPETITIONS,
                         help='Maximum repetitions per configuration in new submissions (1–1000; default: %(default)s)')
     parser.add_argument('--max-configurations',type=int,default=DEFAULT_MAX_CONFIGURATIONS,
-                        help='Maximum configurations per new experiment (1–100; default: %(default)s)')
+                        help='Maximum configurations per new experiment (1–1025; default: %(default)s)')
     parser.add_argument('--max-unfinished-jobs',type=int,default=110,
                         help='Per-user allowance for unfinished configurations and preparations (default: %(default)s)')
     parser.add_argument('--pool-unfinished-jobs',type=int,default=220,

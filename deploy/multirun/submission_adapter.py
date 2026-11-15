@@ -109,18 +109,19 @@ class SubmissionModel:
         if not isinstance(request, dict) or set(request) - {'configuration','baseline','auto_retry'} or 'configuration' not in request:
             raise ArtifactError('Supply a configuration and optional baseline/retry setting')
         config = normalise(request['configuration'], limits=self.submission_limits)
-        if config.as_dict().get('sweep'):
+        snapshot=config.as_dict()
+        if snapshot.get('sweep'):
             raise ArtifactError('Use fixed configuration cards for this first submission workflow')
-        if config.as_dict()['dataset_revision'] != resolved['dataset_id']:
+        if snapshot['dataset_revision'] != resolved['dataset_id']:
             raise ArtifactError('Configuration must use the selected prepared dataset')
         choices = resolved.get('datasets', {resolved['dataset_id']: resolved})
         if not self.dataset_ids(request) <= choices.keys():
             raise ArtifactError('Input dataset is unavailable')
         if len({self.model_identity(chosen) for chosen in choices.values()}) != 1:
             raise ArtifactError('All configurations must use inputs prepared for the same model version')
-        if config.as_dict()['model_release'] not in self.release_availability():
+        if snapshot['model_release'] not in self.release_availability():
             raise ArtifactError('This model release is archived; restore it or choose an available release')
-        selected = self.releases.get(config.as_dict()['model_release'])
+        selected = self.releases.get(snapshot['model_release'])
         if selected is None or fingerprint(selected['jar'])['sha256'] != self.model_identity(resolved):
             raise ArtifactError('Select inputs prepared for the configuration’s model version')
         runs, budgets, storage = [], [], []
@@ -129,8 +130,8 @@ class SubmissionModel:
         # than rereading gigabytes for every configuration. This map is local:
         # another review, a replacement or execution verifies its own inputs.
         verified = {}
-        for item in config.as_dict()['run_sets']:
-            single = config.run_configuration(item['id'])
+        for single in config.run_configurations():
+            item=single['run_sets'][0]
             chosen = choices[single['dataset_revision']]
             receipt = None
             if chosen.get('state') != 'pending':
@@ -140,13 +141,13 @@ class SubmissionModel:
                     verified[identity] = self._verified_prepared(chosen)
                 receipt = verified[identity]
             run,resources = self._bind_run(chosen,dict(id=item['id'],parameters=single),
-                                          config.as_dict()['seed_plan']['seeds'],receipt)
+                                          snapshot['seed_plan']['seeds'],receipt)
             runs.append(dict(run, execution=dict(dataset_id=chosen['dataset_id'],
                 model_digest=chosen['model_digest'], resources=resources.__dict__)))
             budgets.append(resources.__dict__)
             storage.append(dict(configuration=item['id'],**self.storage_review(chosen,single,resources)))
-        return dict(label=config.as_dict()['experiment']['name'], dataset_id=resolved['dataset_id'],
-            model_digest=resolved['model_digest'], seed_plan=config.as_dict()['seed_plan']['seeds'],
+        return dict(label=snapshot['experiment']['name'], dataset_id=resolved['dataset_id'],
+            model_digest=resolved['model_digest'], seed_plan=snapshot['seed_plan']['seeds'],
             run_sets=runs, baseline=request.get('baseline'), auto_retry=request.get('auto_retry', True),
             resources=Resources(**budgets[0]),storage=storage)
 

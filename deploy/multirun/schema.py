@@ -37,17 +37,32 @@ class DeploymentLimitError(ConfigurationError):
         super().__init__(path,message)
 
 
+class DuplicateSweepParametersError(ConfigurationError):
+    """Supported model identifiers repeated in a browser sweep recipe."""
+    def __init__(self, parameters):
+        self.duplicate_sweep_parameters=list(parameters)
+        super().__init__('sweep','parameters appear more than once: '+', '.join(parameters))
+
+
+class SweepLimitError(ConfigurationError):
+    """Calculated, count-only facts eligible for a safe browser explanation."""
+    def __init__(self,**counts):
+        self.sweep_counts=counts
+        total=counts.get('total',counts['combinations'])
+        super().__init__('sweep',f"{total:,} configurations would be required; the configured limits are {counts['configuration_limit']:,} configurations and {counts['simulation_limit']:,} simulations")
+
+
 @dataclass(frozen=True)
 class Limits:
     """Trusted parser/expansion ceilings, not deployment capacity recommendations."""
 
-    max_bytes: int = 1048576
-    max_nodes: int = 160000
+    max_bytes: int = 16 * 1024**2
+    max_nodes: int = 1600000
     max_depth: int = 16
     max_scalar_chars: int = 4096
-    max_run_sets: int = 100
+    max_run_sets: int = 1025
     max_repetitions: int = 1000
-    max_simulations: int = 10000
+    max_simulations: int = 10250
 
     def __post_init__(self):
         for value in vars(self).values():

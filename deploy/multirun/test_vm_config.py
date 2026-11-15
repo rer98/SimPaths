@@ -245,7 +245,7 @@ class VMConfigTests(unittest.TestCase):
             ('private_root = "/srv/simpaths-online/private"', 'private_root = "/tmp/private"'),
             ('state = "/srv/simpaths-online/private/multirun"', 'state = "/srv/elsewhere"'),
             ('retention_cleanup = false', 'retention_cleanup = true'),
-            ('max_configurations = 100', 'max_configurations = 101'),
+            ('max_configurations = 100', 'max_configurations = 1026'),
             ('max_repetitions = 12', 'max_repetitions = 1001'),
             ('runtime_budget_multiplier = 3', 'runtime_budget_multiplier = 4'),
             ('max_repetitions = 12', 'max_repetitions = 1000\nunknown_limit = 1'),

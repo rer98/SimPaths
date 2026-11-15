@@ -240,10 +240,10 @@ class BrowserModelTests(unittest.TestCase):
         self.assertEqual(parse_args(['serve','--console-codes']).max_configurations,100)
         self.assertEqual(parse_args(['serve','--console-codes']).max_unfinished_jobs,110)
         self.assertEqual(parse_args(['serve','--console-codes']).pool_unfinished_jobs,220)
-        for value in (0,-1,101,True,3.5,'27',None):
+        for value in (0,-1,1026,True,3.5,'27',None):
             with self.subTest(configurations=value),self.assertRaises(ValueError):
                 BrowserModel(self.model.releases,max_configurations=value)
-        for value in ('0','101','many'):
+        for value in ('0','1026','many'):
             with redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):
                 parse_args(['serve','--console-codes','--max-configurations',value])
         for arguments in (['--max-unfinished-jobs','99'],['--pool-unfinished-jobs','109'],

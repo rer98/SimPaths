@@ -7,7 +7,7 @@ The form exposes fixed configurations and a validated shared seed plan.
 """
 from .artifacts import ArtifactError, fingerprint
 from .configuration import normalise
-from .prepared_dataset import FORMAT, INPUT_FORMAT
+from .prepared_dataset import FORMAT, INPUT_FORMAT, model_parameter_requirements
 from .queue_adapter import read_prepared
 from .schema import MODEL_FIELDS, OUTPUT_CONTRACT, SCHEMA_VERSION, SEED_PROFILE
 from .submission_adapter import SubmissionModel
@@ -98,6 +98,7 @@ class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
             name=NAME
         values = dict(start_year=identity['start_year'], population=identity.get('population',20000),
                       end_year=2026)
+        fixed_model_args=model_parameter_requirements(receipt)
         release=identity.get('release',{}).get('id')
         if release is None:
             release=next((key for key,entry in self.releases.items()
@@ -112,7 +113,8 @@ class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
                         workbooks={k: v for k,v in identity['prepared'].items() if k.lower().endswith('.xlsx')},
                         schedule=identity.get('selection',{}).get('schedule'),
                         policy_years=identity.get('policy_years')),
-                    locked=['start_year','population'] if training else ['start_year'])
+                    locked=['start_year','population'] if training else ['start_year'],
+                    **({'fixed_model_args':fixed_model_args} if fixed_model_args else {}))
 
     def browser_configuration(self, dataset, form):
         required = {'name','common','repetitions','run_sets','baseline','auto_retry'}

@@ -18,6 +18,48 @@ INPUT_FORMAT = "simpaths.multirun.prepared-inputs.v1"
 SOURCE = "maintainer-quickstart-public-training"
 
 
+FIXED_POPULATION_MODEL_ARGS=dict(useWeights=False,ignoreTargetsAtPopulationLoad=False)
+
+
+class PreparedDatasetSettingsError(ArtifactError):
+    """Public scalar parameter requirements read from a verified dataset receipt."""
+    def __init__(self, requirements):
+        self.fixed_model_args=dict(requirements)
+        super().__init__('These population settings require a different preparation: '+
+            ', '.join(key+'='+json.dumps(value) for key,value in requirements.items()))
+
+
+def model_parameter_requirements(receipt):
+    """Shared validation/UI contract; callers first validate the immutable receipt.
+
+    Current saved populations derive requirements from their certified profile.
+    Trusted preparation tooling may certify additional scalar requirements in
+    the receipt identity; its existing digest/revision binds them automatically.
+    Unknown formats, fields and contradictions fail closed.
+    """
+    from .schema import MODEL_FIELDS
+    identity=receipt['identity'];kind=identity['format']
+    if kind==FORMAT:
+        profile=identity['quickstart_profile']['profile']
+        requirements=dict(useWeights=profile['use_weights'],ignoreTargetsAtPopulationLoad=profile['ignore_population_targets'])
+    elif kind==INPUT_FORMAT:requirements={}
+    else:raise ArtifactError('Unsupported dataset parameter certification')
+    certified=identity.get('model_parameter_requirements',{})
+    if type(certified) is not dict or len(certified)>len(MODEL_FIELDS):raise ArtifactError('Invalid certified model parameter requirements')
+    for key,value in certified.items():
+        if key not in MODEL_FIELDS:raise ArtifactError('Unknown certified model parameter')
+        MODEL_FIELDS[key].validate(value,'model_parameter_requirements.'+key)
+        if key in requirements and requirements[key]!=value:raise ArtifactError('Certified model parameter requirements conflict with the population profile')
+        requirements[key]=value
+    return requirements
+
+
+def validate_parameter_requirements(configuration,receipt):
+    requirements=model_parameter_requirements(receipt)
+    if any(any(run['model_args'][key]!=value for key,value in requirements.items()) for run in configuration['run_sets']):
+        raise PreparedDatasetSettingsError(requirements)
+
+
 def profile_population(profile):
     population = profile.get("profile", {}).get("requested_population")
     expected = dict(country="UK", start_year=2019, end_year=2026,
@@ -64,6 +106,7 @@ def check_receipt(receipt):
     for name in ("input.mv.db", "DatabaseCountryYear.xlsx", "EUROMODpolicySchedule.xlsx"):
         if identity["prepared"].get(name, {}).get("bytes", 0) <= 0:
             raise ArtifactError("Prepared Quick Start inputs are incomplete")
+    model_parameter_requirements(receipt)
     return receipt
 
 
@@ -86,10 +129,7 @@ def validate_selection(configuration, receipt):
             or common["population"] != receipt["identity"]["population"]
             or not 2019 <= common["end_year"] <= MAX_END_YEAR):
         raise ArtifactError("Configuration does not match the selected prepared dataset")
-    for run in configuration["run_sets"]:
-        settings = run["model_args"]
-        if settings["useWeights"] or settings["ignoreTargetsAtPopulationLoad"]:
-            raise ArtifactError("These population settings require a different preparation")
+    validate_parameter_requirements(configuration,receipt)
     # Repetition admission belongs to SubmissionModel. Rechecking dataset
     # compatibility during execution must preserve an already accepted seed plan.
 
@@ -138,6 +178,7 @@ def check_input_receipt(receipt):
                  'EUROMODpolicySchedule.xlsx'):
         if identity['prepared'].get(name,{}).get('bytes',0) <= 0:
             raise ArtifactError('Prepared inputs are incomplete')
+    model_parameter_requirements(receipt)
     return receipt
 
 
@@ -148,6 +189,7 @@ def validate_input_selection(configuration, receipt):
         raise ArtifactError('Configuration does not match the prepared start year')
     # Dataset/profile bounds are independent of the deployment repetition limit.
     validate_workload(common)
+    validate_parameter_requirements(configuration,receipt)
 
 
 def read_quickstart(prepared):

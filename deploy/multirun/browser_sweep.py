@@ -9,8 +9,8 @@ from copy import deepcopy
 import json
 import re
 
-from .configuration import normalise
-from .schema import ConfigurationError, MODEL_FIELDS
+from .configuration import normalise, _dimension
+from .schema import ConfigurationError, DuplicateSweepParametersError, SweepLimitError, MODEL_FIELDS
 from .yaml_input import check_tree
 
 
@@ -46,14 +46,20 @@ class BrowserSweep:
         base=next((r for r in runs if r['id']==recipe['base']),None)
         if base is None:
             raise ConfigurationError('sweep.base','choose an existing configuration')
-        parameters={}
+        # Validate identifiers before collecting duplicates; never echo unknown input.
+        counts={}
         for i,row in enumerate(recipe['dimensions']):
             path=f'sweep.parameters[{i}]'
             if type(row) is not dict or type(row.get('field')) is not str or row['field'] not in MODEL_FIELDS:
                 raise ConfigurationError(path,'choose a supported model parameter')
+            counts[row['field']]=counts.get(row['field'],0)+1
+        duplicates=[key for key,count in counts.items() if count>1]
+        if duplicates:
+            raise DuplicateSweepParametersError(duplicates)
+        parameters={}
+        for i,row in enumerate(recipe['dimensions']):
+            path=f'sweep.parameters[{i}]'
             key='model_args.'+row['field']
-            if key in parameters:
-                raise ConfigurationError(path,'each parameter may appear only once')
             field=MODEL_FIELDS[row['field']]
             if row.get('mode')=='values' and set(row)=={'field','mode','values'} and type(row['values']) is str and len(row['values'])<=2048:
                 parts=re.split(r'[,\n]',row['values'])
@@ -65,6 +71,13 @@ class BrowserSweep:
             else:
                 raise ConfigurationError(path,'use a value list, or start/end/step for a numeric parameter')
         limits=self.submission_limits
+        sizes=[len(_dimension(value,MODEL_FIELDS[key.split('.',1)[1]],'sweep.parameters.'+key,limits)) for key,value in parameters.items()]
+        combinations=1
+        for size in sizes:combinations*=size
+        counts=dict(dimensions=sizes,combinations=combinations,configuration_limit=self.max_configurations,
+                    repetitions=form['repetitions'],simulation_limit=limits.max_simulations)
+        if combinations>self.max_configurations or combinations*form['repetitions']>limits.max_simulations:
+            raise SweepLimitError(**counts)
         expanded=normalise({**document,'run_sets':[],
             'sweep':dict(id_prefix='sweep',combination='all',
                 base={k:base[k] for k in ('model_args','collector_args')},parameters=parameters)},limits=limits).as_dict()
@@ -91,8 +104,8 @@ class BrowserSweep:
             additions.append(candidate)
             rows.append(dict(values=generated['values'],configuration=candidate['id'],name=candidate['name'],existing=False))
         total=len(runs)+len(additions)
-        if total>self.max_configurations:
-            raise ConfigurationError('sweep',f'this would create {total} configurations including existing ones; the deployment limit is {self.max_configurations}')
+        if total>self.max_configurations or total*form['repetitions']>limits.max_simulations:
+            raise SweepLimitError(**counts,total=total,existing=len(runs),matches=len(rows)-len(additions))
         # Validate final fixed cards, never submit a recipe for a worker to expand.
         self.browser_configuration(dataset,{**form,'run_sets':[*runs,*additions]})
         return dict(run_sets=additions,rows=rows,parameters=origin['parameters'],

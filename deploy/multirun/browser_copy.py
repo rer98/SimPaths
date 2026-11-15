@@ -65,7 +65,7 @@ class BrowserCopy:
             snapshot=normalise(saved['configuration'])
             data=snapshot.as_dict()
             if ([r['id'] for r in data['run_sets']]!=[r['id'] for r in runs] or
-                    any(normalise(snapshot.run_configuration(key)).as_dict()!=value for key,value in effective.items())):
+                    {single['run_sets'][0]['id']:normalise(single).as_dict() for single in snapshot.run_configurations()}!=effective):
                 raise ConfigurationError('copy','saved form does not match the submitted configurations')
             baseline,retry=saved['baseline'],saved['auto_retry']
         else:

@@ -19,6 +19,9 @@ from types import SimpleNamespace
 FIELDS=('raw_bytes','workspace_other_bytes','uploads_bytes','prepared_bytes',
         'visualiser_bytes','downloads_bytes')
 FORMAT='simpaths.account-storage.v1'
+INCOMPLETE_RETRY_SECONDS=15
+MAX_SCAN_SECONDS=120
+SLICE_PAUSE_SECONDS=.1
 
 
 def empty():return dict.fromkeys((*FIELDS,'total_bytes'))
@@ -49,11 +52,14 @@ class AccountStorage:
             now=time.monotonic()
             for selected in reversed(self._cache):
                 stamp,report=self._cache[selected]
-                if now-stamp<self.cache_seconds and set(key).issubset(selected):
+                if not set(key).issubset(selected):continue
+                complete=all(report['accounts'][owner]['total_bytes'] is not None for owner in key)
+                lifetime=self.cache_seconds if complete else min(self.cache_seconds,INCOMPLETE_RETRY_SECONDS)
+                if now-stamp<lifetime:
                     result={**report,'accounts':{owner:report['accounts'][owner] for owner in key}}
                     if report['observed_at'] is not None:
                         result['measure_state']='ready' if all(result['accounts'][owner]['total_bytes'] is not None
-                            for owner in key) else 'incomplete'
+                            for owner in key) else report['measure_state']
                     self._cache.move_to_end(selected)
                     return json.loads(json.dumps(result))
             if not self._running:
@@ -86,23 +92,53 @@ class AccountStorage:
 
     def _sample(self,owners):
         report=dict(format=FORMAT,observed_at=None,measure_state='incomplete',accounts={o:empty() for o in owners})
-        try:report=self.measure(owners)
-        except Exception:pass
+        def publish(value):
+            nonlocal report
+            report=value
+            with self._lock:
+                self._remember(owners,report)
+        try:report=self.measure(owners,progress=publish)
+        except Exception:report={**report,'measure_state':'incomplete'}
         finally:
             with self._lock:
-                self._cache[owners]=(time.monotonic(),report);self._cache.move_to_end(owners)
-                while len(self._cache)>8:self._cache.popitem(last=False)
+                self._remember(owners,report)
                 self._running=False
 
-    def measure(self,owners):
-        deadline=time.monotonic()+self.scan_seconds
+    def _remember(self,owners,report):
+        self._cache[owners]=(time.monotonic(),report);self._cache.move_to_end(owners)
+        while len(self._cache)>8:self._cache.popitem(last=False)
+
+    def measure(self,owners,*,progress=None):
+        started=time.monotonic();deadline=started+self.scan_seconds
+        observed_at=datetime.now(timezone.utc).isoformat()
         attempts,uploads,prepared=self._metadata(owners)
         rows={owner:{name:0 for name in FIELDS} for owner in owners}
-        entries=[0];inodes={};paths={};scopes={}
+        entries=[0];inodes={};paths={};scopes={};completed=set()
+
+        def snapshot(state):
+            accounts={}
+            for owner,row in rows.items():
+                counts={field:row[field] if field in completed else None for field in FIELDS}
+                counts['total_bytes']=sum(counts.values()) if all(type(v) is int for v in counts.values()) else None
+                accounts[owner]=counts
+            return dict(format=FORMAT,observed_at=observed_at,measure_state=state,accounts=accounts)
+
+        def finished(*fields):
+            completed.update(fields)
+            if progress is not None:progress(snapshot('pending'))
 
         def check():
-            if time.monotonic()>=deadline or entries[0]>=self.max_entries:
+            nonlocal deadline
+            now=time.monotonic()
+            if entries[0]>=self.max_entries or now-started>=MAX_SCAN_SECONDS:
                 raise TimeoutError('Account storage observation reached its bound')
+            if now>=deadline:
+                if progress is None:raise TimeoutError('Account storage observation reached its bound')
+                # Keep the traversal stack and pinned directory descriptors;
+                # resume this inventory rather than recounting its first files.
+                progress(snapshot('pending'))
+                time.sleep(SLICE_PAUSE_SECONDS)
+                deadline=time.monotonic()+self.scan_seconds
 
         check()
 
@@ -212,6 +248,7 @@ class AccountStorage:
                     lambda relative,raw=raw:'raw_bytes' if relative[:2] in raw else 'workspace_other_bytes')
                 counted(self.state/'artifacts'/('pipeline-'+key),owner,('workspace_other_bytes',),
                         lambda relative:'workspace_other_bytes')
+        finished('raw_bytes','workspace_other_bytes')
 
         upload_root=Path(self.service.datasets.root)
         try:fd=directory(upload_root);os.close(fd)
@@ -224,6 +261,7 @@ class AccountStorage:
                 if not isinstance(key,str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,200}',key):
                     rows[owner]['uploads_bytes']=None;continue
                 counted(upload_root/key,owner,('uploads_bytes',),lambda relative:'uploads_bytes')
+        finished('uploads_bytes')
         for row in prepared:
             owner=row['owner_id']
             if owner not in rows:continue
@@ -232,6 +270,7 @@ class AccountStorage:
                     or not path.is_relative_to(self.state/'artifacts')):
                 rows[owner]['prepared_bytes']=None;continue
             counted(path,owner,('prepared_bytes',),lambda relative:'prepared_bytes')
+        finished('prepared_bytes')
 
         def receipt_owner(path,receipt_name):
             check()
@@ -265,6 +304,7 @@ class AccountStorage:
         caches=[(Path(getattr(visualiser,'root',execution/'visualiser-cache')),'status.json','visualiser_bytes',visualiser is not None),
                 (Path(getattr(summary,'root',execution/'visualiser-cache'/'summaries')),'receipt.json','visualiser_bytes',summary is not None),
                 (Path(getattr(downloads,'root',execution/'download-cache')),'status.json','downloads_bytes',downloads is not None)]
+        remaining={field:sum(item[2]==field for item in caches) for field in ('visualiser_bytes','downloads_bytes')}
         for root,receipt_name,field,required in caches:
             try:
                 parents(root,missing=True)
@@ -295,9 +335,12 @@ class AccountStorage:
                 finally:os.close(fd)
             except Exception:
                 for owner in owners:rows[owner][field]=None
+            finally:
+                remaining[field]-=1
+                if remaining[field]==0:finished(field)
         complete=True
         for row in rows.values():
             row['total_bytes']=sum(row.values()) if all(type(v) is int for v in row.values()) else None
             complete=complete and row['total_bytes'] is not None
-        return dict(format=FORMAT,observed_at=datetime.now(timezone.utc).isoformat(),
+        return dict(format=FORMAT,observed_at=observed_at,
                     measure_state='ready' if complete else 'incomplete',accounts=rows)

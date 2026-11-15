@@ -4,6 +4,7 @@ Bounded, read-only account disk attribution using private fictional files.
 Checks ordinary live removal, uncertain ownership and asynchronous cache behavior.
 @author ross richardson
 """
+from collections import Counter
 from copy import deepcopy
 import hashlib
 import json
@@ -21,6 +22,7 @@ from deploy._workflow import frontend_path
 import sys
 sys.path.insert(0,str(frontend_path()))
 from .account_storage import AccountStorage, FIELDS, FORMAT, empty
+from jasmine_web.batch.administration import validate_account_storage_report
 
 
 class AccountStorageTests(unittest.TestCase):
@@ -216,7 +218,7 @@ class AccountStorageTests(unittest.TestCase):
         self.sampler.max_entries=1
         self.assertIsNone(self.observe('alice')['accounts']['alice']['uploads_bytes'])
         self.sampler.max_entries=200000
-        with patch('deploy.multirun.account_storage.time.monotonic',side_effect=[0]+[10]*100):
+        with patch('deploy.multirun.account_storage.time.monotonic',side_effect=[0]+[130]*100):
             self.sampler._sample(('alice',))
             report=self.sampler(('alice',))
         self.assertEqual(report['measure_state'],'incomplete')
@@ -240,6 +242,10 @@ class AccountStorageTests(unittest.TestCase):
         self.assertEqual(self.sampler(('alice',))['measure_state'],'ready')
         self.assertEqual(self.sampler(('bob',))['measure_state'],'incomplete')
         self.assertIsNone(self.sampler(('bob',))['accounts']['bob']['total_bytes'])
+        stamp,_=self.sampler._cache[('alice','bob')]
+        with patch('deploy.multirun.account_storage.time.monotonic',return_value=stamp+299), \
+             patch('deploy.multirun.account_storage.threading.Thread') as worker:
+            self.assertEqual(self.sampler(('alice',))['measure_state'],'ready');worker.assert_not_called()
 
     def test_empty_page_and_invalid_requests_start_no_worker(self):
         with patch('deploy.multirun.account_storage.threading.Thread') as worker:
@@ -253,21 +259,94 @@ class AccountStorageTests(unittest.TestCase):
     def test_sampling_is_background_single_flight_and_cached_results_are_defensive_copies(self):
         started=threading.Event();finish=threading.Event();calls=[]
         self.addCleanup(finish.set)
-        def blocked(owners):
-            calls.append(owners);started.set();finish.wait(3)
+        def blocked(owners,**kwargs):
+            calls.append(owners)
+            progress={owner:empty() for owner in owners};progress['alice']['raw_bytes']=4096
+            kwargs['progress'](dict(format=FORMAT,measure_state='pending',observed_at='2026-11-15T12:00:00Z',accounts=progress))
+            started.set();finish.wait(3)
             return dict(format=FORMAT,measure_state='ready',observed_at='2026-11-13T12:00:00Z',
                         accounts={owner:dict.fromkeys((*FIELDS,'total_bytes'),0) for owner in owners})
         self.sampler.measure=blocked
         before=time.monotonic();first=self.sampler(('bob','alice'))
         self.assertLess(time.monotonic()-before,.5)
         self.assertEqual(first['measure_state'],'pending');self.assertTrue(started.wait(1))
-        self.assertEqual(self.sampler(('alice','bob'))['measure_state'],'pending')
+        reading=self.sampler(('alice','bob'))
+        self.assertEqual(reading['measure_state'],'pending');self.assertEqual(reading['accounts']['alice']['raw_bytes'],4096)
         self.assertEqual(len(calls),1)
         finish.set();self.sampler._thread.join(2);self.assertFalse(self.sampler._thread.is_alive())
         observed=self.sampler(('alice','bob'));self.assertEqual(observed['measure_state'],'ready')
         observed['accounts']['alice']['raw_bytes']=999
         self.assertEqual(self.sampler(('bob','alice'))['accounts']['alice']['raw_bytes'],0)
         self.assertEqual(len(calls),1)
+
+    def test_slow_inventory_resumes_pinned_walks_without_recounting_or_publishing_partial_categories(self):
+        key='batch-slow-observation'
+        for number in range(30):self.write(self.execution/key/f'work/output/nested/part-{number}.csv')
+        self.write(self.execution/key/'work/identity.json')
+        self.cache(self.charts,'alice');self.cache(self.summaries,'alice',summary=True)
+        self.cache(self.downloads,'alice')
+        self.metadata=([dict(owner_id='alice',execution_key=key,operation=None)],[],[])
+        expected=self.observe('alice')['accounts']
+        self.sampler.scan_seconds=.25
+        ticks=[0]
+        def clock():ticks[0]+=.05;return ticks[0]
+        snapshots=[];scans=Counter();original=os.scandir;original_open=os.open
+        def scandir(fd):scans[os.fstat(fd).st_ino]+=1;return original(fd)
+        def metadata_only(path,flags,*args,**kwargs):
+            if not flags&os.O_DIRECTORY:self.assertIn(str(path),('receipt.json','status.json'))
+            return original_open(path,flags,*args,**kwargs)
+        with patch('deploy.multirun.account_storage.time.monotonic',side_effect=clock), \
+             patch('deploy.multirun.account_storage.time.sleep') as pause, \
+             patch('deploy.multirun.account_storage.os.scandir',side_effect=scandir), \
+             patch('deploy.multirun.account_storage.os.open',side_effect=metadata_only):
+            result=self.sampler.measure(('alice',),progress=lambda report:snapshots.append(deepcopy(report)))
+        self.assertGreater(pause.call_count,2);self.assertEqual(result['measure_state'],'ready')
+        self.assertEqual(result['accounts'],expected)
+        self.assertTrue(scans);self.assertEqual(set(scans.values()),{1},'Every pinned directory is scanned once')
+        self.assertIsNone(snapshots[0]['accounts']['alice']['raw_bytes'])
+        self.assertTrue(any(s['accounts']['alice']['raw_bytes'] is not None and
+                            s['accounts']['alice']['visualiser_bytes'] is None for s in snapshots))
+        for report in snapshots:
+            self.assertEqual(validate_account_storage_report(report,('alice',)),report)
+            row=report['accounts']['alice']
+            for field in FIELDS:
+                self.assertIn(row[field],(None,expected['alice'][field]),'A category is published only when complete')
+            if any(row[field] is None for field in FIELDS):self.assertIsNone(row['total_bytes'])
+
+    def test_incomplete_snapshots_expire_after_fifteen_seconds_but_complete_ones_keep_the_normal_cache(self):
+        self.sampler._sample(('alice',));stamp,report=self.sampler._cache[('alice',)]
+        report['measure_state']='incomplete';report['accounts']['alice']['downloads_bytes']=None
+        report['accounts']['alice']['total_bytes']=None
+        with patch('deploy.multirun.account_storage.time.monotonic',return_value=stamp+14), \
+             patch('deploy.multirun.account_storage.threading.Thread') as worker:
+            self.assertEqual(self.sampler(('alice',))['measure_state'],'incomplete');worker.assert_not_called()
+        with patch('deploy.multirun.account_storage.time.monotonic',return_value=stamp+15), \
+             patch('deploy.multirun.account_storage.threading.Thread') as worker:
+            self.assertEqual(self.sampler(('alice',))['measure_state'],'pending');worker.return_value.start.assert_called_once()
+        self.sampler._sample(('alice',));stamp,_=self.sampler._cache[('alice',)]
+        with patch('deploy.multirun.account_storage.time.monotonic',return_value=stamp+299), \
+             patch('deploy.multirun.account_storage.threading.Thread') as worker:
+            self.assertEqual(self.sampler(('alice',))['measure_state'],'ready');worker.assert_not_called()
+
+    def test_pending_admin_progress_stays_pending_for_one_owner_and_exposes_only_completed_categories(self):
+        row=empty();row['raw_bytes']=4096
+        report=dict(format=FORMAT,observed_at='2026-11-15T12:00:00Z',measure_state='pending',
+                    accounts={'alice':row,'bob':empty()})
+        with self.sampler._lock:self.sampler._remember(('alice','bob'),report)
+        personal=self.sampler(('alice',))
+        self.assertEqual(personal['measure_state'],'pending');self.assertEqual(personal['accounts'],{'alice':row})
+        personal['accounts']['alice']['raw_bytes']=999
+        self.assertEqual(self.sampler(('alice',))['accounts']['alice']['raw_bytes'],4096)
+
+    def test_interruption_preserves_completed_progress_without_claiming_a_total(self):
+        def interrupted(owners,*,progress):
+            row=empty();row['raw_bytes']=4096
+            progress(dict(format=FORMAT,observed_at='2026-11-15T12:00:00Z',measure_state='pending',accounts={'alice':row}))
+            raise TimeoutError('Fictional observation deadline')
+        self.sampler.measure=interrupted;self.sampler._sample(('alice',));report=self.sampler(('alice',))
+        self.assertEqual(report['measure_state'],'incomplete')
+        self.assertEqual(report['accounts']['alice']['raw_bytes'],4096)
+        self.assertIsNone(report['accounts']['alice']['visualiser_bytes']);self.assertIsNone(report['accounts']['alice']['total_bytes'])
 
 
 if __name__=='__main__':unittest.main()

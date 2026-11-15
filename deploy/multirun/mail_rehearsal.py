@@ -78,7 +78,7 @@ def serve_fixture(path):
 
 def rehearsal(args, report):
     from deploy.multirun.artifacts import write_attribution
-    from deploy.multirun.mail_fixture import services, close, clock, check_message
+    from deploy.multirun.mail_fixture import services, close, clock, check_message, plain_body
     from deploy.multirun.proxy_fixture import bootstrap, finish, RAW
     from psycopg import sql
     dsn = os.environ['JASMINE_BATCH_TEST_DSN']
@@ -209,7 +209,7 @@ def rehearsal(args, report):
             settings['clock'] = (base+timedelta(days=6.1)).isoformat()
             assert execute_pump('retention')['delivered'] > 0
             for lease in (first, second):
-                notices = [m for m in capture.messages() if lease.attempt_id in m.get_content()]
+                notices = [m for m in capture.messages() if lease.attempt_id in plain_body(m)]
                 assert len(notices) == 2
                 assert [m['Subject'] for m in notices] == ['MultiRun: scheduled data deletion', 'MultiRun: final data deletion reminder']
                 for message in notices:

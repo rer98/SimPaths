@@ -13,7 +13,7 @@ import ssl
 import unittest
 from unittest.mock import patch
 
-from .mail_fixture import check_message
+from .mail_fixture import check_message, plain_body
 from .smtp_capture import FROM
 from jasmine_web.batch.completion_notifications import CompletionNotifications
 from jasmine_web.batch.notifications import Notifications, smtp_sender
@@ -85,11 +85,11 @@ class MailDeliveryTests(unittest.TestCase):
         (first, work), (second, other_work) = f.outputs()
         f.tick(3.1); self.drain(f)
         warning = [m for m in self.messages(f.retention.origin, forbidden=(str(f.f.root), 'private diagnostics'))
-                   if first.attempt_id in m.get_content()]
+                   if first.attempt_id in plain_body(m)]
         self.assertEqual(len(warning), 1)
         self.assertIn('scheduled data deletion', warning[0]['Subject'])
         f.tick(3); self.drain(f)
-        notices = [m for m in self.messages(f.retention.origin) if first.attempt_id in m.get_content()]
+        notices = [m for m in self.messages(f.retention.origin) if first.attempt_id in plain_body(m)]
         self.assertEqual(len(notices), 2)
         self.assertIn('final data deletion reminder', notices[1]['Subject'])
         f.tick(1.1)
@@ -141,7 +141,7 @@ class MailDeliveryTests(unittest.TestCase):
         self.drain(f)
         self.assertFalse(any(m['Message-ID'] == old_id for m in self.messages(f.retention.origin)))
         f.tick(3); self.drain(f)
-        delivered = [m for m in self.messages(f.retention.origin) if key in m.get_content()]
+        delivered = [m for m in self.messages(f.retention.origin) if key in plain_body(m)]
         # An attempted old message may have reached a remote inbox despite a
         # lost acknowledgement. Renewal therefore issues an update immediately,
         # then the new deadline receives its own ordinary four-day warning.
@@ -149,10 +149,10 @@ class MailDeliveryTests(unittest.TestCase):
         self.assertIn('updated deletion notice', delivered[0]['Subject'])
         self.assertIn('scheduled data deletion', delivered[1]['Subject'])
         f.sql('UPDATE uploads SET last_used_at=%s WHERE id=%s', (f.now, key)); f.tick(); self.drain(f)
-        delivered = [m for m in self.messages(f.retention.origin) if key in m.get_content()]
+        delivered = [m for m in self.messages(f.retention.origin) if key in plain_body(m)]
         self.assertEqual(len(delivered), 3)
         self.assertIn('updated deletion notice', delivered[-1]['Subject'])
-        self.assertIn('replaces all earlier deletion notices', delivered[-1].get_content())
+        self.assertIn('replaces all earlier deletion notices', plain_body(delivered[-1]))
         self.assertEqual(len({m['Message-ID'] for m in delivered}), 3)
 
     def test_unresolved_failed_job_expires_then_inputs_and_successful_output_receive_full_notice(self):
@@ -162,12 +162,12 @@ class MailDeliveryTests(unittest.TestCase):
         failed, _ = f.r.finish(outcome='model')
         f.tick(); self.drain(f)
         self.assertIsNone(f.record('output', first.attempt_id)['expires_at'])
-        notices = [m for m in self.messages(f.retention.origin) if failed.job_id in m.get_content()]
+        notices = [m for m in self.messages(f.retention.origin) if failed.job_id in plain_body(m)]
         self.assertEqual(len(notices), 1)
         self.assertIn('a job needs your attention', notices[0]['Subject'])
         f.tick(3.1); self.drain(f)
         f.tick(3); self.drain(f)
-        notices = [m for m in self.messages(f.retention.origin) if failed.job_id in m.get_content()]
+        notices = [m for m in self.messages(f.retention.origin) if failed.job_id in plain_body(m)]
         self.assertEqual(len(notices), 3)
         self.assertIn('final job recovery reminder', notices[-1]['Subject'])
         f.tick(1); f.retire(); self.drain(f)
@@ -192,7 +192,7 @@ class MailDeliveryTests(unittest.TestCase):
         self.assertFalse((f.s.datasets.root/key).exists())
         self.assertEqual(f.sql('SELECT reserved_bytes FROM uploads WHERE id=%s', (key,)), [])
         self.assertEqual(f.record('upload', key)['state'], 'deleted')
-        notices = [m for m in self.messages(f.retention.origin, forbidden=('unused.csv',)) if key in m.get_content()]
+        notices = [m for m in self.messages(f.retention.origin, forbidden=('unused.csv',)) if key in plain_body(m)]
         self.assertTrue(any('final data deletion reminder' in m['Subject'] for m in notices))
 
     def test_operator_and_owner_incidents_route_separately_and_resolved_incidents_stop_sending(self):

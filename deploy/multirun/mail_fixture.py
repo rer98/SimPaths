@@ -15,14 +15,31 @@ from unittest.mock import patch
 from .smtp_capture import FROM, RECIPIENTS
 
 
+def plain_body(message):
+    """Read the plain alternative without depending on MIME container shape."""
+    part=message.get_body(preferencelist=('plain',))
+    if part is None:raise AssertionError('Mail must retain its plain-text body')
+    return part.get_content()
+
+
 def check_message(message, origin, *, forbidden=()):
     """Assert the wire message is private controlled text, with safe links."""
     if (message['From'] != FROM or message['To'] not in RECIPIENTS
             or len(message.get_all('To', [])) != 1 or message.get('Cc') or message.get('Bcc')
-            or message.is_multipart() or message.get_content_type() != 'text/plain'
             or list(message.iter_attachments()) or message.defects):
         raise AssertionError('Unexpected mail addressing, MIME or attachment')
-    body = message.get_content()
+    body = plain_body(message)
+    if message.is_multipart():
+        from jasmine_web.batch.notifications import mail_html
+        parts=list(message.iter_parts())
+        if (message.get_content_type()!='multipart/alternative' or len(parts)!=2
+                or [part.get_content_type() for part in parts]!=['text/plain','text/html']
+                or any(part.is_multipart() or part.get_filename() or part.defects for part in parts)
+                or mail_html(body) is None
+                or parts[1].get_content().replace('\r\n','\n')!=mail_html(body)+'\n'):
+            raise AssertionError('Mail alternatives must contain the same controlled text and links')
+    elif message.get_content_type()!='text/plain':
+        raise AssertionError('Unexpected mail body type')
     # Inspect decoded MIME and headers too: transport encoding/line wrapping
     # must not conceal a private value from this validator.
     text = body+'\n'+'\n'.join(str(value) for _, value in message.items())+'\n'+message.as_string()

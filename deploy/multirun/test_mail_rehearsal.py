@@ -148,6 +148,29 @@ class MessageTests(unittest.TestCase):
         value = BytesParser(policy=policy.default).parsebytes(message(body).as_bytes())
         self.assertEqual(check_message(value, self.origin), body)
 
+    def test_identical_html_and_plain_alternatives_with_clickable_results_link_are_valid(self):
+        from jasmine_web.batch.notifications import mail_html
+        body='Fictional result\n'+self.origin+'/results/12345678-1234-1234-1234-123456789012\n'
+        value=message(body);value.add_alternative(mail_html(body),subtype='html')
+        parsed=BytesParser(policy=policy.default).parsebytes(value.as_bytes(policy=policy.SMTP))
+        self.assertEqual(check_message(parsed,self.origin).replace('\r\n','\n'),body)
+
+    def test_html_cannot_add_another_destination_private_value_or_remote_content(self):
+        from jasmine_web.batch.notifications import mail_html
+        for extra in ('<a href="https://outside.example.org/">Results</a>',
+                      '<img src="https://outside.example.org/tracker">','PRIVATE_CANARY'):
+            value=message();value.add_alternative(mail_html(value.get_content())+extra,subtype='html')
+            with self.assertRaises(AssertionError):check_message(value,self.origin,forbidden=('PRIVATE_CANARY',))
+
+    def test_alternatives_without_plain_text_or_with_extra_parts_are_rejected(self):
+        from jasmine_web.batch.notifications import mail_html
+        values=[]
+        value=message();value.add_alternative(mail_html(value.get_content()),subtype='html')
+        value.add_alternative('<b>Another alternative</b>',subtype='html');values.append(value)
+        value=message();value.add_alternative('<b>HTML only</b>',subtype='html');value.get_payload().pop(0);values.append(value)
+        for value in values:
+            with self.assertRaises(AssertionError):check_message(value,self.origin)
+
     def test_attachments_html_and_additional_recipients_fail_privacy_validation(self):
         values = []
         value = message(); value.add_attachment(b'raw', maintype='text', subtype='csv', filename='raw.csv'); values.append(value)

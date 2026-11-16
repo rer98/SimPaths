@@ -218,7 +218,7 @@ class SummaryBackendTests(unittest.TestCase):
         selected=self.selected();self.execute(selected)
         for source in selected:
             source['retained_only']=True
-            source['configuration']['completed_at']=(datetime.now(timezone.utc)-timedelta(days=8)).isoformat()
+            source['configuration']['completed_at']=(datetime.now(timezone.utc)-timedelta(seconds=self.backend.summary_retention_seconds+1)).isoformat()
         with self.assertRaisesRegex(ValueError,'summaries have expired'):
             self.execute(selected)
 

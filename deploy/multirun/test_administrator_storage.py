@@ -297,6 +297,70 @@ class AdministratorStorageTests(unittest.TestCase):
         self.assertIn('backups', next(row for row in result['filesystems']
                                      if row['id'] == area['filesystem'])['areas'])
 
+    def test_backup_reads_cross_a_searchable_parent_without_listing_it(self):
+        from . import backup_schedule
+        parent = self.root/'backup-mount'; parent.mkdir(mode=0o700)
+        self.backups.rename(parent/'protected'); self.backups = parent/'protected'
+        archive = self.backups/'backup.fictional'
+        stamp = datetime.now(timezone.utc).isoformat()
+        status = dict(format=backup_schedule.FORMAT, current=None, incident=None,
+            last_success=dict(config='fake', finished_at=stamp))
+        metadata = self.backups/'status.json'
+        metadata.write_text(json.dumps(status)); metadata.chmod(0o600)
+        pointer = self.root/'backup.toml'; pointer.write_text('fictional configuration')
+        config = dict(_digest='fake', backup=dict(directory=str(self.backups),
+            minimum_free_gib=1, interval_hours=24, retry_minutes=30))
+        reader = self.reader(); reader.backup_config = pointer
+        originals = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in (archive, metadata)}
+        parent.chmod(0o111)
+        try:
+            self.assertTrue(os.access(parent, os.X_OK))
+            with self.assertRaises(PermissionError): os.listdir(parent)
+            with patch.object(backup_schedule, 'load_config', return_value=config):
+                result = self.settled(reader)
+            area = self.areas(result)['backups']
+            self.assertTrue(area['complete'])
+            self.assertEqual(area['bytes'], sum(p.stat().st_blocks*512 for p in originals))
+            disk = next(row for row in result['filesystems'] if 'backups' in row['areas'])
+            self.assertTrue(disk['available'])
+            self.assertEqual(disk['id'], area['filesystem'])
+            self.assertTrue(result['backup']['available'])
+            self.assertEqual(result['backup']['last_success_at'], stamp)
+            self.assertFalse(result['backup']['remote_configured'])
+            from jasmine_web.batch.administration import validate_storage_report
+            self.assertEqual(validate_storage_report(result), result)
+            self.assertEqual(parent.stat().st_mode & 0o777, 0o111)
+            self.assertEqual(self.backups.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(originals, {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in originals})
+        finally:
+            parent.chmod(0o700)
+
+    def test_search_and_final_directory_read_permissions_are_still_required(self):
+        parent = self.root/'restricted'; parent.mkdir(mode=0o700)
+        leaf = parent/'protected'; leaf.mkdir(mode=0o700)
+        for parent_mode, leaf_mode in ((0o000, 0o700), (0o111, 0o111)):
+            try:
+                leaf.chmod(leaf_mode); parent.chmod(parent_mode)
+                with self.subTest(parent_mode=parent_mode, leaf_mode=leaf_mode):
+                    with self.assertRaises(PermissionError): storage._directory(leaf)
+            finally:
+                parent.chmod(0o700); leaf.chmod(0o700)
+
+    def test_linked_parent_and_leaf_still_fail_and_directory_descriptors_are_released(self):
+        leaf = self.root/'linked-backups'; leaf.symlink_to(self.backups, target_is_directory=True)
+        parent = self.root/'linked-parent'; parent.symlink_to(self.root, target_is_directory=True)
+        before = len(os.listdir('/proc/self/fd'))
+        for _ in range(8):
+            for path in (leaf, parent/'backups'):
+                with self.assertRaises(OSError): storage._directory(path)
+            fd = storage._directory(self.backups)
+            try:
+                self.assertEqual(os.fstat(fd).st_ino, self.backups.stat().st_ino)
+                self.assertIn('backup.fictional', os.listdir(fd))
+            finally:
+                os.close(fd)
+        self.assertEqual(len(os.listdir('/proc/self/fd')), before)
+
     def test_backup_status_is_allowlisted_without_paths_credentials_or_diagnostics(self):
         from . import backup_schedule
         config = dict(_digest='fake', backup=dict(directory=str(self.backups),

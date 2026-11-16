@@ -121,8 +121,14 @@ known_hosts = "{self.root}/known_hosts"
         self.assertEqual(len(self.messages),1)
         self.remote.fail=False
         result=self.execute(now=self.now+timedelta(days=3,minutes=31))
-        self.assertTrue(result['passed']); self.assertEqual(self.calls,1)
-        self.assertFalse(cipher.exists()); self.assertTrue(self.messages[-1][1]['recovered'])
+        self.assertFalse(result['passed']); self.assertTrue(result['overdue']); self.assertEqual(self.calls,1)
+        self.assertFalse(cipher.exists()); self.assertEqual(len(self.messages),1)
+        # Delivery finished, but its snapshot is still three days old. Only a
+        # fresh recovery point may clear the incident and send recovery mail.
+        self.assertEqual(result['latest']['capture_started_at'],self.now.isoformat())
+        result=self.execute(now=self.now+timedelta(days=3,minutes=36))
+        self.assertTrue(result['passed']); self.assertEqual(self.calls,2)
+        self.assertTrue(self.messages[-1][1]['recovered'])
 
     def test_corrupt_readback_and_conflicting_destination_never_allow_disposal(self):
         self.remote.corrupt=True

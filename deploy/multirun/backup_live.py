@@ -142,7 +142,7 @@ def _capture(queue, state, destination, tools, *, after_snapshot=None, single_ca
         raise ArtifactError('Keep backups outside service state')
     staging=Path(tempfile.mkdtemp(prefix='.backup-incomplete-',dir=parent))
     try:
-        with reserve_space(minimum_free_gib*1024**3),state_guard(state),file_guard(state,backup=True),ExitStack() as stack:
+        with reserve_space(minimum_free_gib*1024**3),state_guard(state),file_guard(state,backup=True,wait_seconds=60),ExitStack() as stack:
             if (state/GATE).exists(): raise ArtifactError('Activate or finish the inactive restoration first')
             registry=ReleaseRegistry(state)
             stack.enter_context(registry.locked())

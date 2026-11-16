@@ -33,6 +33,43 @@ class LiveBackupTests(unittest.TestCase):
         self.q=self.f.q; self.state=self.f.state
         self.q.backup_state=self.state
 
+    def test_capture_waits_for_a_short_file_retirement_then_restores_the_exact_snapshot(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+        from jasmine_web.batch.backup_guard import file_guard
+        import jasmine_web.batch.backup_guard as guards
+        waiting=threading.Event();original=guards.file_guard;budgets=[]
+        def observed(state,**kwargs):
+            if kwargs.get('backup') and Path(state)==self.state:
+                budgets.append(kwargs.get('wait_seconds'));waiting.set()
+            return original(state,**kwargs)
+        with ThreadPoolExecutor(max_workers=1) as worker:
+            with patch.object(guards,'file_guard',side_effect=observed):
+                with file_guard(self.state):
+                    pending=worker.submit(self.save)
+                    self.assertTrue(waiting.wait(3));self.assertFalse(pending.done())
+                pending.result(timeout=30)
+        self.assertEqual(budgets,[60])
+        self.assertTrue(self.restore()['inactive'])
+        with file_guard(self.state):pass
+
+    def test_persistent_file_conflict_expires_without_taking_a_database_snapshot_or_deleting_old_backup(self):
+        from jasmine_web.batch.backup_guard import file_guard,BackupBusy
+        import jasmine_web.batch.backup_guard as guards
+        previous=self.f.root/'previous-verified.tar.gpg';previous.write_bytes(b'previous verified ciphertext')
+        original=guards.file_guard;budgets=[]
+        def limited(state,**kwargs):
+            if kwargs.get('backup') and Path(state)==self.state:
+                budgets.append(kwargs['wait_seconds']);kwargs['wait_seconds']=.05
+            return original(state,**kwargs)
+        with file_guard(self.state),patch.object(guards,'file_guard',side_effect=limited),patch.object(self.f.tools,'dump') as dump:
+            with self.assertRaises(BackupBusy):self.save()
+            dump.assert_not_called()
+        self.assertEqual(budgets,[60]);self.assertEqual(previous.read_bytes(),b'previous verified ciphertext')
+        self.assertFalse(self.f.backup.exists())
+        with file_guard(self.state,backup=True):pass
+
+
     def test_backup_adapter_waits_for_short_singlerun_reader_before_snapshot(self):
         from concurrent.futures import ThreadPoolExecutor
         import threading

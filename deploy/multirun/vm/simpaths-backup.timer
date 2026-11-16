@@ -1,13 +1,13 @@
 # (C) Copyright 2026, by Ross Richardson
-# Hourly recovery/retry checks; backup.toml controls the daily capture interval.
+# Five-minute recovery/retry checks; backup.toml controls the daily capture interval.
 # @author ross richardson
 [Unit]
 Description=Check SimPaths Online backup and pending protection work
 
 [Timer]
 OnBootSec=10min
-OnCalendar=hourly
-RandomizedDelaySec=5min
+OnCalendar=*:0/5
+RandomizedDelaySec=30s
 Persistent=true
 Unit=simpaths-backup.service
 

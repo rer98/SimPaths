@@ -401,14 +401,19 @@ def _now():
 
 
 def _directory(path):
-    """Open every configured directory component without following links."""
+    """Open a readable directory through searchable parents, refusing links."""
     path = Path(path)
     if not path.is_absolute() or '..' in path.parts:
         raise ValueError('Require a configured absolute directory')
-    fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    # Ancestors need search permission, not permission to list their contents.
+    # Keep an ordinary readable descriptor only for the directory being measured.
+    search = getattr(os, 'O_PATH', os.O_RDONLY)
+    fd = os.open('/', (search if path.parts[1:] else os.O_RDONLY)
+                 | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
-        for part in path.parts[1:]:
-            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+        for index, part in enumerate(path.parts[1:]):
+            access = os.O_RDONLY if index == len(path.parts)-2 else search
+            child = os.open(part, access | os.O_DIRECTORY | os.O_NOFOLLOW,
                             dir_fd=fd)
             os.close(fd)
             fd = child

@@ -184,7 +184,7 @@ def load_status(root):
 
 def report(status, *, now=None, config=None):
     now=now or utc(); latest=status['last_success']; current=status['current']; incident=status['incident']
-    age=None if latest is None else max(0,(now-datetime.fromisoformat(latest['finished_at'])).total_seconds())
+    age=None if latest is None else max(0,(now-datetime.fromisoformat(latest.get('capture_started_at',latest['finished_at']))).total_seconds())
     stale=(latest is None or config is not None and (latest.get('config')!=config['_digest'] or
         age>=(config['backup']['interval_hours']*3600+config['backup']['retry_minutes']*60)))
     return dict(format=FORMAT,passed=not stale and (incident is None or incident.get('resolved_at') is not None),operation='status',latest=latest,
@@ -193,8 +193,11 @@ def report(status, *, now=None, config=None):
         retention_rule=retention_rule(config) if config is not None else None,
         last_success_age_seconds=age,pending_stage=current['stage'] if current else (
             'local-cleanup' if incident and incident['stage']=='local-cleanup' and not incident.get('resolved_at') else None),
+        last_attempt_at=current.get('last_attempt_at') if current else None,
+        retry_at=current.get('retry_at') if current else None,
         failure=None if incident is None else dict(id=incident['id'],stage=incident['stage'],opened_at=incident['opened_at'],
             alert_sent=incident.get('alert_sent',False),alert_pending=not incident.get('alert_sent',False),
+            last_failure_at=incident.get('last_failure_at'),failure_count=incident.get('failure_count'),
             diagnostic=incident.get('diagnostic')))
 
 
@@ -518,20 +521,22 @@ def failure_diagnostic(error,stage):
 
 def record_failure(status, stage, now, *, error=None):
     if not status['incident'] or status['incident'].get('resolved_at'):
-        status['incident']=dict(id=uuid4().hex,stage=stage,opened_at=now.isoformat(),alert_sent=False)
+        status['incident']=dict(id=uuid4().hex,stage=stage,opened_at=now.isoformat(),alert_sent=False,failure_count=0)
+    status['incident'].update(stage=stage,last_failure_at=now.isoformat())
+    if type(status['incident'].get('failure_count')) is int:status['incident']['failure_count']+=1
     if error is not None:status['incident']['diagnostic']=failure_diagnostic(error,stage)
 
 
-def maintain_local(root, config, status, now, transport):
+def maintain_local(root, config, status, now, transport, *, clock=None):
     """Make cleanup failures retryable/visible without creating another archive."""
     try:
         retention(root,config,status,now,transport=transport)
         if status['incident'] and status['incident']['stage']=='local-cleanup':
-            status['incident']['resolved_at']=now.isoformat()
+            status['incident']['resolved_at']=(clock() if clock else now).isoformat()
             atomic_json(root/'status.json',status)
         return True
     except Exception as error:
-        record_failure(status,'local-cleanup',now,error=error)
+        record_failure(status,'local-cleanup',clock() if clock else now,error=error)
         atomic_json(root/'status.json',status)
         return False
 
@@ -582,8 +587,9 @@ def run(config, *, now=None, capture=capture_backup, encrypt=seal, transport=Non
         frontend=vm_config(source['config']).frontend
     else: frontend=Path(source.get('frontend') or frontend_path())
     sys.path.insert(0,str(frontend.resolve(strict=True)))
-    from jasmine_web.batch.backup_guard import file_guard
-    now=now or utc()
+    from jasmine_web.batch.backup_guard import BackupBusy,file_guard
+    clock=(lambda:now) if now is not None else utc
+    now=clock()
     from .backup_files import reserve_space
     with reserve_space(config['backup']['minimum_free_gib']*1024**3),file_guard(root,backup=True):
         status=load_status(root)
@@ -592,9 +598,9 @@ def run(config, *, now=None, capture=capture_backup, encrypt=seal, transport=Non
             raise ArtifactError('Finish the pending backup before changing its source, encryption or destination settings')
         # Dispose of previously delivered payloads before starting a replacement,
         # so remote-only mode needs only one archive-sized local staging area.
-        ready=maintain_local(root,config,status,now,transport)
+        ready=maintain_local(root,config,status,now,transport,clock=clock)
         due=(status['last_success'] is None or status['last_success'].get('config')!=config['_digest'] or
-             now>=datetime.fromisoformat(status['last_success']['finished_at'])+timedelta(hours=policy['interval_hours']))
+             now>=datetime.fromisoformat(status['last_success'].get('capture_started_at',status['last_success']['finished_at']))+timedelta(hours=policy['interval_hours']))
         retry=job is None or not job.get('retry_at') or now>=datetime.fromisoformat(job['retry_at'])
         if job and not job.get('retry_at') and job['stage']!='complete' and not status['incident']:
             # A prior process died before recording an ordinary failure. Preserve
@@ -609,6 +615,11 @@ def run(config, *, now=None, capture=capture_backup, encrypt=seal, transport=Non
             storage=parent/job['id']; storage.mkdir(mode=0o700,exist_ok=True)
             plain=storage/'plain'; cipher=storage/'recovery.tar.gpg'
             try:
+                attempted=clock();job['last_attempt_at']=attempted.isoformat()
+                if job['stage']=='capturing':
+                    if not plain.exists() and not cipher.exists():job['capture_started_at']=attempted.isoformat()
+                    elif 'capture_started_at' not in job:job['capture_started_at']=job['started_at']
+                atomic_json(root/'status.json',status)
                 discard_incomplete(storage,job)
                 if (job['stage']=='capturing' and not plain.exists()
                         and capture is capture_backup and encrypt is seal):
@@ -640,22 +651,25 @@ def run(config, *, now=None, capture=capture_backup, encrypt=seal, transport=Non
                         verify(plain); shutil.rmtree(plain)
                     if config.get('remote'):
                         connection=transport or SFTP(**config['remote'])
-                        verified_delivery(config,storage,job,receipt,connection,now)
+                        verified_delivery(config,storage,job,receipt,connection,clock())
                     job['stage']='complete'
                     atomic_json(root/'status.json',status)
                 sealed(cipher,recipient=policy['recipient'])
-                latest=dict(job_id=job['id'],backup_id=job['backup_id'],config=config['_digest'],finished_at=now.isoformat(),
-                    sha256=job['sha256'],off_machine=bool(config.get('remote')))
+                completed=clock()
+                latest=dict(job_id=job['id'],backup_id=job['backup_id'],config=config['_digest'],finished_at=completed.isoformat(),
+                    capture_started_at=job.get('capture_started_at',job['started_at']),sha256=job['sha256'],off_machine=bool(config.get('remote')))
                 atomic_json(storage/'complete.json',latest)
                 status.update(current=None,last_success=latest)
-                if status['incident']: status['incident']['resolved_at']=now.isoformat()
+                if status['incident'] and not report(status,now=completed,config=config)['overdue']:
+                    status['incident']['resolved_at']=completed.isoformat()
                 atomic_json(root/'status.json',status)
             except Exception as error:
-                job['retry_at']=(now+timedelta(minutes=policy['retry_minutes'])).isoformat()
-                record_failure(status,job['stage'],now,error=error)
+                failed=clock();delay=min(5,policy['retry_minutes']) if isinstance(error,BackupBusy) else policy['retry_minutes']
+                job['retry_at']=(failed+timedelta(minutes=delay)).isoformat()
+                record_failure(status,job['stage'],failed,error=error)
                 atomic_json(root/'status.json',status)
         if ready:
-            maintain_local(root,config,status,now,transport)
+            maintain_local(root,config,status,clock(),transport,clock=clock)
         incident=status['incident']
         if incident and config['alerts']['enabled']:
             try:
@@ -670,7 +684,7 @@ def run(config, *, now=None, capture=capture_backup, encrypt=seal, transport=Non
             atomic_json(root/'status.json',status)
         elif incident and incident.get('resolved_at'):
             status['incident']=None; atomic_json(root/'status.json',status)
-        return report(status,now=now,config=config)
+        return report(status,now=clock(),config=config)
 
 
 def main(argv=None):

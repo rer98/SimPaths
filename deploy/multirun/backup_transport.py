@@ -59,7 +59,12 @@ def dispose_keyring(home):
     executable=shutil.which('gpgconf')
     if executable:
         subprocess.run([executable,'--homedir',str(home),'--kill','gpg-agent'],capture_output=True,timeout=10)
-    shutil.rmtree(home)
+    def missing_entry(function,path,details):
+        # gpg-agent may remove its own socket while rmtree is walking this
+        # temporary public-key directory. Missing entries are already cleaned;
+        # retain errors such as permission failures and unsafe symbolic links.
+        if not isinstance(details[1],FileNotFoundError):raise details[1]
+    shutil.rmtree(home,onerror=missing_entry)
 
 
 def public_home(parent, public_key, recipient):

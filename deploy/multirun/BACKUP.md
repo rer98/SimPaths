@@ -332,11 +332,31 @@ Templates in `vm/backup.toml.example`, `vm/simpaths-backup.service` and
    logs, DSNs or attachments. Stable message IDs and durable pending notices support
    retry; SMTP acknowledgement loss can still produce duplicate deliveries.
 5. Manually run and inspect the configured protection before installing/enabling
-   the reviewed systemd templates. The timer checks hourly, with jitter; capture
+   the reviewed systemd templates. The timer checks every five minutes, with up
+   to 30 seconds of jitter; capture
    defaults to once per 24 hours. Retry eligibility defaults to 30 minutes and is
-   acted on at the next timer check. The service uses low CPU/I/O priority, a 512 MiB
+   acted on at the next timer check. A temporary `BackupBusy` file-lock conflict
+   uses a retry delay of at most five minutes. Online capture first waits up to
+   60 seconds for brief source-file housekeeping before reporting that conflict.
+   Ordinary deletion requests stay nonblocking, and live models and SQL writers
+   continue. The service uses low CPU/I/O priority, a 512 MiB
    memory ceiling and a six-hour timeout for the complete service invocation,
    without changing model policies.
+
+The durable status includes the last actual attempt, last failure, and next
+eligible retry times. Re-reading an unresolved incident does not increment its
+failure count or move its failure time. Existing journals remain readable; an
+older incident's unknown failure time or count remains explicitly absent.
+`finished_at` records actual completion, while `capture_started_at` conservatively
+dates the recovery point for freshness and the next capture deadline. Transfer
+retries preserve that snapshot date and reuse the same encrypted bytes. Delivering
+a days-old pending archive does not mark protection fresh or send a recovery
+notice until a new, sufficiently recent capture succeeds. Completed-copy rotation
+still verifies the retained replacement before removing an older copy.
+
+Temporary public-key workspace cleanup tolerates an agent socket or directory
+which has already disappeared. Other filesystem failures remain errors. This
+does not relax encryption, receipt checks, free-space guards or retention policy.
 
 The six-hour ceiling accommodates captures containing roughly 100 GiB of retained
 simulation outputs, prepared inputs and retained chart summaries. The previous

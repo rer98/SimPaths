@@ -35,6 +35,9 @@ test('an already open experiment adds controls without resetting chart or scenar
       requests.push({url:String(url),options});const parsed=new URL(url,'https://localhost');
       if(connectionDown)throw new TypeError('Connection unavailable');
       if(denied)return new Response(JSON.stringify({error:'Sign in again to view online results.'}),{status:403});
+      if(parsed.pathname.endsWith('/choices'))return new Response(JSON.stringify({
+        format:'simpaths.visualiser.choices.v1',experiment,total:3,automatic_limit:9,selection_limit:9,
+        page_size:50,configurations:[],picked:[]}));
       if(parsed.pathname.endsWith(experiment))return new Response(JSON.stringify({
         format:'simpaths.visualiser.experiment.v1',experiment,url:'/visualiser/experiment/'+experiment,
         publication:catalogue().publication,ready:stage,total:added?4:3,pending:stage<3||!pairsReady||added,retryable:false,

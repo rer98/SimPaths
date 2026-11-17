@@ -1,0 +1,145 @@
+/* (C) Copyright 2026, by Ross Richardson
+ * Search and page large owned experiments before preparing a bounded chart view.
+ * @author ross richardson
+ */
+import React,{useEffect,useRef,useState} from 'react';
+import {boundedJSON} from './section_source.mjs';
+import {validateSelection,fromQuery,restoreSelection,saveSelection,selectionQuery} from './experiment_choices.mjs';
+
+const api='/api/visualiser-experiments/';
+async function read(url,signal){
+  const response=await fetch(url,{credentials:'same-origin',cache:'no-store',signal});
+  return {value:(await boundedJSON(response,512*1024,signal)).value,scope:response.headers.get('x-visualiser-cache-scope')};
+}
+export function ExperimentChooser({experiment,current=null,force=false,onOpen}){
+  const [data,setData]=useState(null),[chosen,setChosen]=useState([]),[baseline,setBaseline]=useState(null);
+  const [search,setSearch]=useState(''),[parameter,setParameter]=useState(''),[value,setValue]=useState(''),[ready,setReady]=useState(false);
+  const [message,setMessage]=useState('Loading configurations…'),[busy,setBusy]=useState(false);
+  const generation=useRef(0),controller=useRef(null),scope=useRef(null),dead=useRef(false);
+  function cancel(){++generation.current;controller.current?.abort();}
+  async function load(offset=0,selection=chosen,filters={search,parameter,value,ready}){
+    cancel();const serial=generation.current,abort=new AbortController();controller.current=abort;
+    setBusy(true);setMessage('Loading configurations…');
+    const query=new URLSearchParams({offset:String(offset),search:filters.search,parameter:filters.parameter,
+      value:filters.value,ready:filters.ready?'1':'0'});
+    selection.forEach(row=>query.append('picked',row.configuration));
+    try{
+      const result=await read(api+experiment+'/choices?'+query,abort.signal);
+      if(serial!==generation.current)return;
+      if(scope.current&&result.scope!==scope.current)throw Object.assign(Error('Your sign-in changed. Return to My Jobs.'),{status:403});
+      scope.current=result.scope;
+      const next=result.value;
+      if(next.format!=='simpaths.visualiser.choices.v1'||next.experiment!==experiment||next.page_size!==50||
+          !Array.isArray(next.configurations)||next.configurations.length>50||next.selection_limit!==9)
+        throw Error('Configuration choices are unavailable.');
+      setData(next);setChosen(next.picked);
+      setBaseline(previous=>next.picked.some(row=>row.configuration===previous)?previous:null);setMessage('');
+      return next;
+    }catch(error){
+      if(serial!==generation.current||error.name==='AbortError')return;
+      if([401,403,404].includes(error.status)){dead.current=true;setData(null);setChosen([]);setBaseline(null);}
+      setMessage(error.message);
+    }finally{if(serial===generation.current)setBusy(false);}
+  }
+  async function initialise(){
+      const first=await load(0,[]);
+      if(!first||dead.current)return;
+      let selected=current;
+      if(!selected){
+        try{selected=fromQuery(new URLSearchParams(location.search));}catch(error){setMessage(error.message);}
+      }
+      if(!selected){try{selected=restoreSelection(experiment,localStorage);}catch{}}
+      if(!force&&!current&&!selected&&first.total<=first.automatic_limit){onOpen(null);return;}
+      if(!selected){const ids=first.defaults.slice(0,first.total<=first.automatic_limit?9:5);selected={configurations:ids,baseline:ids.includes(first.baseline)?first.baseline:null};}
+      if(selected.configurations.length){
+        const fresh=await load(0,selected.configurations.map(configuration=>({configuration})));
+        if(fresh)setBaseline(fresh.picked.some(row=>row.configuration===selected.baseline)?selected.baseline:null);
+        if(fresh&&!current&&new URLSearchParams(location.search).has('chosen')&&
+            fresh.picked.length===selected.configurations.length&&fresh.picked.every(row=>row.selectable)){
+          onOpen(validateSelection(selected));return;
+        }
+        if(fresh&&fresh.picked.length!==selected.configurations.length)setMessage('Some saved configurations are unavailable. Review your selection.');
+      }
+  }
+  useEffect(()=>{
+    initialise();
+    return()=>{dead.current=true;cancel();};
+  },[]);
+  useEffect(()=>{
+    let channel;
+    try{channel=new BroadcastChannel('simpaths-visualiser-cache-v1');channel.onmessage=event=>{
+      if(event.data?.type==='clear'){
+        cancel();dead.current=true;setData(null);setChosen([]);setBaseline(null);setBusy(false);
+        setMessage('Your sign-in changed. Return to My Jobs.');
+      }
+    };}catch{}
+    return()=>channel?.close();
+  },[]);
+  function toggle(row){
+    setChosen(previous=>previous.some(item=>item.configuration===row.configuration)?
+      previous.filter(item=>item.configuration!==row.configuration):[...previous,row]);
+    if(row.configuration===baseline)setBaseline(null);
+  }
+  async function open(){
+    cancel();const serial=generation.current,abort=new AbortController();controller.current=abort;
+    setBusy(true);setMessage('Checking access and preparing the selected charts…');
+    try{
+      const selected=validateSelection({configurations:chosen.map(row=>row.configuration),baseline});
+      const session=(await read('/api/session',abort.signal)).value;
+      if(serial!==generation.current)return;
+      if(!session.signed_in)throw Object.assign(Error('Sign in again from My Jobs.'),{status:403});
+      // The server checks ownership, current grants and its fixed selection limit again.
+      const response=await fetch(api+experiment,{method:'POST',credentials:'same-origin',cache:'no-store',signal:abort.signal,
+        headers:{'Content-Type':'application/json','X-CSRF-Token':session.csrf},body:JSON.stringify(selected)});
+      const {value:status}=await boundedJSON(response,256*1024,abort.signal);
+      if(serial!==generation.current)return;
+      try{saveSelection(experiment,selected,localStorage);}catch{}
+      history.replaceState(null,'',location.pathname+'?'+selectionQuery(selected));
+      onOpen(selected,status);
+    }catch(error){
+      if(serial!==generation.current||error.name==='AbortError')return;
+      if([401,403,404].includes(error.status)){dead.current=true;setData(null);setChosen([]);setBaseline(null);}
+      setMessage(error.message);
+    }finally{if(serial===generation.current)setBusy(false);}
+  }
+  const option=data?.parameters.find(item=>item.key===parameter);
+  return <main className="vm-chooser">
+    <a href="/">Return to My Jobs</a><h1>Choose configurations</h1>
+    {data&&<><h2>{data.name}</h2><p>{data.total} configurations. Choose up to 9, including an optional baseline.
+      Cached charts open immediately; new comparisons may take time to prepare.</p>
+      <section aria-label="Selected configurations"><h2>Selected: {chosen.length} / 9</h2>
+        <label>Baseline <select value={baseline||''} disabled={busy} onChange={event=>setBaseline(event.target.value||null)}>
+          <option value="">No baseline — levels only</option>
+          {chosen.map(row=><option key={row.configuration} value={row.configuration}>{row.ordinal}. {row.name}</option>)}
+        </select></label>
+        <ul>{chosen.map(row=><li key={row.configuration}>{row.ordinal}. {row.name}
+          {!row.selectable&&' — unavailable'} <button disabled={busy} onClick={()=>toggle(row)} aria-label={'Remove '+row.name}>Remove</button></li>)}</ul>
+        <button className="vm-source-button" disabled={busy||!chosen.length||chosen.some(row=>!row.selectable)} onClick={open}>Open Visualiser</button>
+      </section>
+      <form className="vm-choice-filters" onSubmit={event=>{event.preventDefault();load(0);}}>
+        <label>Search name, number or setting <input maxLength={200} value={search} onChange={event=>setSearch(event.target.value)}/></label>
+        <label>Parameter <select value={parameter} onChange={event=>{setParameter(event.target.value);setValue('');}}>
+          <option value="">Any parameter</option>{data.parameters.map(item=><option key={item.key} value={item.key}>{item.key}</option>)}
+        </select></label>
+        {parameter&&<label>Value <select value={value} onChange={event=>setValue(event.target.value)}><option value="">Choose value</option>
+          {option?.values.map(item=><option key={item} value={item}>{item}</option>)}</select>
+          {option?.truncated&&<span>Use search for other values.</span>}</label>}
+        <label><input type="checkbox" checked={ready} onChange={event=>setReady(event.target.checked)}/> Completed and available only</label>
+        <button disabled={busy}>Apply filters</button>
+      </form>
+      <p>{data.matching?data.offset+1:0}–{Math.min(data.offset+50,data.matching)} of {data.matching} matching configurations</p>
+      <div className="vm-choice-table"><table><thead><tr><th>Select</th><th>Configuration</th><th>Readiness</th><th>Varying settings</th></tr></thead>
+        <tbody>{data.configurations.map(row=>{
+          const checked=chosen.some(item=>item.configuration===row.configuration);
+          return <tr key={row.configuration}><td><input type="checkbox" aria-label={'Select '+row.name} checked={checked}
+            disabled={busy||!row.selectable&&!checked||!checked&&chosen.length>=9} onChange={()=>toggle(row)}/></td>
+            <th scope="row">{row.ordinal}. {row.name}</th><td>{row.ready?(row.summaries_ready?'Summaries ready':'Completed'):row.state}</td>
+            <td>{Object.entries(row.settings).map(([key,value])=><div key={key}>{key}: {value}</div>)}</td></tr>;
+        })}</tbody></table></div>
+      <nav aria-label="Configuration pages"><button disabled={busy||data.offset===0} onClick={()=>load(data.offset-50)}>Previous configurations</button>
+        <button disabled={busy||data.offset+50>=data.matching} onClick={()=>load(data.offset+50)}>Next configurations</button></nav>
+    </>}
+    {message&&<p role="status">{message}</p>}
+    {!busy&&!dead.current&&message&&<button onClick={()=>data?load(data.offset):initialise()}>Retry connection</button>}
+  </main>;
+}

@@ -57,6 +57,11 @@ fs.copyFileSync(path.join(__dirname,'entry.jsx'),path.join(staging,'entry.jsx'))
 fs.copyFileSync(path.join(__dirname,'comparison_data.mjs'),path.join(staging,'comparison_data.mjs'));
 fs.copyFileSync(path.join(__dirname,'section_source.mjs'),path.join(staging,'section_source.mjs'));
 fs.copyFileSync(path.join(__dirname,'experiment_source.mjs'),path.join(staging,'experiment_source.mjs'));
+fs.copyFileSync(path.join(__dirname,'experiment_choices.mjs'),path.join(staging,'experiment_choices.mjs'));
+fs.writeFileSync(path.join(staging,'experiment_chooser.js'),babel.transformSync(
+  fs.readFileSync(path.join(__dirname,'experiment_chooser.jsx'),'utf8'),{
+  filename:'experiment_chooser.jsx',presets:[[reactPreset,{runtime:'automatic'}]],
+  babelrc:false,configFile:false}).code);
 fs.copyFileSync(path.join(__dirname,'section_cache.mjs'),path.join(staging,'section_cache.mjs'));
 fs.copyFileSync(path.join(__dirname,'portable_source.mjs'),path.join(staging,'portable_source.mjs'));
 const entry=fs.readFileSync(path.join(staging,'entry.jsx'),'utf8');

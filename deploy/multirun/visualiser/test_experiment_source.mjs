@@ -91,3 +91,12 @@ test('status rejects foreign experiments, duplicate jobs, inconsistent readiness
   }
   f.source.close();
 });
+test('selected members and baseline accompany every status, catalogue, chart and download request',async()=>{
+  const f=fixture({selection:{configurations:['base','alt'],baseline:'base'}});
+  f.stage(2);await f.source.load(selection);
+  for(const request of [...f.requests,{url:f.source.archiveURL}]){
+    const query=new URL(request.url,'https://localhost').searchParams;
+    assert.deepEqual(query.getAll('chosen'),['base','alt']);assert.deepEqual(query.getAll('baseline'),['base']);
+  }
+  f.source.close();
+});

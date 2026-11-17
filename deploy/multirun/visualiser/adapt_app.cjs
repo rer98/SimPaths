@@ -47,6 +47,18 @@ function adaptApp(source) {
   return source.replaceAll('/interpreting-results.html','/Interpreting-results.html');
 }
 function adaptDashboard(source){
+  // The hosted chooser admits at most nine configurations. Keep every
+  // alternative distinguishable, including a view without a baseline.
+  for(const [before,after] of [
+    ['const SCENARIO_DASHES = ["2,2", "6,4", "8,3,2,3", "4,2,1,2"];',
+     'const SCENARIO_DASHES = ["2,2", "6,4", "8,3,2,3", "4,2,1,2", "12,4", "2,5", "6,2,2,2,2,2", "10,2,2,2", "1,3,1,3,6,3"];'],
+    ['const NUMERIC_SCEN_COLOURS  = ["#0f93a1", "#0f93a1", "#0f93a1", "#0f93a1"];',
+     'const NUMERIC_SCEN_COLOURS  = ["#0f93a1", "#b85c00", "#7758a6", "#2366aa", "#b34455", "#687b22", "#815a36", "#a23e89", "#26735b"];']
+  ]){
+    if(source.includes(after))continue;
+    if(source.split(before).length!==2)throw Error('Review changed scenario line styles');
+    source=source.replace(before,after);
+  }
   const previous='useEffect(()=>setEnabledScenarios(new Set(allScenarioNames)),[allScenarioNames]);';
   const retained='useEffect(()=>setEnabledScenarios(previous=>new Set([...previous].filter(name=>allScenarioNames.includes(name)))),[allScenarioNames]);';
   if(source.split(retained).length===2)return source;

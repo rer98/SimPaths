@@ -16,6 +16,7 @@ from .resource_recovery_settings import DEFAULTS as RECOVERY_DEFAULTS, validate 
 
 
 DEFAULTS = {
+    'storage_admission': {'mode':'shared'},
     'validation': {'enabled': False, 'timeout_seconds': 10800},
     'rpc': {'socket': '/run/simpaths-executor/control.sock', 'frontend_user': 'simpaths-web'},
     'administration': {'enabled': False, 'emails': []},
@@ -49,6 +50,7 @@ DEFAULTS = {
                   'cpu_millis': 1000, 'storage_mib': 512,
                   'protected': False, 'hard_limits': False, 'bounded_comparisons': False,
                   'summaries': False, 'summary_cache_mib': 2048, 'cache_mib': 256,
+                  'summary_cache_entries': 16384, 'per_owner_summary_configurations': 2048,
                   'retain_completed_summaries': True, 'summary_hours': 720,
                   'storage_pressure': False, 'cache_max_mib': 0, 'summary_cache_max_mib': 0,
                   'idle_hours': 168, 'warning_seconds': 300, 'filesystem_headroom_mib': 16384,
@@ -167,6 +169,9 @@ def load_config(path):
     if not limits['max_configurations'] <= limits['max_unfinished_jobs'] <= limits['pool_unfinished_jobs']:
         raise ValueError('Configuration and unfinished-job allowances must increase in that order')
     pool = sections['pool']
+    storage_mode=sections['storage_admission']['mode']
+    if storage_mode not in ('shared','filesystem'):
+        raise ValueError('storage_admission.mode must be shared or filesystem')
     compute = sections['compute_capacity']
     scope = absolute(compute['cgroup'],'compute_capacity.cgroup')
     if not scope.is_relative_to('/sys/fs/cgroup') or len(scope.parts)>20:
@@ -176,7 +181,8 @@ def load_config(path):
     for key, minimum in (('cpu_millis', 2000), ('memory_mib', 5120), ('storage_mib', 12288)):
         number(pool[key], 'pool.'+key, minimum, 2**31-1)
     for key, minimum in (('cpu_millis', 2000), ('memory_mib', 5120), ('storage_mib', 12288)):
-        number(pool['hold_'+key], 'pool.hold_'+key, 0, pool[key]-minimum)
+        number(pool['hold_'+key], 'pool.hold_'+key, 0,
+               2**31-1 if storage_mode=='filesystem' and key=='storage_mib' else pool[key]-minimum)
     number(pool['per_user_active'], 'pool.per_user_active', 1, 100)
     number(pool['growth_memory_mib'], 'pool.growth_memory_mib', 0, pool['memory_mib']-5120)
     if pool['per_user_active'] > limits['max_unfinished_jobs']:
@@ -214,6 +220,7 @@ def load_config(path):
     for key, low, high in (('max_workers',1,2), ('seed_workers',1,2), ('cpu_millis',1000,2000),
             ('storage_mib',512,16384), ('summary_cache_mib',1,65536), ('cache_mib',48,131072),
             ('cache_hours',1,8760), ('summary_hours',1,8760), ('max_entries',1,4096), ('per_owner_entries',1,4096),
+            ('summary_cache_entries',1,32768), ('per_owner_summary_configurations',1,8192),
             ('cache_max_mib',0,131072), ('summary_cache_max_mib',0,65536),
             ('idle_hours',1,8760), ('warning_seconds',1,3600), ('filesystem_headroom_mib',1024,131072),
             ('artifact_mib',1,128), ('comparison_mib',1,256),
@@ -245,6 +252,8 @@ def load_config(path):
         raise ValueError('Pipeline storage requires dedicated quotas and protected bounded summaries')
     if visualiser['compact_summaries'] and not visualiser['pipeline_storage']:
         raise ValueError('Compact summary fallback requires coordinated physical storage')
+    if storage_mode=='filesystem' and not visualiser['pipeline_storage']:
+        raise ValueError('Filesystem admission requires dedicated pipeline storage')
     if visualiser['storage_pressure']:
         maximum=visualiser['cache_max_mib'] or visualiser['cache_mib']
         summary_maximum=visualiser['summary_cache_max_mib'] or visualiser['summary_cache_mib']
@@ -262,6 +271,7 @@ def load_config(path):
         if visualiser['cache_mib'] < minimum_cache:
             raise ValueError('Visualiser cache must cover summaries, active workspaces and publications')
     for key in ('cpu_millis','memory_mib','storage_mib'):
+        if key=='storage_mib' and storage_mode=='filesystem':continue
         floor=visualiser[key] if visualiser['protected'] else 0
         growth=pool['growth_memory_mib'] if key=='memory_mib' else 0
         minimum={'cpu_millis':1000 if scheduling['adaptive_cpu'] else 2000,
@@ -305,6 +315,7 @@ def load_config(path):
         lend_idle_interactive_cpu=scheduling['lend_idle_interactive_cpu'],
         preparation_priority_seconds=scheduling['preparation_priority_seconds'],
         growth_memory_mib=pool['growth_memory_mib'],
+        storage_mode=storage_mode,
         capacity={k: pool[k] for k in ('cpu_millis', 'memory_mib', 'storage_mib')},
         holdback={k: pool['hold_'+k] for k in ('cpu_millis', 'memory_mib', 'storage_mib')},
         per_user_active=pool['per_user_active'], command='serve', email=None)

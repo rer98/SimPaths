@@ -123,7 +123,9 @@ budget growth and 50/70/85% admin alerts are described in
 New offline backups use `simpaths.multirun.backup.v3`; online backups use `v4`.
 Both retain committed Visualiser data alongside the matching PostgreSQL snapshot:
 
-- Verified per-seed `metrics.json` and their immutable identity/checksum receipts.
+- Verified per-seed `metrics.json` or losslessly compressed `metrics.json.gz`,
+  with immutable identity and stored/uncompressed checksum receipts. See
+  [large-experiment storage compatibility](VISUALISER_LARGE_EXPERIMENTS.md).
 - Summary dependency holds and bounded numeric cache-usage metadata.
 - Ready publications, status/expiry records, chart indices and every indexed
   section. Composite selections are included only with all required components.

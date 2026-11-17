@@ -83,7 +83,7 @@ class VisualiserBackend:
                 raise ValueError('Summary reuse requires a reviewed build with role-independent metrics')
             from .visualiser_summary_cache import SummaryCache
             self.summary_cache=SummaryCache(summary_cache_root, maximum_bytes=summary_cache_bytes,
-                                            maximum_entries=summary_cache_entries)
+                                            maximum_entries=summary_cache_entries,compression=True)
         from .visualiser_summary_holds import SummaryCapacityError
         self.supports_summary_retention=self.summary_cache is not None
         self.supports_summary_preparation=self.summary_cache is not None

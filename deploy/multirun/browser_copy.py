@@ -13,6 +13,25 @@ from .schema import ConfigurationError, Limits
 
 
 class BrowserCopy:
+    def browser_visualiser_settings(self, specification, *, replacements):
+        """Filter metadata from already validated, frozen values without re-normalising a sweep."""
+        import json
+        result={}
+        for run in specification['run_sets']:
+            effective=replacements.get(run['id'],run)
+            raw=effective['parameters'];item=raw['run_sets'][0]
+            if effective['id']!=run['id'] or item['id']!=run['id']:
+                raise ConfigurationError('view','saved configuration identity changed')
+            values={}
+            for group,settings in (('model',item['model_args']),('collector',item['collector_args']),
+                    ('common',item.get('common',raw['common']))):
+                for key,value in settings.items():
+                    encoded=(str(value) if type(value) is str else
+                        json.dumps(value,sort_keys=True,separators=(',',':'),allow_nan=False))
+                    if len(encoded)<=200:values[group+'.'+key]=encoded
+            result[run['id']]=values
+        return result
+
     def browser_saved_summary(self, specification, *, replacements):
         """Read frozen values without requiring an available release or new-work limits."""
         runs=specification['run_sets']

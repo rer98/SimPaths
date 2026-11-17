@@ -10,11 +10,12 @@ import {parseLocalFolder} from './localFolderParser';
 import {SectionSource} from './section_source.mjs';
 import {ExperimentSource} from './experiment_source.mjs';
 import {PortableSource} from './portable_source.mjs';
+import {ExperimentChooser} from './experiment_chooser';
 
 const experimentComplete=status=>status?.total>0&&status.ready===status.total&&
   status.configurations.every(config=>config.charts==='ready'&&['ready','not_applicable'].includes(config.comparison));
 
-function Page(){
+function Page({selection=null,onChoose=()=>{}}){
   const key=location.pathname.split('/').pop();
   const experiment=/^\/visualiser\/experiment\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(location.pathname);
   const onlineKey=experiment||/^[a-f0-9]{64}$/.test(key);
@@ -44,7 +45,7 @@ function Page(){
         if(serial!==generation.current)return;
         setCatalogue(null);setExperimentStatus(null);setUpdateNotice('');setConnectionIssue(null);setMessage(text);
       }};
-      const source=experiment?new ExperimentSource(key,{...options,
+      const source=experiment?new ExperimentSource(key,{...options,selection,
         onUpdated:value=>{if(serial===generation.current)setCatalogue(value);},
         onStatus:(value,previous)=>{
           if(serial!==generation.current)return;
@@ -150,7 +151,8 @@ function Page(){
           c.comparison==='waiting_baseline'?' · Waiting for baseline comparison':' · Baseline comparison not yet ready')}</li>)}</ul>
     </details>}
     {mode==='online'&&!experimentComplete(experimentStatus)&&updateNotice&&<p className="vm-source-help" role="status">{updateNotice}</p>}
-    {mode==='online'&&catalogue&&<a className="vm-source-button" href={(experiment?'/api/visualiser-experiments/':'/api/visualiser/')+key+'/archive'} target="_blank" rel="noopener">Download comparison data</a>}
+    {experiment&&mode==='online'&&<button className="vm-source-button" onClick={onChoose}>Change configurations</button>}
+    {mode==='online'&&catalogue&&<a className="vm-source-button" href={experiment?client.current.archiveURL:'/api/visualiser/'+key+'/archive'} target="_blank" rel="noopener">Download comparison data</a>}
     <button className="vm-source-button" onClick={savedComparison} disabled={processing}>Open saved comparison</button>
     <button className="vm-source-button" onClick={localFiles} disabled={processing}>Visualise Locally Saved Data</button>
     <p className="vm-source-help">To reopen a downloaded comparison, extract its ZIP and select the folder containing manifest.json. All available variables and selected scenarios are included in the download.</p>
@@ -168,4 +170,15 @@ function Page(){
     navigation:<a className="vm-return" href="/">Return to SimPaths Online</a>,
     showDelta:local!=null||catalogue?.comparison_available===true,notice:catalogue?.notice}}/>;
 }
-createRoot(document.getElementById('root')).render(<Page/>);
+function ExperimentPage(){
+  const [choice,setChoice]=useState(null),[choosing,setChoosing]=useState(true);
+  const forceChooser=useRef(false);
+  const experiment=location.pathname.split('/').pop();
+  return choosing?<ExperimentChooser experiment={experiment} current={choice} force={forceChooser.current} onOpen={selected=>{
+    setChoice(selected);setChoosing(false);
+  }}/>:<Page selection={choice} onChoose={()=>{
+    // Keep the chosen members in memory, but make the URL reopen the chooser.
+    history.replaceState(null,'',location.pathname);forceChooser.current=true;setChoosing(true);
+  }}/>;
+}
+createRoot(document.getElementById('root')).render(location.pathname.startsWith('/visualiser/experiment/')?<ExperimentPage/>:<Page/>);

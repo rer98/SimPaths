@@ -428,20 +428,30 @@ small VPS volume. In the default rule, reducing `keep_latest` alone does not
 override the age floor. For example, `keep_days=1` and `keep_latest=1` can retain
 more than one copy while the age condition still protects older captures.
 
-The approved hosted policy is two completed local full backups. Change only
+The approved local-only hosted policy is one completed local full backup. Change only
 these keys in the existing private `[backup]` section, preserving its directory,
 public key, recipient and other settings:
 
 ```toml
 local_retention = "retain"
 retention_rule = "count"
-keep_latest = 2
+keep_latest = 1
 ```
 
 `keep_days` does not apply to completed-copy retirement under `"count"`. Install
 the qualified code and configuration through the reviewed update workflow;
 older configuration readers reject `retention_rule`. Refresh the separate small
 encrypted host-settings recovery copy after changing the policy.
+
+Once external recovery is configured and verified, the optional
+`local_retention="until-next"` policy keeps that completed local copy between
+captures, then freshly verifies the external archive and receipt before releasing
+local space for its replacement. It requires `retention_rule="count"` and
+`keep_latest=1`. An external recheck failure preserves the local archive and delays
+capture; an upload failure preserves the new ciphertext for transfer retry.
+This uses one archive-sized local workspace plus capture scratch and headroom.
+It does not overwrite the previous backup in place or delete remote history.
+See [the exact retention and failure behaviour](REMOTE_BACKUP_RETENTION.md).
 
 Count-only rotation selects completed jobs for the same source configuration,
 preserves the pending job and the newest two recovery points, and verifies the

@@ -16,8 +16,8 @@ import time
 
 FORMAT = 'simpaths.visualiser.summary-holds.v1'
 STATE = '.summary-holds.json'
-MAX_BYTES = 512 * 1024
-MAX_HOLDS = 256
+MAX_BYTES = 16 * 1024**2
+MAX_HOLDS = 8192
 MAX_SECONDS = 365 * 86400
 RECEIPT_BYTES = 64 * 1024
 
@@ -268,6 +268,9 @@ class SummaryHolds:
             # Existing promises lead; new work cannot evict a still-needed seed.
             order = sorted(requested, key=lambda key: (not previous.get(key, {}).get('admitted', False),
                                                        requested[key]['created_at'], key))
+            # Account each admitted seed incrementally. Large sweeps must not
+            # reconstruct all earlier dependencies for every new configuration.
+            allocation = _Allocation(self, retained, entries, owner)
             for key in order:
                 checkpoint()
                 record = requested[key]
@@ -277,9 +280,7 @@ class SummaryHolds:
                                     for k in ('created_at','expires_at','scope','configurations'))):
                         raise SummaryCapacityError('A canonical source guarantee requires reviewed migration')
                     record = dict(record, expires_at=min(record['expires_at'], previous[key]['expires_at']))
-                candidate = dict(retained, **{key: dict(record, admitted=True)})
-                owned = {k: r for k, r in candidate.items() if r['owner'] == owner}
-                if len(self.configurations(owned)) <= owner_entries and self.fits(candidate, entries):
+                if allocation.admit(record,owner_entries):
                     record = dict(record, admitted=True)
                 elif previous.get(key, {}).get('admitted'):
                     raise SummaryCapacityError('Configured summary allowance cannot honour existing dependencies')
@@ -384,3 +385,40 @@ class SummaryHolds:
         entries = self.cache._entries()
         size = min(self.cache.maximum_bytes, self.cache.entry_bytes + RECEIPT_BYTES)
         self.cache._evict(entries, size, 1, holds=records, incoming=identity)
+
+
+class _Allocation:
+    """Linear admission accounting, equivalent to protected-only occupancy.
+
+    Unknown seeds keep the full uncompressed worst-case reservation. Only an
+    existing verified receipt reduces that reservation to actual stored bytes.
+    """
+    def __init__(self, holds, records, entries, owner):
+        self.holds,self.owner=holds,owner
+        self.entries={}
+        for _,key,size,receipt in entries:
+            identity=receipt['identity'];unit_key=holds.identity_unit(identity)
+            if unit_key is not None:
+                self.entries.setdefault(unit_key,{}).setdefault(identity.get('execution',{}).get('attempt'),[]).append((key,size))
+        self.units={key:set(attempts) for key,attempts in holds.units(records).items()}
+        self.configurations=holds.configurations({key:r for key,r in records.items() if r['owner']==owner})
+        costs=[self.cost(key,attempts) for key,attempts in self.units.items()]
+        self.bytes=sum(cost[0] for cost in costs);self.count=sum(cost[1] for cost in costs)
+
+    def cost(self,key,attempts):
+        entries=[item for attempt,items in self.entries.get(key,{}).items() if attempt is not None and attempt in attempts for item in items]
+        return (sum(size for _,size in entries),len(entries)) if entries else (self.holds.cache.entry_bytes+RECEIPT_BYTES,1)
+
+    def admit(self,record,owner_entries):
+        wanted=self.holds.units({'candidate':dict(record,admitted=True)})
+        updates={key:self.units.get(key,set())|set(attempts) for key,attempts in wanted.items()}
+        total,count=self.bytes,self.count
+        for key,attempts in updates.items():
+            old=self.cost(key,self.units[key]) if key in self.units else (0,0)
+            new=self.cost(key,attempts)
+            total+=new[0]-old[0];count+=new[1]-old[1]
+        configs=self.configurations|self.holds.configurations({'candidate':dict(record,admitted=True)})
+        if len(configs)>owner_entries or total>self.holds.cache.maximum_bytes or count>self.holds.cache.maximum_entries:
+            return False
+        self.units.update(updates);self.configurations=configs;self.bytes,self.count=total,count
+        return True

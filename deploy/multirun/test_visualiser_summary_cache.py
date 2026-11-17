@@ -407,12 +407,13 @@ class SummaryBackendTests(unittest.TestCase):
         self.assertEqual(self.runs(),10)
 
     def test_old_build_is_usable_but_cannot_silently_enable_summary_relabelling(self):
-        if b'simpaths.visualiser.role-independent-metrics.v1' in (Path(BUILD)/'runner.cjs').read_bytes():
+        legacy=os.environ.get('SIMPATHS_VISUALISER_LEGACY_BUILD',BUILD)
+        if b'simpaths.visualiser.role-independent-metrics.v1' in (Path(legacy)/'runner.cjs').read_bytes():
             self.skipTest('Historical runner required for this compatibility check')
-        old=VisualiserBackend(BUILD,self.root)
+        old=VisualiserBackend(legacy,self.root)
         self.assertFalse(old.supports_summary_cache)
         with self.assertRaisesRegex(ValueError,'role-independent'):
-            VisualiserBackend(BUILD,self.root,summary_cache_root=self.root/'unsupported')
+            VisualiserBackend(legacy,self.root,summary_cache_root=self.root/'unsupported')
 
 
 if __name__=='__main__':unittest.main()

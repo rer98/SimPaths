@@ -36,10 +36,12 @@ def utc(): return datetime.now(timezone.utc)
 
 
 def local_retention(config):
-    """Remote-only disposal is opt-in and never valid without a destination."""
+    """Removing the local recovery copy requires an explicit remote policy."""
     mode=config['backup'].get('local_retention','retain')
-    if mode not in ('retain','remote-only') or mode=='remote-only' and not config.get('remote'):
-        raise ArtifactError('Choose retain, or remote-only with a configured remote backup destination')
+    if mode not in ('retain','remote-only','until-next') or mode!='retain' and not config.get('remote'):
+        raise ArtifactError('Choose retain, or a remote retention policy with a configured destination')
+    if mode=='until-next' and (retention_rule(config)!='count' or config['backup'].get('keep_latest')!=1):
+        raise ArtifactError('Until-next retention requires count retention of one completed backup')
     return mode
 
 
@@ -192,9 +194,11 @@ def report(status, *, now=None, config=None):
         local_retention=local_retention(config) if config is not None else None,
         retention_rule=retention_rule(config) if config is not None else None,
         last_success_age_seconds=age,pending_stage=current['stage'] if current else (
-            'local-cleanup' if incident and incident['stage']=='local-cleanup' and not incident.get('resolved_at') else None),
+            incident['stage'] if incident and incident['stage'] in ('local-cleanup','replacement-check')
+            and not incident.get('resolved_at') else None),
         last_attempt_at=current.get('last_attempt_at') if current else None,
-        retry_at=current.get('retry_at') if current else None,
+        retry_at=current.get('retry_at') if current else (
+            incident.get('retry_at') if incident and not incident.get('resolved_at') else None),
         failure=None if incident is None else dict(id=incident['id'],stage=incident['stage'],opened_at=incident['opened_at'],
             alert_sent=incident.get('alert_sent',False),alert_pending=not incident.get('alert_sent',False),
             last_failure_at=incident.get('last_failure_at'),failure_count=incident.get('failure_count'),
@@ -236,12 +240,42 @@ def delivery_record(config, storage, record):
     return value
 
 
-def remove_local_archive(root, config, status, storage, record, now, transport):
+def recheck_remote_archive(config, storage, record, now, transport):
+    """Read back both immutable remote files before releasing a local copy.
+
+    Unlike delivery, this never uploads or repairs a missing remote file. The
+    existing local archive is the fallback if either remote read is unavailable.
+    Readback is streamed; no second archive-sized local file is created.
+    """
+    if record.get('off_machine') is not True:
+        raise ArtifactError('The previous backup has no verified external copy')
+    journal=storage/'delivery.json'
+    if journal.exists():
+        receipt=delivery_record(config,storage,record)['receipt']
+    else:
+        receipt=sealed(storage/'recovery.tar.gpg',recipient=config['backup']['recipient'])
+        if receipt['backup_id']!=record['backup_id'] or receipt['sha256']!=record['sha256']:
+            raise ArtifactError('Completed backup differs from its encrypted receipt')
+    connection=transport or SFTP(**config['remote'])
+    remote=connection.directory+'/recovery-'+receipt['backup_id']+'.tar.gpg'
+    if connection.remote_hash(remote,receipt)!={k:receipt[k] for k in ('bytes','sha256')}:
+        raise ArtifactError('The previous external backup could not be verified')
+    descriptor=file_hash(storage,'recovery.tar.gpg.json')
+    if connection.remote_hash(remote+'.json',descriptor)!={k:descriptor[k] for k in ('bytes','sha256')}:
+        raise ArtifactError('The previous external backup receipt could not be verified')
+    if not journal.exists():
+        atomic_json(journal,dict(format=DELIVERY_FORMAT,job_id=record['job_id'],config=config['_digest'],receipt=receipt,
+            verified_at=now.isoformat(),local_state='retained',removal_started_at=None,removed_at=None))
+
+
+def remove_local_archive(root, config, status, storage, record, now, transport, *, recheck=False):
     """Finish a journalled unlink, preserving receipts and never touching a pending job."""
     from .backup_files import scan
     scan(storage)
     if record.get('off_machine') is not True:
         raise ArtifactError('Local backup has no confirmed off-machine delivery')
+    if recheck:
+        recheck_remote_archive(config,storage,record,now,transport)
     if not (storage/'delivery.json').exists():
         # Older completed backups lack the new delivery journal. Recheck their
         # actual destination before allowing the newly selected disposal policy.
@@ -462,7 +496,8 @@ def count_retention(root,config,status,now,*,transport=None):
     for _,path,record in completed:
         removing=False
         if (path/'delivery.json').exists():removing=delivery_record(config,path,record)['local_state'] in ('removing','removed')
-        if local_retention(config)=='remote-only' or removing:
+        mode=local_retention(config)
+        if mode=='remote-only' or removing and mode!='until-next':
             remove_local_archive(root,config,status,path,record,now,transport)
 
 
@@ -490,7 +525,7 @@ def retention(root, config, status, now, *, transport=None):
         if (child/'delivery.json').exists():
             delivery=delivery_record(config,child,record)
             removing=delivery['local_state'] in ('removing','removed')
-        if mode=='remote-only' or removing:
+        if mode=='remote-only' or removing and mode!='until-next':
             remove_local_archive(root,config,status,child,record,now,transport)
         completed.append((datetime.fromisoformat(record['finished_at']),child))
     completed.sort(reverse=True)
@@ -537,6 +572,44 @@ def maintain_local(root, config, status, now, transport, *, clock=None):
         return True
     except Exception as error:
         record_failure(status,'local-cleanup',clock() if clock else now,error=error)
+        atomic_json(root/'status.json',status)
+        return False
+
+
+def prepare_replacement(root, config, status, now, transport, *, clock=None):
+    """Release one verified external-backed copy only when a new capture is due.
+
+    Caller holds the scheduler fence and has no pending job. The disposal journal
+    survives interruption before the new job is recorded; its remote copy must
+    still verify on a later retry. A failed check keeps local bytes untouched.
+    """
+    incident=status['incident']
+    if (incident and incident['stage']=='replacement-check' and not incident.get('resolved_at')
+            and incident.get('retry_at') and now<datetime.fromisoformat(incident['retry_at'])):
+        return False
+    try:
+        latest=status['last_success']
+        completed=_rotation_completed(root,config,status)
+        if latest is None:
+            if completed:raise ArtifactError('Existing recovery records have no matching latest backup')
+            return True
+        if latest['config']!=config['_digest']:
+            raise ArtifactError('Verify the previous backup destination transition before replacing its local copy')
+        if len(completed)!=1:
+            raise ArtifactError('Require one recorded completed backup before replacement')
+        _,storage,record=completed[0]
+        # A crash can publish complete.json's disposal timestamp before updating
+        # status.json. The immutable capture identity must still agree; the
+        # existing delivery journal reconciles only that removal acknowledgement.
+        if ({k:v for k,v in record.items() if k!='local_archive_removed_at'}!=
+                {k:v for k,v in latest.items() if k!='local_archive_removed_at'}):
+            raise ArtifactError('The latest backup and its completion record differ')
+        remove_local_archive(root,config,status,storage,record,now,transport,recheck=True)
+        return True
+    except Exception as error:
+        failed=clock() if clock else now
+        record_failure(status,'replacement-check',failed,error=error)
+        status['incident']['retry_at']=(failed+timedelta(minutes=config['backup']['retry_minutes'])).isoformat()
         atomic_json(root/'status.json',status)
         return False
 
@@ -607,6 +680,8 @@ def run(config, *, now=None, capture=capture_backup, encrypt=seal, transport=Non
             # the job and its already completed stages, and record the incident.
             status['incident']=dict(id=uuid4().hex,stage=job['stage'],opened_at=now.isoformat(),alert_sent=False)
             atomic_json(root/'status.json',status)
+        if ready and job is None and due and local_retention(config)=='until-next':
+            ready=prepare_replacement(root,config,status,clock(),transport,clock=clock)
         if ready and job is None and due:
             job=dict(id=uuid4().hex,config=config['_digest'],stage='capturing',started_at=now.isoformat(),retry_at=None)
             status['current']=job; atomic_json(root/'status.json',status)

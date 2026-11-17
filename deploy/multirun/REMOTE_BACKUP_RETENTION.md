@@ -6,6 +6,45 @@ Verified remote delivery, restart-safe local archive disposal and laptop recover
 
 # Local backup space after verified external delivery
 
+For a host with room for one full archive, `local_retention="until-next"` keeps
+the last completed backup locally after external delivery. It releases that local
+archive only immediately before a due replacement, after freshly reading and
+verifying the external archive **and its receipt**. Between captures, both copies
+remain available. During replacement, the previous external copy remains the
+recovery point. This policy requires an established remote destination and:
+
+```toml
+[backup]
+local_retention = "until-next"
+retention_rule = "count"
+keep_latest = 1
+```
+
+The recheck streams the full remote ciphertext through the existing bounded
+length/SHA-256 reader and verifies the receipt bytes. It requires another archive's
+worth of network readback but no archive-sized local download. A missing, corrupt
+or unavailable remote file leaves the local archive intact, creates no capture
+job, and records a `replacement-check` incident with the configured retry delay.
+The administrator storage page explains that it is waiting to verify the external
+backup before replacing the local copy. Existing opt-in failure alerts apply.
+
+The local removal intent is durable before unlinking. A restart before unlink
+must recheck the remote files; a restart after unlink reconciles the records before
+starting one replacement. New captures always use new job/archive names. An upload
+failure retains the new ciphertext and retries its transfer without recapture.
+The new successful archive stays locally until the following capture is due.
+
+Changing the source, encryption or remote destination needs a separately verified
+transition: this policy cannot discard an older backup from a different scope or
+one that has never been delivered externally. Local count retention does not
+delete external archives. Configure remote history separately so a previous
+external snapshot remains available until its replacement has been verified.
+The initial external setup must also prove recovery with an independent key.
+
+The current local-only host policy remains one completed snapshot plus space for
+its replacement. No external destination is enabled by this change. Existing
+`retain` and immediate `remote-only` behaviour remain available as described below.
+
 The scheduled runner supports an explicit `local_retention="remote-only"`
 policy. It creates a full compressed, encrypted archive locally, verifies the
 uploaded archive and checksum receipt at the configured remote destination, then

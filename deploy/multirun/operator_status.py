@@ -102,7 +102,12 @@ def collect(queue, state, *, limit=20, read_database=True):
     from .visualiser_cache_usage import statistics
     from jasmine_web.batch.storage_budget import read_control as budget_control, read_status as budget_status
     try:
-        result['storage_budget']=dict(control=budget_control(state, queue=queue), status=budget_status(state))
+        mode=(result.get('database') or {}).get('resources',{}).get('storage_mode','shared')
+        if mode=='filesystem':
+            from jasmine_web.batch.filesystem_storage import read_status as filesystem_status
+            result['storage_budget']=dict(mode=mode,control=None,status=filesystem_status(state))
+        else:
+            result['storage_budget']=dict(mode=mode,control=budget_control(state, queue=queue), status=budget_status(state))
         if result['storage_budget']['status'].get('allowed') is False:
             result['complete']=False
             result['warnings'].append('storage_budget_waiting_for_operator')
@@ -163,6 +168,8 @@ def render(report):
             '  Capacity: '+allocation(pool['capacity']), '  Reserved: '+allocation(pool['reserved']),
             '  Available to batch: '+allocation(pool['available_for_batch']),
             '  Interactive holdback: '+allocation(pool['interactive_holdback'])]
+        if pool.get('storage_mode')=='filesystem':
+            lines.append('  Storage capacity is derived from the private filesystem; SingleRun uses Docker storage separately. CPU and RAM remain shared.')
         loan=pool.get('idle_interactive_cpu')
         compute=pool.get('compute_capacity',{})
         if compute.get('enabled'):
@@ -238,7 +245,12 @@ def render(report):
         lines.append('Storage measurements: unknown')
     budget=report.get('storage_budget',{})
     control=budget.get('control')
-    if control:
+    if budget.get('mode')=='filesystem':
+        lines.append('Storage admission: filesystem capacity and physical promises; SingleRun uses the separate Docker filesystem')
+        status=budget.get('status',{})
+        lines.append('  Last storage check: '+status.get('checked_at','unavailable')+
+                     ('; valid' if status.get('allowed') else '; new admissions paused'))
+    elif control:
         lines.append('Scheduler storage budget: '+control['mode']+
                      f"; {control['headroom_mib']/1024:g} GiB filesystem headroom; "+
                      (f"{control['ceiling_mib']/1024:g} GiB ceiling" if control['ceiling_mib'] else 'no configured ceiling'))
@@ -400,7 +412,7 @@ def _now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def _directory(path):
+def _directory(path,*,readable=True):
     """Open a readable directory through searchable parents, refusing links."""
     path = Path(path)
     if not path.is_absolute() or '..' in path.parts:
@@ -412,7 +424,7 @@ def _directory(path):
                  | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         for index, part in enumerate(path.parts[1:]):
-            access = os.O_RDONLY if index == len(path.parts)-2 else search
+            access = os.O_RDONLY if readable and index == len(path.parts)-2 else search
             child = os.open(part, access | os.O_DIRECTORY | os.O_NOFOLLOW,
                             dir_fd=fd)
             os.close(fd)
@@ -424,8 +436,8 @@ def _directory(path):
             os.close(fd)
 
 
-def _filesystem(path):
-    fd = _directory(path)
+def _filesystem(path,*,searchable=False):
+    fd = _directory(path,readable=not searchable)
     try:
         before = os.fstat(fd)
         space = os.fstatvfs(fd)
@@ -490,7 +502,7 @@ def _backup_snapshot(config_path):
         latest = value.get('latest')
         last = _timestamp(latest['finished_at']) if latest else None
         stage = value.get('pending_stage')
-        if stage not in (None, 'capturing', 'sealing', 'copying', 'complete', 'local-cleanup'):
+        if stage not in (None, 'capturing', 'sealing', 'copying', 'complete', 'local-cleanup', 'replacement-check'):
             raise ValueError('Invalid backup stage')
         overdue = value.get('overdue')
         if type(overdue) is not bool:
@@ -512,6 +524,7 @@ class AdministratorStorage:
     """
     def __init__(self, service, state, executor, *,
                  backup_config=Path('/etc/simpaths-online/backup.toml'),
+                 docker_root=None,
                  cache_seconds=300, scan_seconds=5, max_entries=200000):
         if (type(cache_seconds) not in (int, float) or not 1 <= cache_seconds <= 3600
                 or type(scan_seconds) not in (int, float) or not 0 < scan_seconds <= 30
@@ -519,6 +532,7 @@ class AdministratorStorage:
             raise ValueError('Invalid bounded storage observation settings')
         self.service, self.state, self.executor = service, Path(state), executor
         self.backup_config = backup_config
+        self.docker_root = docker_root
         self.cache_seconds, self.scan_seconds, self.max_entries = cache_seconds, scan_seconds, max_entries
         self._lock = threading.Lock()
         self._thread = None
@@ -679,6 +693,8 @@ class AdministratorStorage:
             result.update(workspace_remaining_bytes=_number(value['remaining_reserved_bytes']),
                           workspace_safety_bytes=_number(value['reserve_bytes']),
                           available=True, measured_at=_now())
+            if 'pipeline_floor_bytes' in value:
+                result['pipeline_floor_bytes']=_number(value['pipeline_floor_bytes'])
         except Exception:
             pass
         try:
@@ -695,12 +711,18 @@ class AdministratorStorage:
         roots = self._roots(backup_root)
         areas, state = self._areas(roots)
         filesystems, devices, references = [], {}, {}
-        for area, root in [('system', Path('/')), *roots.items()]:
-            if root is None:
+        capacity_roots=[('system', Path('/')), *roots.items()]
+        if self.docker_root is not None:
+            try:docker=self.docker_root()
+            except Exception:docker=None
+            capacity_roots.append(('docker',docker))
+        for area, root in capacity_roots:
+            if root is None and area!='docker':
                 references[area] = None
                 continue
             try:
-                device, values = _filesystem(root)
+                if root is None:raise ValueError('Docker capacity is unavailable')
+                device, values = _filesystem(root,searchable=True) if area=='docker' else _filesystem(root)
                 existing = devices.get(device)
                 if existing is not None:
                     existing['areas'].append(area)

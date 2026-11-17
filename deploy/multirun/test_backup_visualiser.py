@@ -288,7 +288,7 @@ class NativeVisualiserRestoreTests(unittest.TestCase):
         return service
 
     def check_roundtrip(self,online,*,evicted=False,reason='expiry',pending=False,
-                        missing_summary=False,missing_raw=False,automatic=False,started=False):
+                        missing_summary=False,missing_raw=False,automatic=False,started=False,compressed=False):
         from jasmine_web.batch.policy import NotFound
         source=self.service(self.f.q,self.f.state)
         challenge=asyncio.run(source.access.issue('alice@example.org','fictional-client'))['challenge']
@@ -316,14 +316,16 @@ class NativeVisualiserRestoreTests(unittest.TestCase):
         archive_identity=release_archives.verify(registry,old)['archive']
         source_row=self.f.f.sql('SELECT identity FROM visualiser_sources WHERE attempt_id=%s',
                                 (self.f.completed.attempt_id,))[0]
-        cache=SummaryCache(v.root/'summaries')
+        cache=SummaryCache(v.root/'summaries',compression=compressed)
         identity=dict(owner=self.f.owner,configuration='baseline',execution={
             'job':self.f.completed.job_id,'attempt':self.f.completed.attempt_id},seed='606')
         summary=self.f.root/'summary.json'
-        summary.write_bytes(b'[{"year":2019,"scenario":"baseline","run":"606","metric_value":1}]')
+        summary.write_bytes(json.dumps([dict(year=2019,scenario='baseline',run='606',metric_value=1)]*
+                                      (100 if compressed else 1)).encode())
         summary.chmod(0o600)
         with cache.entry(identity) as entry:
             self.assertTrue(entry.publish(summary));summary_key=entry.key
+        if compressed:self.assertTrue((cache.root/summary_key/'metrics.json.gz').is_file())
         summary_deadline=None
         if reason=='raw_only':
             from .visualiser_summary_holds import canonical,scope
@@ -485,6 +487,9 @@ class NativeVisualiserRestoreTests(unittest.TestCase):
 
     def test_offline_restore_preserves_summaries_charts_expiry_and_revocation_after_raw_expiry(self):
         self.check_roundtrip(False)
+
+    def test_online_restore_preserves_compressed_summaries_and_original_raw_only_deadline(self):
+        self.check_roundtrip(True,reason='raw_only',compressed=True)
 
     def test_online_restore_preserves_summaries_charts_expiry_and_revocation_after_raw_expiry(self):
         self.check_roundtrip(True)

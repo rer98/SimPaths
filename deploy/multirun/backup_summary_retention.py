@@ -45,7 +45,7 @@ def verify_bundles(state, rows, *, now=None):
     from .visualiser_summary_holds import scope
     if now is None:
         now = datetime.now(timezone.utc).timestamp()
-    if len(rows) > 4096:
+    if len(rows) > 8192:
         raise ArtifactError('Retained source inventory exceeds its bound')
     current = [row for row in rows if row['summary_expires_at'].timestamp() > now]
     if not current:
@@ -53,7 +53,7 @@ def verify_bundles(state, rows, *, now=None):
     root = Path(state) / 'execution/visualiser-cache/summaries'
     if not root.is_dir() or root.is_symlink():
         raise ArtifactError('Promised retained summaries are unavailable')
-    cache = SummaryCache(root, maximum_entries=4096)
+    cache = SummaryCache(root, maximum_entries=32768)
     verified = 0
     try:
         for row in current:

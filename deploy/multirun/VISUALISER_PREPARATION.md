@@ -6,6 +6,12 @@ Agreed automatic Visualiser preparation design and resource-validation plan.
 
 # Automatic Visualiser preparation and resource tests
 
+For experiments larger than nine configurations, see
+[large-experiment selection and preparation](VISUALISER_LARGE_EXPERIMENTS.md).
+That policy keeps automatic scientific summaries for every configuration and
+prepares detailed charts for a selected view of at most nine. Experiments of nine
+or fewer retain automatic chart preparation.
+
 For the focused two/five/ten-repetition benchmark of regeneration from already
 retained summaries, see [VISUALISER_REPETITION_TRIALS.md](VISUALISER_REPETITION_TRIALS.md).
 The separate [raw-to-intermediate resource matrix](VISUALISER_SUMMARY_TRIALS.md)

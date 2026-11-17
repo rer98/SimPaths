@@ -4,7 +4,61 @@ Live scheduler storage-budget controls, filesystem growth and recovery checks.
 @author ross richardson
 -->
 
-# Live scheduler storage budget
+# Storage admission and scheduler capacity
+
+## Filesystem admission
+
+An installed host may opt in to `[storage_admission] mode = "filesystem"`.
+This requires the dedicated private filesystem, a pipeline-capable quota broker,
+bounded Visualiser processing, and a verified separate Docker filesystem.
+The default remains `shared` for existing and non-quota deployments.
+
+In filesystem mode, the private job reservation ceiling is derived from
+service-accessible filesystem capacity minus the broker's operating reserve and
+processing floor. It follows mounted filesystem growth automatically. The
+configured `[pool] storage_mib` is retained for compatibility but does not set
+this ceiling. A per-workspace maximum still limits individual quotas; it does
+not limit the combined capacity of the filesystem.
+
+Every new job also needs a current physical-space check. The quota broker
+atomically funds its enforced workspace quota and protected completion envelope
+after existing promises and operating reserves. Retained files, uploads,
+prepared inputs, downloads and Visualiser files reduce actual free space.
+Chart writers must fit the processing floor preserved by model admission;
+compact summary writers require their own funded completion envelope.
+Cache allowances remain upper bounds, not evidence that the space is free.
+
+SingleRun's storage quota is recorded against Docker, and is excluded from the
+private job ceiling and its available capacity. Existing SingleRun Docker quota
+and host-space checks still apply. CPU and RAM remain shared, including their
+interactive holdbacks. The old storage holdback remains recorded for legacy
+configuration matching but is not charged against private storage in this mode.
+
+The administrator **Service status → Job storage** explains filesystem
+admission instead of showing storage as a manually configured shared resource.
+**Filesystem storage → Scheduler and protected space** separates the derived
+ceiling, unreserved job capacity, actual free bytes, outstanding physical
+promises and processing reserves. Docker capacity appears separately, without
+scanning container contents. SingleRun's recorded quota reservations are not
+presented as actual Docker usage. Unavailable readings remain unknown.
+
+Switching an existing pool requires schema migration 046 and an explicit drained
+update pause. The reviewed configuration must select filesystem mode. The
+private operator command is `activate-filesystem --expected-storage-mib N`,
+where N is the verified previous pool value. It refuses active model or
+processing reservations and conflicting manual controls. Existing SingleRun
+sessions, scientific settings, job quotas and retention dates are preserved.
+Admissions remain gated until the replacement runtime verifies its layout.
+Changing only the configuration cannot silently switch an existing pool.
+
+Measurement failure, changed filesystem identity or a smaller restored target
+pauses new admissions without cancelling running work. A new runtime verifies
+the restored layout again; old status files are not authority to start jobs.
+Filesystem mode is stored in PostgreSQL and survives backup/restore. This
+controller does not allocate LVM space, resize filesystems or alter backup
+retention. Returning to shared mode needs a separately reviewed drained change.
+
+## Legacy shared storage budget
 
 The shared pool's `storage_mib` is the total storage that the scheduler may
 reserve for active simulations, input preparation, SingleRun and result
@@ -94,7 +148,8 @@ No control file means the original strict `[pool] storage_mib` startup behavior.
 Once enabled, private persistent controls supply the storage override at future
 starts; the original TOML remains the fallback, not a competing storage value.
 CPU, memory, holdbacks, execution concurrency and policy checks retain their
-existing startup enforcement. There is no schema migration or model-image build.
+existing startup enforcement. These legacy controls need no additional schema
+migration or model-image build and cannot override filesystem mode.
 
 ## Safety and inspection
 

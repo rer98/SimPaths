@@ -10,7 +10,24 @@ from pathlib import Path
 import sys
 
 
+def docker_storage_root():
+    """Bounded read from the fixed local daemon; never export other metadata."""
+    from jasmine_web.batch.docker_executor import DockerCLI
+    value=DockerCLI()._json('/info')['DockerRootDir']
+    if type(value) is not str or not value.startswith('/') or '..' in Path(value).parts:
+        raise ValueError('Invalid Docker storage root')
+    return Path(value)
+
+
 def controller(args, queue, state):
+    if getattr(args,'storage_mode','shared')=='filesystem':
+        from jasmine_web.batch.filesystem_storage import FilesystemStorage, measurement
+        from .vm_web import workspace_quotas
+        if not getattr(args,'dedicated_storage',False) or not getattr(args,'visualiser_pipeline_storage',False):
+            raise ValueError('Filesystem admission requires dedicated pipeline quotas')
+        quotas=workspace_quotas(args)
+        return FilesystemStorage(queue,state,lambda:measurement(args.private_root,state,quotas,docker_storage_root,
+            minimum_floor=args.visualiser_filesystem_headroom_mib*1024**2))
     from jasmine_web.batch.storage_budget import StorageBudget
     return StorageBudget(queue, state, getattr(args, 'private_root', None) or Path(state).parent,
                          dedicated=getattr(args, 'dedicated_storage', False))
@@ -42,7 +59,11 @@ def main(argv=None):
         if command == 'set':
             child.add_argument('--storage-mib', type=int, required=True)
     commands.add_parser('status', help='Read control, application status and actual pool budget')
+    activate=commands.add_parser('activate-filesystem',help='Activate verified filesystem admission under an existing drained update pause')
+    activate.add_argument('--expected-storage-mib',type=int,required=True)
     args = parser.parse_args(argv)
+    if args.command=='activate-filesystem' and not args.config:
+        parser.error('Filesystem activation requires an installed private VM configuration')
     if args.config and any((args.frontend, args.state, args.private_root, args.dsn_file,
                             args.pool != 'simpaths-local', args.schema != 'jasmine_batch')):
         parser.error('Use --config or explicit local diagnostic settings')
@@ -72,15 +93,28 @@ def main(argv=None):
         # Shared service/backup guard excludes concurrent restore or migrations.
         with database_guard(queue):
             if args.command == 'status':
-                result = dict(control=read_control(state, queue=queue), status=read_status(state),
-                              storage_mib=current(queue))
+                with queue._transaction() as (_,pool,_now):
+                    mode=pool.get('storage_mode','shared')
+                if mode=='filesystem':
+                    from jasmine_web.batch.filesystem_storage import read_status as filesystem_status
+                    result=dict(mode=mode,status=filesystem_status(state),storage_mib=current(queue))
+                else:
+                    result = dict(mode=mode,control=read_control(state, queue=queue),status=read_status(state),
+                                  storage_mib=current(queue))
             else:
                 from .maintenance import service_state
                 with service_state(state):
-                    result = controller(options, queue, state).configure(
-                        'follow' if args.command == 'follow' else 'fixed',
-                        headroom_mib=args.headroom_mib, ceiling_mib=args.ceiling_mib,
-                        storage_mib=getattr(args, 'storage_mib', None))
+                    chosen=controller(options,queue,state)
+                    if args.command=='activate-filesystem':
+                        if getattr(options,'storage_mode','shared')!='filesystem':
+                            raise ValueError('Select filesystem admission in the reviewed configuration')
+                        result=chosen.activate(expected_storage_mib=args.expected_storage_mib)
+                    else:
+                        if getattr(options,'storage_mode','shared')=='filesystem':
+                            raise ValueError('Filesystem capacity follows its mounted filesystem automatically')
+                        result = chosen.configure('follow' if args.command == 'follow' else 'fixed',
+                            headroom_mib=args.headroom_mib, ceiling_mib=args.ceiling_mib,
+                            storage_mib=getattr(args, 'storage_mib', None))
         print(json.dumps(result, indent=2, sort_keys=True, allow_nan=False))
         return 0
     except Exception as error:

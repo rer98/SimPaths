@@ -4,6 +4,7 @@
  * @author ross richardson
  */
 import {SectionSource,boundedJSON,validateCatalogue} from './section_source.mjs';
+import {selectionQuery,validateSelection} from './experiment_choices.mjs';
 const uuid=value=>typeof value==='string'&&/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(value);
 const hash=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
 const text=value=>typeof value==='string'&&value.length>0&&value.length<=200&&!/[\u0000-\u001f]/.test(value);
@@ -11,7 +12,7 @@ const text=value=>typeof value==='string'&&value.length>0&&value.length<=200&&!/
 export function validateExperiment(value,experiment){
   if(!value||value.format!=='simpaths.visualiser.experiment.v1'||value.experiment!==experiment||
       value.url!=='/visualiser/experiment/'+experiment||!Number.isInteger(value.ready)||
-      !Number.isInteger(value.total)||value.ready<0||value.ready>value.total||value.total>100||
+      !Number.isInteger(value.total)||value.ready<0||value.ready>value.total||value.total>9||
       !(value.publication===null||hash(value.publication))||typeof value.pending!=='boolean'||
       typeof value.retryable!=='boolean'||!Array.isArray(value.configurations)||value.configurations.length!==value.total)
     throw Error('Experiment chart status is unavailable.');
@@ -27,10 +28,25 @@ export function validateExperiment(value,experiment){
 }
 
 export class ExperimentSource extends SectionSource{
-  constructor(experiment,{onUpdated=()=>{},onStatus=()=>{},...options}={}){
+  constructor(experiment,{onUpdated=()=>{},onStatus=()=>{},selection=null,...options}={}){
     if(!uuid(experiment))throw Error('Invalid experiment.');
     super(experiment.replaceAll('-','').repeat(2),options);
     this.experiment=experiment;this.url='/api/visualiser-experiments/'+experiment;
+    this.selection=selection===null?null:validateSelection(selection);
+    this.archiveURL=this.url+'/archive';
+    if(this.selection){
+      const query=selectionQuery(this.selection),fetcher=this.fetcher,prefix=this.url;
+      this.archiveURL+='?'+query;
+      // All status, catalogue and section reads carry the same immutable view.
+      this.fetcher=(url,init)=>{
+        const parsed=new URL(url,'https://visualiser.invalid');
+        if(parsed.pathname===prefix||parsed.pathname.startsWith(prefix+'/')){
+          for(const [key,value] of query)parsed.searchParams.append(key,value);
+          url=parsed.pathname+'?'+parsed.searchParams;
+        }
+        return fetcher(url,init);
+      };
+    }
     this.pinPublication=true;this.status=null;this.onUpdated=onUpdated;this.onStatus=onStatus;
     this.refreshing=null;
   }

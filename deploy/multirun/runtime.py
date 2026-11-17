@@ -114,6 +114,7 @@ def create_registry(args,q,state,send_mail,*,capacity=Resources(2000,5120,12288)
         per_user_unfinished=args.max_unfinished_jobs,pool_unfinished=args.pool_unfinished_jobs),
         update_admission_limits=True,
         allow_compute_budget=True,
+        storage_mode=getattr(args,'storage_mode','shared'),
         **({'storage_budget_mib':storage_override} if storage_override is not None else {}))
     protected=(Resources(getattr(args,'visualiser_cpu_millis',1000),args.visualiser_memory_mib,
                          getattr(args,'visualiser_storage_mib',512))
@@ -204,6 +205,8 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
     stop=threading.Event()
     from .storage_budget import controller as storage_controller
     storage_budget=storage_controller(args,q,state)
+    if getattr(args,'storage_mode','shared')=='filesystem' and not storage_budget.tick(force=True):
+        raise ValueError('Filesystem storage admission is unavailable')
     health={'message':'Dispatcher is starting.'}
     fatal=threading.Event()
     def dispatch():
@@ -410,7 +413,8 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
         backend_options={}
         if getattr(args,'visualiser_summaries',False):
             backend_options=dict(summary_cache_root=execution/'visualiser-cache'/'summaries',
-                summary_cache_bytes=getattr(args,'visualiser_summary_cache_mib',2048)*1024**2)
+                summary_cache_bytes=getattr(args,'visualiser_summary_cache_mib',2048)*1024**2,
+                summary_cache_entries=getattr(args,'visualiser_summary_cache_entries',16384))
         backend=VisualiserBackend(args.visualiser_build,execution,public_datasets=keys,
             memory_mib=max(256,args.visualiser_memory_mib-768) if scoped else args.visualiser_memory_mib,
             **backend_options)
@@ -454,6 +458,7 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
             max_entries=getattr(args,'visualiser_max_entries',64),
             retain_completed_summaries=getattr(args,'visualiser_retain_completed_summaries',True),
             per_owner_entries=getattr(args,'visualiser_per_owner_entries',256) if automatic else 10,
+            per_owner_summary_configurations=getattr(args,'visualiser_per_owner_summary_configurations',2048),
             publication_limits=limits,storage_policy=storage_policy,
             compact_summaries=getattr(args,'visualiser_compact_summaries',False),pipeline_storage=pipeline)
         service.visualiser.performance=trace
@@ -472,7 +477,9 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
     service.access.account_storage_reader=AccountStorage(service,state,executor)
     if getattr(service,'administration',None) is not None:
         from .operator_status import AdministratorStorage
-        service.administration.storage_reader=AdministratorStorage(service,state,executor)
+        from .storage_budget import docker_storage_root
+        service.administration.storage_reader=AdministratorStorage(service,state,executor,
+            docker_root=docker_storage_root if getattr(args,'storage_mode','shared')=='filesystem' else None)
         service.administration.account_storage_reader=service.access.account_storage_reader
     service.notifications=Notifications(service,admin_email=args.admin_email,
         sender=smtp_sender(os.environ['SMTP_FROM_EMAIL']) if args.notification_emails else None,

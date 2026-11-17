@@ -7,6 +7,7 @@ recorded routine expiry explicitly permits retained-summary-only processing.
 """
 from contextlib import contextmanager
 import fcntl
+import gzip
 import hashlib
 import json
 import os
@@ -20,9 +21,11 @@ import time
 if __package__:
     from .visualiser_cache_usage import CacheUsage, statistics
     from .visualiser_summary_holds import SummaryHolds, SummaryCapacityError
+    from .visualiser_summary_encoding import COMPRESSED, payload, stored, copy_verified
 else:
     from visualiser_cache_usage import CacheUsage, statistics
     from visualiser_summary_holds import SummaryHolds, SummaryCapacityError
+    from visualiser_summary_encoding import COMPRESSED, payload, stored, copy_verified
 
 
 MIB = 1024 ** 2
@@ -43,9 +46,10 @@ class SummaryCache:
     No database, raw data copy, or authority token is stored here.
     """
     def __init__(self, root, *, maximum_bytes=2 * 1024 ** 3, maximum_entries=256,
-                 entry_bytes=64 * MIB):
+                 entry_bytes=64 * MIB, compression=False):
         if (type(maximum_bytes) is not int or not MIB <= maximum_bytes <= 64 * 1024 ** 3
-                or type(maximum_entries) is not int or not 1 <= maximum_entries <= 4096
+                or type(maximum_entries) is not int or not 1 <= maximum_entries <= 32768
+                or type(compression) is not bool
                 or type(entry_bytes) is not int or not 1 <= entry_bytes <= 64 * MIB):
             raise ValueError('Invalid private summary cache budget')
         self.root = Path(root).absolute()
@@ -59,8 +63,10 @@ class SummaryCache:
             raise ValueError('Summary cache directory must not contain symlinks')
         self.maximum_bytes, self.maximum_entries = maximum_bytes, maximum_entries
         self.entry_bytes = entry_bytes
+        self.compression = compression
         self.usage = CacheUsage(self.root)
         self.holds = SummaryHolds(self)
+        self._read_budget = None
 
     def statistics(self):
         """Read cumulative numeric usage; the operator needs no raw-file access."""
@@ -74,8 +80,25 @@ class SummaryCache:
                 return
             self.holds.require_admitted(identity, records)
             key = hashlib.sha256(canonical(identity)).hexdigest()
-            if not any(entry[1] == key for entry in self._entries()):
+            try:
+                receipt,_,_=self._receipt(self.root/key)
+                present=receipt['identity']==identity
+            except (OSError,ValueError,KeyError,TypeError):present=False
+            if not present:
                 self.holds.before_raw(identity, records)
+
+    def _check_read_budget(self):
+        """Reading a retained seed adds no cache bytes or entries.
+
+        Check the full budget on startup or a policy change. Every writer and
+        dependency change still performs complete admission/eviction accounting;
+        every reuse verifies its own file and identity, without a sweep scan.
+        Caller holds the cache lock. No authority or integrity result is cached.
+        """
+        budget=(self.maximum_bytes,self.maximum_entries,self.entry_bytes)
+        if self._read_budget!=budget:
+            self._evict(self._entries())
+            self._read_budget=budget
 
     def verify_retained(self, identities, *, check=None):
         """Atomically verify every exact summary and its live admitted hold.
@@ -110,21 +133,7 @@ class SummaryCache:
                 receipt, _, _ = self._receipt(directory)
                 if receipt['identity'] != identity:
                     raise ValueError('Private summary identity changed')
-                with self._open(directory / 'metrics.json') as source:
-                    before = os.fstat(source.fileno())
-                    digest = hashlib.sha256()
-                    size = 0
-                    while chunk := source.read(MIB):
-                        if check is not None:check()
-                        size += len(chunk)
-                        if size > receipt['bytes']:
-                            raise ValueError('Private summary size changed')
-                        digest.update(chunk)
-                    after = os.fstat(source.fileno())
-                if (size != receipt['bytes'] or digest.hexdigest() != receipt['sha256']
-                        or (before.st_size, before.st_mtime_ns, before.st_ctime_ns, before.st_nlink)
-                        != (after.st_size, after.st_mtime_ns, after.st_ctime_ns, after.st_nlink)):
-                    raise ValueError('Private summary content changed')
+                copy_verified(self, directory, receipt, check=check)
             except (OSError, ValueError, KeyError, TypeError) as error:
                 raise ValueError('Retained summaries are unavailable; prepare all compatible seed summaries first') from error
         # Hashing a full set can cross a fixed deadline. An initially live
@@ -188,15 +197,19 @@ class SummaryCache:
         if len(encoded) > 64 * 1024:
             raise ValueError('Summary receipt exceeds bound')
         receipt = json.loads(encoded)
-        if (receipt.get('format') != FORMAT or receipt.get('key') != directory.name
+        if (receipt.get('format') not in (FORMAT,COMPRESSED) or receipt.get('key') != directory.name
                 or hashlib.sha256(canonical(receipt['identity'])).hexdigest() != directory.name
                 or type(receipt.get('bytes')) is not int or not 0 < receipt['bytes'] <= self.entry_bytes
                 or not isinstance(receipt.get('sha256'), str) or not KEY.fullmatch(receipt['sha256'])):
             raise ValueError('Invalid private summary receipt')
-        with self._open(directory / 'metrics.json') as source:
-            if os.fstat(source.fileno()).st_size != receipt['bytes']:
+        if receipt['format']==COMPRESSED and (type(receipt.get('stored_bytes')) is not int
+                or not 0 < receipt['stored_bytes'] < receipt['bytes']
+                or not isinstance(receipt.get('stored_sha256'),str) or not KEY.fullmatch(receipt['stored_sha256'])):
+            raise ValueError('Invalid compressed summary receipt')
+        with self._open(directory / payload(receipt)) as source:
+            if os.fstat(source.fileno()).st_size != stored(receipt)[0]:
                 raise ValueError('Private summary size changed')
-        return receipt, receipt['bytes'] + len(encoded), (directory / 'receipt.json').stat().st_mtime_ns
+        return receipt, stored(receipt)[0] + len(encoded), (directory / 'receipt.json').stat().st_mtime_ns
 
     @staticmethod
     def _remove(path):
@@ -328,7 +341,7 @@ class SummaryEntry:
         """Verify and copy one bounded summary into the current private workspace."""
         cache = self.cache
         with cache._lock('.cache.lock', check=self.wait_check):
-            cache._evict(cache._entries())
+            cache._check_read_budget()
             directory = cache.root / self.key
             if not directory.exists():
                 self.miss_reason = cache.usage.update(lookup=(self.key, False)) or 'unknown'
@@ -338,19 +351,9 @@ class SummaryEntry:
                 receipt, _, _ = cache._receipt(directory)
                 if receipt['identity'] != self.identity:
                     raise ValueError('Private summary identity changed')
-                digest = hashlib.sha256()
                 fd, temporary = tempfile.mkstemp(prefix='.summary-', dir=Path(output).parent)
-                with os.fdopen(fd, 'wb') as target, cache._open(directory / 'metrics.json') as source:
-                    size = 0
-                    while chunk := source.read(MIB):
-                        self.check()
-                        size += len(chunk)
-                        if size > receipt['bytes']:
-                            raise ValueError('Private summary size changed')
-                        digest.update(chunk)
-                        target.write(chunk)
-                if size != receipt['bytes'] or digest.hexdigest() != receipt['sha256']:
-                    raise ValueError('Private summary hash changed')
+                with os.fdopen(fd, 'wb') as target:
+                    copy_verified(cache,directory,receipt,target,self.check)
                 os.replace(temporary, output)
                 temporary = None
                 os.utime(directory / 'receipt.json', None, follow_symlinks=False)
@@ -367,6 +370,33 @@ class SummaryEntry:
                     Path(temporary).unlink(missing_ok=True)
 
     def publish(self, source):
+        if self.cache.compression:
+            return self._publish_encoded(source)
+        return self._publish(source)
+
+    def _publish_encoded(self, source):
+        """Compression uses the already admitted private seed workspace, outside the cache lock."""
+        cache=self.cache
+        fd,temporary=tempfile.mkstemp(prefix='.compressed-summary-',dir=Path(source).parent)
+        try:
+            with os.fdopen(fd,'wb') as target,cache._open(source) as data:
+                before=os.fstat(data.fileno())
+                if not 0<before.st_size<=cache.entry_bytes:raise ValueError('Private summary exceeds entry budget')
+                digest=hashlib.sha256();size=0
+                with gzip.GzipFile(filename='',mode='wb',fileobj=target,compresslevel=6,mtime=0) as encoded:
+                    while chunk:=data.read(MIB):
+                        self.check();size+=len(chunk)
+                        if size>before.st_size:raise ValueError('Summary changed during compression')
+                        digest.update(chunk);encoded.write(chunk)
+                after=os.fstat(data.fileno())
+                if size!=before.st_size or (before.st_size,before.st_mtime_ns,before.st_ctime_ns)!=(
+                        after.st_size,after.st_mtime_ns,after.st_ctime_ns):
+                    raise ValueError('Summary changed during compression')
+            if os.stat(temporary).st_size>=size:return self._publish(source)
+            return self._publish(temporary,raw=dict(bytes=size,sha256=digest.hexdigest()))
+        finally:Path(temporary).unlink(missing_ok=True)
+
+    def _publish(self, source, *, raw=None):
         cache = self.cache
         with cache._open(source) as data:
             size = os.fstat(data.fileno()).st_size
@@ -376,8 +406,9 @@ class SummaryEntry:
             while chunk := data.read(MIB):
                 self.check()
                 digest.update(chunk)
-            receipt = canonical(dict(format=FORMAT, key=self.key, identity=self.identity,
-                                     bytes=size, sha256=digest.hexdigest()))
+            value=dict(format=FORMAT,key=self.key,identity=self.identity,bytes=size,sha256=digest.hexdigest())
+            if raw is not None:value.update(format=COMPRESSED,stored_bytes=size,stored_sha256=digest.hexdigest(),**raw)
+            receipt = canonical(value)
             if size + len(receipt) > cache.maximum_bytes:
                 return False
             with cache._lock('.cache.lock', check=self.wait_check):
@@ -390,8 +421,8 @@ class SummaryEntry:
                     data.seek(0)
                     copied = 0
                     copied_hash = hashlib.sha256()
-                    with open(temporary / 'metrics.json', 'xb') as target:
-                        os.chmod(temporary / 'metrics.json', 0o600)
+                    with open(temporary / payload(value), 'xb') as target:
+                        os.chmod(temporary / payload(value), 0o600)
                         while chunk := data.read(MIB):
                             self.check()
                             copied += len(chunk)

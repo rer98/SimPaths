@@ -16,6 +16,10 @@ retry_minutes = 30
 # After proving external retrieval/restore, "remote-only" removes their payloads
 # only after verified remote archive AND receipt delivery; small records remain.
 # It requires [remote]. Failed transfers keep their exact local archive for retry.
+# To keep the completed local copy until the next capture, use "until-next" with
+# retention_rule = "count" and keep_latest = 1 after proving external recovery.
+# This rechecks the remote archive AND receipt before releasing local space;
+# unavailable or damaged external copies defer capture and preserve local bytes.
 local_retention = "retain"
 keep_days = 30
 keep_latest = 3

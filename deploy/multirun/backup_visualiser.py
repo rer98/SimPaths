@@ -93,15 +93,24 @@ def publication(root,key,record):
 def summary(root,key):
     prefix='summaries/'+key
     receipt=read_metadata(root/(prefix+'/receipt.json'))
-    from .visualiser_summary_cache import FORMAT as SUMMARY_FORMAT,canonical
+    from .visualiser_summary_cache import FORMAT as SUMMARY_FORMAT,canonical,SummaryCache
+    from .visualiser_summary_encoding import COMPRESSED,payload,stored,copy_verified
     import hashlib
-    if (receipt.get('format')!=SUMMARY_FORMAT or receipt.get('key')!=key
+    if (receipt.get('format') not in (SUMMARY_FORMAT,COMPRESSED) or receipt.get('key')!=key
             or not isinstance(receipt.get('identity'),dict)
             or hashlib.sha256(canonical(receipt['identity'])).hexdigest()!=key
             or type(receipt.get('bytes')) is not int or not 0<receipt['bytes']<=64*1024**2):
         raise ArtifactError('Invalid retained summary identity')
-    checked_hash(root,prefix+'/metrics.json',receipt)
-    return {prefix+'/receipt.json',prefix+'/metrics.json'},receipt['identity']
+    if receipt['format']==COMPRESSED and (type(receipt.get('stored_bytes')) is not int
+            or not 0<receipt['stored_bytes']<receipt['bytes'] or not isinstance(receipt.get('stored_sha256'),str)
+            or not HEX.fullmatch(receipt['stored_sha256'])):
+        raise ArtifactError('Invalid compressed summary receipt')
+    size,digest=stored(receipt)
+    checked_hash(root,prefix+'/'+payload(receipt),dict(bytes=size,sha256=digest))
+    # Backup verification also proves the bounded decompressed canonical bytes.
+    try:copy_verified(SummaryCache,root/prefix,receipt)
+    except (OSError,ValueError) as error:raise ArtifactError('Retained summary encoding is corrupt') from error
+    return {prefix+'/receipt.json',prefix+'/'+payload(receipt)},receipt['identity']
 
 
 def known_source(c,queue,owner,attempt,identity=None):
@@ -196,7 +205,7 @@ def verify(state,expected):
     if isinstance(expected,dict) and expected.get('format') in (FORMAT,PREVIOUS_FORMAT):fields.add('evictions')
     if isinstance(expected,dict) and expected.get('format')==FORMAT:fields.add('experiment_views')
     if (not isinstance(expected,dict) or set(expected)!=fields
-            or expected['format'] not in (FORMAT,PREVIOUS_FORMAT,LEGACY_FORMAT) or any(type(expected[k]) is not int or not 0<=expected[k]<=10000
+            or expected['format'] not in (FORMAT,PREVIOUS_FORMAT,LEGACY_FORMAT) or any(type(expected[k]) is not int or not 0<=expected[k]<=32768
                                                 for k in fields-{'format'})):
         raise ArtifactError('Invalid Visualiser backup inventory')
     root=Path(state)/ROOT

@@ -40,7 +40,7 @@ def summary_index(state):
     if not root.exists():
         return None, {}
     from .visualiser_summary_cache import SummaryCache
-    cache = SummaryCache(root, maximum_entries=4096)
+    cache = SummaryCache(root, maximum_entries=32768)
     groups = {}
     for child in sorted(root.iterdir()):
         if not SUMMARY.fullmatch(child.name):
@@ -56,7 +56,7 @@ def summary_index(state):
         group = (identity.get('owner'), identity.get('configuration'),
                  *(execution[k] for k in fields), scope(identity))
         groups.setdefault(group, []).append(identity)
-        if sum(map(len, groups.values())) > 4096:
+        if sum(map(len, groups.values())) > 32768:
             raise ArtifactError('Restored summary inventory exceeds its bound')
     return cache, groups
 

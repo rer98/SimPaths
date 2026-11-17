@@ -23,6 +23,16 @@ PROFILE, validate_destination = preparation.PROFILE, preparation.validate_destin
 profile_for, profile_id, profile_readme = preparation.profile_for, preparation.profile_id, preparation.profile_readme
 
 
+def compile_compactor(context, jar):
+    """Build a packaging-only helper against the selected application's libraries."""
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix='compactor-', dir=context) as work:
+        subprocess.run(['javac', '--release', '17', '-cp', str(jar), '-d', work,
+                        str(HERE/'CompactInputDatabase.java')], check=True, timeout=60)
+        subprocess.run(['jar', '--create', '--file', str(context/'input-compactor.jar'),
+                        '-C', work, '.'], check=True, timeout=30)
+
+
 def release_dockerfile(template, base_tag):
     """Refresh OS packages even when retaining a prepared population base."""
     header = template[:template.index('FROM ')]
@@ -32,8 +42,12 @@ def release_dockerfile(template, base_tag):
     return (header + f'FROM {base_tag}\nUSER root\n' + package_setup
             + 'WORKDIR /app\nCOPY singlerun.jar /app/app.jar\n'
             + 'COPY webserver.properties README.md license.txt COPYRIGHT.md release.json /app/\n'
-            + 'RUN rm -f /app/query-access.json\n'
+            + 'COPY input-compactor.jar /tmp/input-compactor.jar\n'
+            + 'RUN rm -f /app/query-access.json /app/input-compaction.json\n'
             + 'RUN java -cp /app/app.jar microsim.web.server.DatabaseQueryAccess /app/input/input /app/query-access.json'
+            + ' && java -Xmx512m -cp /tmp/input-compactor.jar:/app/app.jar simpaths.packaging.CompactInputDatabase'
+            + ' /app/input/input /app/query-access.json /app/input-compaction.json'
+            + ' && rm /tmp/input-compactor.jar'
             + ' && chown -R 10001:10001 /app/input\n'
             # Older prepared bases predate non-root execution. Reuse the full
             # runtime setup, including writable output and protected code files.
@@ -85,12 +99,13 @@ def package(source, repo, output):
             raise ValueError(f'Package changed while copying: {path}')
     for name in ('singlerun.jar', 'webserver.properties', 'license.txt', 'COPYRIGHT.md'):
         shutil.copy2(repo / name, output / name)
+    compile_compactor(output, output/'singlerun.jar')
     # The runtime instructions describe this launcher revision; the preparation
     # package retains its original README and transfer checksum unchanged.
     (output / 'README.md').write_text(profile_readme(population))
     shutil.copy2(HERE / 'Dockerfile', output / 'Dockerfile')
     (output / '.dockerignore').write_text('# (C) Copyright 2026, by Ross Richardson\n# Quick Start Docker build context allowlist.\n# @author ross richardson\n*\n!Dockerfile\n!.dockerignore\n!singlerun.jar\n'
-        '!webserver.properties\n!README.md\n!license.txt\n!COPYRIGHT.md\n!release.json\n!profile.json\n!input/\n!input/**\n')
+        '!input-compactor.jar\n!webserver.properties\n!README.md\n!license.txt\n!COPYRIGHT.md\n!release.json\n!profile.json\n!input/\n!input/**\n')
     try:
         revision = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'], text=True, stderr=subprocess.DEVNULL).strip()
     except subprocess.CalledProcessError:

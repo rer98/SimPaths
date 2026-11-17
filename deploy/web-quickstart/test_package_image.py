@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 
 SCRIPT = Path(__file__).with_name('package_image.py')
@@ -26,6 +27,10 @@ class PackageTests(unittest.TestCase):
         self.source = self.root / 'source'
         self.repo = self.root / 'repo'
         self.repo.mkdir()
+        compiler = patch.object(module, 'compile_compactor', side_effect=lambda context, jar:
+                                (context/'input-compactor.jar').write_bytes(b'fixture helper'))
+        compiler.start()
+        self.addCleanup(compiler.stop)
         files = {'input/input.mv.db': 'fixture', 'input/EUROMODoutput/training/EUROMODpolicySchedule.xlsx': 'fixture',
                  'input/population.csv': 'raw source', 'README.md': 'old instructions',
                  'profile.json': json.dumps(dict(format_version=1, profile=module.PROFILE,
@@ -49,6 +54,8 @@ class PackageTests(unittest.TestCase):
         self.assertTrue((output / 'input/input.mv.db').exists())
         self.assertFalse((output / 'input/population.csv').exists())
         self.assertTrue((output / 'COPYRIGHT.md').is_file())
+        self.assertTrue((output / 'input-compactor.jar').is_file())
+        self.assertIn('!input-compactor.jar', (output/'.dockerignore').read_text())
         self.assertIn('runtime_jar_sha256', json.loads((output / 'release.json').read_text()))
         readme = (output / 'README.md').read_text()
         self.assertIn('Run your first simulation', readme)
@@ -96,6 +103,9 @@ class PackageTests(unittest.TestCase):
         self.assertLess(result.index('chown -R'), result.index('USER 10001:10001'))
         self.assertNotIn('COPY --chown=10001:10001 input/', result)
         self.assertLess(result.index('apt-get update'), result.index('COPY singlerun.jar'))
+        self.assertLess(result.index('DatabaseQueryAccess'), result.index('simpaths.packaging.CompactInputDatabase'))
+        self.assertIn('rm -f /app/query-access.json /app/input-compaction.json', result)
+        self.assertIn('rm /tmp/input-compactor.jar', result)
 
     def test_unsupported_population_rejected(self):
         with self.assertRaises(ValueError):

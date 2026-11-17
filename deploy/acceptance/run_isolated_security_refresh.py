@@ -298,6 +298,8 @@ def prepare_bases(python, clones, output, maven, *, prune=False, resume=False):
                     source=image_record(client,verifier,previous['tag'],runtime,profile_hash,before=before)
                     checkpoint(directory/'recovered-image.json',source,reserve=reserve)
                     context.mkdir(mode=0o700)
+                    packager=runpy.run_path(str(clones['model']/'deploy/web-quickstart/package_image.py'))
+                    packager['compile_compactor'](context,clones['model']/'singlerun.jar')
                 else:
                     run_owned([str(python),str(clones['model']/'deploy/web-quickstart/package_image.py'),
                         '--repo',str(clones['model']),'--package',str(package),'--output',str(context)],
@@ -324,9 +326,16 @@ def prepare_bases(python, clones, output, maven, *, prune=False, resume=False):
                         if not failure:raise
             record=image_record(client,verifier,info['tag'],runtime,info['profile'],
                 before=None if info['source'] else info['before'])
-            if info['source'] and (record['input_hashes']!=info['source']['input_hashes'] or
-                                  record['application_hashes']!=info['source']['application_hashes']):
-                raise ValueError('Compaction changed application or prepared data bytes')
+            if info['source']:
+                selected=client.containers.create(record['image_id'])
+                try:compaction=json.loads(verifier['archive_file'](selected,'/app/input-compaction.json'))
+                finally:selected.remove()
+                verifier['verify_input_compaction'](info['source']['input_hashes'],record['input_hashes'],compaction)
+                if ({k:v for k,v in record['application_hashes'].items() if k!='query-access.json'}
+                        !={k:v for k,v in info['source']['application_hashes'].items() if k!='query-access.json'}
+                        or record['query_access_receipt'].get('database_sha256')!=record['input_hashes']['input/input.mv.db']):
+                    raise ValueError('Compaction changed application bytes or invalidated query access')
+                record['input_compaction']=compaction
             record['context_receipt_sha256']=digest(context_receipt)
             bases[key]=record
             checkpoint(root/'images.json',bases,reserve=reserve)

@@ -12,6 +12,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import runpy
 from pathlib import Path
 import shutil
@@ -152,6 +153,22 @@ def verify_query_migration(before, after, receipt):
         raise ValueError('Query-account migration receipt does not match source and result databases')
 
 
+def verify_input_compaction(before, after, receipt):
+    """Permit only physical database compaction with a complete logical match."""
+    database='input/input.mv.db'
+    if (database not in before or database not in after
+            or {k:v for k,v in before.items() if k!=database}!={k:v for k,v in after.items() if k!=database}
+            or receipt.get('format_version')!=1 or receipt.get('passed') is not True
+            or receipt.get('logical_contents_preserved') is not True
+            or receipt.get('source_database_sha256')!=before[database]
+            or receipt.get('database_sha256')!=after[database]
+            or not re.fullmatch('[a-f0-9]{64}',receipt.get('logical_sql_sha256',''))
+            or type(receipt.get('original_bytes')) is not int
+            or type(receipt.get('compacted_bytes')) is not int
+            or not 0<receipt['compacted_bytes']<=receipt['original_bytes']):
+        raise ValueError('Input compaction does not preserve the verified database')
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--core', type=Path, default=ROOT.parent/'JAS-mine-core')
@@ -267,6 +284,7 @@ def main(argv=None):
             with tempfile.TemporaryDirectory(prefix=f'release-{population}-', dir=args.work_root) as temporary:
                 context = Path(temporary)
                 shutil.copy2(jar, context/'singlerun.jar')
+                packager.compile_compactor(context, context/'singlerun.jar')
                 for name in ['webserver.properties','license.txt','COPYRIGHT.md']:
                     shutil.copy2(args.simpaths/name, context/name)
                 props = (context/'webserver.properties').read_text()
@@ -293,11 +311,15 @@ def main(argv=None):
                 final_inputs = archive_content_hashes(candidate, '/app/input')
                 migration = json.loads(archive_file(candidate, '/app/query-access.json'))
                 verify_query_migration(input_hashes, final_inputs, migration)
+                compaction=json.loads(archive_file(candidate, '/app/input-compaction.json'))
+                verify_input_compaction({**input_hashes,'input/input.mv.db':migration.get('compaction_source_database_sha256')},
+                                        final_inputs,compaction)
                 assert archive_file(candidate, '/app/COPYRIGHT.md') == (args.simpaths/'COPYRIGHT.md').read_bytes()
                 assert json.loads(archive_file(candidate, '/app/release.json')) == record
             finally:
                 candidate.remove()
             record['query_access_receipt'] = migration
+            record['input_compaction'] = compaction
             record['packaged_input_hashes'] = final_inputs
             record['image_id'] = image.id
             record['status'] = 'packaged'

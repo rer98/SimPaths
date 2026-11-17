@@ -30,8 +30,14 @@ The base references change only in the private frontend clone's catalogue.
 The generated multi-stage recipe publishes one final input-data layer. It keeps
 the same pinned runtime, distribution security floors, private reader setup,
 non-root user, read-only application files, entrypoint and launch settings.
-All application and input file bytes are checked when compacting a retained
-image. Only a superseded intermediate tag created by this workflow is retired;
+Application files and input workbooks retain their exact bytes. Prepared H2
+databases are compacted during image packaging, with complete logical SQL
+exports compared before and after, including values, schema, sequences and
+query-account permissions. A changed logical export stops packaging. The
+query-access receipt is updated to the final database hash, and
+`/app/input-compaction.json` records the size reduction and comparison digest.
+This packaging helper does not run on live sessions. Only a superseded
+intermediate tag created by this workflow is retired;
 benchmark images and other projects' images are preserved. Hashes of the
 generated recipe and context files are retained in each population's checkpoint.
 

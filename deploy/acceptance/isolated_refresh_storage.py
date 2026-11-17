@@ -98,12 +98,17 @@ def compact_dockerfile(template,source_image=None):
     else:
         if not re.fullmatch(r'sha256:[a-f0-9]{64}|[a-z0-9][a-z0-9_./:-]+',source_image):
             raise ValueError('Invalid verified source image reference')
-        preparation='FROM '+source_image+' AS refresh_prepared\n'
+        preparation=('FROM '+source_image+' AS refresh_prepared\nUSER root\n'
+            'COPY input-compactor.jar /tmp/input-compactor.jar\n'
+            'RUN rm -f /app/input-compaction.json && java -Xmx512m '
+            '-cp /tmp/input-compactor.jar:/app/app.jar simpaths.packaging.CompactInputDatabase '
+            '/app/input/input /app/query-access.json /app/input-compaction.json '
+            '&& rm /tmp/input-compactor.jar && chown -R 10001:10001 /app/input\n')
     tail=remainder[remainder.index('RUN mkdir -p output'):]
     return (before+'\n'+preparation+'\nFROM refresh_dependencies\nWORKDIR /app\n'
         'COPY --from=refresh_prepared --chown=0:0 /app/app.jar /app/webserver.properties '
         '/app/README.md /app/license.txt /app/COPYRIGHT.md /app/profile.json '
-        '/app/release.json /app/query-access.json /app/\n'
+        '/app/release.json /app/query-access.json /app/input-compaction.json /app/\n'
         'COPY --from=refresh_prepared --chown=10001:10001 /app/input/ /app/input/\n'+tail)
 
 

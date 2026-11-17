@@ -38,11 +38,15 @@ WORKDIR /app
 COPY singlerun.jar /app/app.jar
 COPY webserver.properties README.md license.txt COPYRIGHT.md profile.json release.json ./
 COPY --chown=10001:10001 input/ input/
+COPY input-compactor.jar /tmp/input-compactor.jar
 RUN java -cp app.jar microsim.web.server.DatabaseQueryAccess input/input query-access.json \
+    && java -Xmx512m -cp /tmp/input-compactor.jar:/app/app.jar simpaths.packaging.CompactInputDatabase \
+        /app/input/input /app/query-access.json /app/input-compaction.json \
+    && rm /tmp/input-compactor.jar \
     && find input -user root -exec chown 10001:10001 {} +
 RUN mkdir -p output .simpaths-startup && chown 10001:10001 output .simpaths-startup \
     && chmod 0755 /app \
-    && chmod 0444 app.jar webserver.properties README.md license.txt COPYRIGHT.md profile.json release.json query-access.json
+    && chmod 0444 app.jar webserver.properties README.md license.txt COPYRIGHT.md profile.json release.json query-access.json input-compaction.json
 LABEL org.jasmine.security="session-v1"
 USER 10001:10001
 EXPOSE 7070

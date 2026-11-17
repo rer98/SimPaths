@@ -108,6 +108,21 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             release.verify_query_migration(before, after, dict(receipt, source_database_sha256='wrong-source'))
 
+    def test_compaction_allows_only_a_smaller_database_with_the_verified_logical_digest(self):
+        release=load('build_release')
+        before={'input/input.mv.db':'original','input/parameters.xlsx':'same'}
+        after={'input/input.mv.db':'compact','input/parameters.xlsx':'same'}
+        receipt=dict(format_version=1,passed=True,logical_contents_preserved=True,
+            source_database_sha256='original',database_sha256='compact',logical_sql_sha256='a'*64,
+            original_bytes=2000000,compacted_bytes=200000)
+        release.verify_input_compaction(before,after,receipt)
+        for change in (dict(passed=False),dict(logical_contents_preserved=False),dict(logical_sql_sha256=''),
+                       dict(source_database_sha256='other'),dict(database_sha256='other'),
+                       dict(compacted_bytes=2000001),dict(compacted_bytes=True),dict(original_bytes=0)):
+            with self.assertRaises(ValueError):release.verify_input_compaction(before,after,{**receipt,**change})
+        with self.assertRaises(ValueError):
+            release.verify_input_compaction(before,{**after,'input/parameters.xlsx':'changed'},receipt)
+
     def test_archive_hashes_stream_arbitrary_chunk_boundaries(self):
         import hashlib
         import io

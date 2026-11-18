@@ -71,6 +71,7 @@ def main(argv=None):
         with service_state(options.state),database_guard(queue):
             queue.migrate()
             access,datasets,preparations,keys=create_registry(options,queue,options.state,verification_mail,
+                send_link_mail=verification_mail,
                 capacity=Resources(**options.capacity),per_user_active=options.per_user_active)
             bundle=create_application(options,queue,options.state,access,datasets,preparations,keys,
                 options.image,options.origin,terminate_on_dispatch_failure=True,private_service=True)

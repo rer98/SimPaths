@@ -88,6 +88,8 @@ public final class SimPathsUserDataPreparation {
             // The worker has exited: provision on the closed candidate, before installation
             // and before the startup controller records approved file versions.
             microsim.web.server.DatabaseQueryAccess.provision(candidate.resolve("input"));
+            progress.accept("Compacting prepared inputs and checking all database contents...");
+            SimPathsInputCompaction.compact(candidate.resolve("input"));
             // Install only files from this attempt, with rollback on filesystem errors.
             try { install(candidate, input, attempt.resolve("backup")); }
             catch (IOException e) {

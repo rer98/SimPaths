@@ -45,6 +45,10 @@ You can use Cancel to read this guide or inspect the simulation page first.
     Continue leaves the active files unchanged. Preparation can take several
     minutes; wait for its completion message.
 
+    Rebuilt inputs are compacted and checked before preparation completes. This
+    frees unused database space without changing the data. Ordinary Builds and
+    simulation runs do not repeat this preparation step.
+
 4. On the simulation page, review the parameters and click **Build**. If you opened
     startup by clicking Build, that Build request continues after successful
     preparation. Wait until **Start** becomes available.

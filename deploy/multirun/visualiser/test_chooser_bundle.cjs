@@ -16,7 +16,7 @@ async function fixture({query='',saved=null,offline=false,total=1024,missing=fal
   const errors=[],requests=[],posts=[],console=new VirtualConsole();console.on('jsdomError',e=>errors.push(e.message));
   const dom=new JSDOM(fs.readFileSync(path.join(build,'index.html'),'utf8'),{
     url:'https://localhost/visualiser/experiment/'+experiment+query,runScripts:'outside-only',pretendToBeVisual:true,virtualConsole:console});
-  const w=dom.window,doc=w.document;let denied=false,down=offline;
+  const w=dom.window,doc=w.document;let denied=false,down=offline,preparation=null;
   w.ResizeObserver=class{observe(){}disconnect(){}};w.TextEncoder=TextEncoder;w.TextDecoder=TextDecoder;
   w.URLSearchParams=URLSearchParams;w.Blob=Blob;
   if(saved!==null)w.localStorage.setItem('simpaths-visualiser-choice:'+experiment,saved);
@@ -41,6 +41,7 @@ async function fixture({query='',saved=null,offline=false,total=1024,missing=fal
     }
     if(options.method==='POST'){
       const value=JSON.parse(options.body);posts.push(value);assert.equal(options.headers['X-CSRF-Token'],'private-fixture');
+      if(preparation){const result=await preparation();return response(result.body,result.status);}
       return response({});
     }
     const chosen=q.getAll('chosen'),ids=chosen.length?chosen:Array.from({length:total},(_,n)=>id(n));
@@ -50,17 +51,38 @@ async function fixture({query='',saved=null,offline=false,total=1024,missing=fal
         state:'succeeded',charts:'queued',comparison:'not_applicable'}))});
   };
   new vm.Script(fs.readFileSync(path.join(build,'visualiser.js'),'utf8')).runInContext(dom.getInternalVMContext());
-  const button=text=>Array.from(doc.querySelectorAll('button')).find(b=>b.textContent.trim()===text);
+  const button=text=>Array.from(doc.querySelectorAll('button')).find(b=>(b.getAttribute('aria-label')||b.textContent.trim())===text);
   const idle=()=>!!button('Open Visualiser')&&!button('Open Visualiser').disabled;
-  return {w,doc,dom,errors,requests,posts,button,idle,deny:()=>denied=true,connect:()=>down=false};
+  return {w,doc,dom,errors,requests,posts,button,idle,deny:()=>denied=true,connect:()=>down=false,
+    prepare:handler=>preparation=handler};
 }
 
 test('all 21 pages preserve chosen members and enforce nine including the baseline',async()=>{
   const f=await fixture();try{
     await wait(f.idle);assert.equal(f.posts.length,0);
     assert.ok(f.doc.body.textContent.includes('Selected: 5 / 9'));
+    const pagers=()=>Array.from(f.doc.querySelectorAll('nav[aria-label="Configuration pages"]'));
+    const controls=()=>{
+      const bars=pagers();assert.equal(bars.length,2);
+      assert.equal(bars[0].dataset.configurationPosition,'top');assert.equal(bars[1].dataset.configurationPosition,'bottom');
+      for(let i=0;i<4;i++)assert.equal(bars[0].querySelectorAll('button')[i].disabled,bars[1].querySelectorAll('button')[i].disabled);
+      return bars;
+    };
+    assert.equal(controls()[0].querySelector('button').disabled,true);
+    const jumps=f.requests.length;f.button('Last configurations').focus();f.button('Last configurations').click();
+    await wait(()=>f.doc.querySelector('tbody th')?.textContent.startsWith('1001.')&&f.idle());
+    assert.equal(f.requests.length,jumps+1);assert.equal(f.button('Last configurations').disabled,true);
+    await wait(()=>f.doc.activeElement===f.button('Previous configurations'));
+    f.button('First configurations').click();await wait(()=>f.doc.querySelector('tbody th')?.textContent.startsWith('1.')&&f.idle());
+    assert.equal(f.button('First configurations').disabled,true);
+    for(const button of controls()[0].querySelectorAll('button')){
+      assert.equal(button.textContent,'');assert.ok(button.title);assert.equal(button.querySelector('svg').getAttribute('aria-hidden'),'true');
+    }
+
     for(let page=1;page<21;page++){
-      f.button('Next configurations').click();await wait(()=>f.doc.querySelector('tbody th')?.textContent.startsWith((page*50+1)+'.')&&f.idle());
+      const next=controls()[page%2].querySelectorAll('button')[2];next.focus();next.click();
+      await wait(()=>f.doc.querySelector('tbody th')?.textContent.startsWith((page*50+1)+'.')&&f.idle());
+      await wait(()=>f.doc.activeElement===(page===20?controls()[page%2].querySelectorAll('button')[1]:next));controls();
     }
     assert.equal(f.doc.querySelectorAll('tbody tr').length,24);assert.equal(f.button('Next configurations').disabled,true);
     const boxes=Array.from(f.doc.querySelectorAll('tbody input'));
@@ -96,6 +118,17 @@ test('initial failure retries the normal small-experiment opening without enqueu
     await wait(()=>f.button('Change configurations'));assert.equal(f.posts.length,0);
     assert.equal(f.doc.querySelector('.vm-chooser'),null);assert.deepEqual(f.errors,[]);
   }finally{f.dom.window.close();}
+  for(const total of [50,51,100]){
+    const boundary=await fixture({total});try{
+      await wait(boundary.idle);
+      assert.equal(boundary.doc.querySelectorAll('nav[aria-label="Configuration pages"]').length,total>50?2:0);
+      if(total>50){boundary.button('Last configurations').click();
+        await wait(()=>boundary.doc.querySelector('tbody th')?.textContent.startsWith('51.')&&boundary.idle());
+        assert.equal(boundary.button('Last configurations').disabled,true);
+      }
+      assert.equal(boundary.posts.length,0);assert.deepEqual(boundary.errors,[]);
+    }finally{boundary.dom.window.close();}
+  }
 });
 test('unavailable saved baselines are removed and a revised valid selection can be saved',async()=>{
   const f=await fixture({saved:JSON.stringify({configurations:[id(0),id(600)],baseline:id(0)}),missing:true});try{
@@ -103,5 +136,29 @@ test('unavailable saved baselines are removed and a revised valid selection can 
     assert.equal(f.doc.querySelector('section select').value,'');
     f.button('Open Visualiser').click();await wait(()=>f.button('Change configurations'));
     assert.deepEqual(f.posts,[{configurations:[id(600)],baseline:null}]);assert.deepEqual(f.errors,[]);
+  }finally{f.dom.window.close();}
+});
+test('opening progress and errors stay below the button, with a single message after access is revoked',async()=>{
+  const f=await fixture();try{
+    await wait(f.idle);let release;
+    f.prepare(()=>new Promise(resolve=>{release=resolve;}));f.button('Open Visualiser').click();
+    await wait(()=>release);
+    const feedback=()=>{
+      const messages=f.doc.querySelectorAll('[role="status"]');assert.equal(messages.length,1);
+      assert.equal(f.button('Open Visualiser').nextElementSibling,messages[0]);return messages[0];
+    };
+    assert.equal(feedback().textContent,'Checking access and preparing the selected charts…');
+    assert.equal(f.button('Open Visualiser').disabled,true);
+    release({body:{error:'Preparation is temporarily unavailable. Please try again.'},status:503});
+    await wait(f.idle);
+    assert.equal(feedback().textContent,'Preparation is temporarily unavailable. Please try again.');
+    assert.equal(feedback().nextElementSibling,f.button('Retry connection'));
+    f.prepare(null);f.button('Open Visualiser').click();await wait(()=>f.button('Change configurations'));
+    f.button('Change configurations').click();await wait(f.idle);f.deny();f.button('Open Visualiser').click();
+    await wait(()=>!f.doc.querySelector('table'));
+    assert.equal(f.doc.querySelectorAll('[role="status"]').length,1);
+    assert.equal(f.doc.querySelector('[role="status"]').textContent,'Sign in again.');
+    assert.equal(f.button('Open Visualiser'),undefined);assert.equal(f.button('Retry connection'),undefined);
+    assert.ok(!f.doc.body.textContent.includes('Policy 1'));assert.deepEqual(f.errors,[]);
   }finally{f.dom.window.close();}
 });

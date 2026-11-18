@@ -33,6 +33,7 @@ class PackagingTests(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text('fixture')
             with zipfile.ZipFile(repo / 'singlerun.jar', 'w') as archive:
+                archive.writestr('simpaths/experiment/SimPathsInputCompaction.class', b'fixture')
                 archive.writestr('simpaths/experiment/SimPathsUserDataStartup.class', b'fixture')
                 archive.writestr('microsim/web/server/DatabaseQueryAccess.class', b'fixture')
                 archive.writestr('microsim/web/server/BackendAuth.class', b'fixture')

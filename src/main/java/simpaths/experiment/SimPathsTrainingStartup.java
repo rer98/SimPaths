@@ -109,6 +109,12 @@ public final class SimPathsTrainingStartup implements WebStartupProvider {
         SimPathsSetupService.verifyDatabase(input.resolve("input"));
         // Trusted startup setup, before recording approved versions. Queries never create accounts.
         microsim.web.server.DatabaseQueryAccess.provision(input.resolve("input"));
+        // Importers close their JDBC connections and donor EntityManagerFactory.
+        // No model has been built yet. Reusing packaged inputs does no compaction.
+        if (choices.getOrDefault("population", false) || choices.getOrDefault("tax", false)) {
+            progress.accept("Compacting prepared inputs and checking all database contents...");
+            SimPathsInputCompaction.compact(input.resolve("input"));
+        }
         approvedTraining = digest(trainingSchedule());
         approvedTop = digest(topSchedule());
     }

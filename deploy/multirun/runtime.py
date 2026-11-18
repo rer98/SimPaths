@@ -106,7 +106,8 @@ async def private_processors(service, stop):
 
 
 @maintenance_guard
-def create_registry(args,q,state,send_mail,*,capacity=Resources(2000,5120,12288),per_user_active=1):
+def create_registry(args,q,state,send_mail,*,capacity=Resources(2000,5120,12288),per_user_active=1,
+                    send_link_mail=None):
     q.backup_state=state
     from .storage_budget import bootstrap as storage_budget
     storage_override=storage_budget(args,q,state)
@@ -124,7 +125,9 @@ def create_registry(args,q,state,send_mail,*,capacity=Resources(2000,5120,12288)
     configure_idle_cpu(q,getattr(args,'lend_idle_interactive_cpu',False))
     from .compute_capacity import bootstrap as compute_bootstrap
     compute_bootstrap(args,q,capacity)
-    access=Access(q,secret_file(state/'session-secret'),send_mail)
+    access=Access(q,secret_file(state/'session-secret'),send_mail,
+                  **(dict(sign_in_origin=args.origin,send_link_mail=send_link_mail)
+                     if send_link_mail is not None else {}))
     datasets=Datasets(q,state/'uploads',owner_limit=args.upload_allowance_gib << 30)
     preparations=Preparations(datasets)
     imports=state/'training-imports.json'

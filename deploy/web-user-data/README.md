@@ -39,6 +39,11 @@ and [tax-benefit donor guide](https://simpaths.org/getting-started/data/tax-bene
 This web session reads UKMOD results; it does not run UKMOD itself. Direct upload
 of an `input.mv.db` database is not supported.
 
+Input preparation includes compaction and a complete database-content check before
+installing the prepared files. Allow time and temporary free space for this step.
+It is performed once per preparation; subsequent Builds and simulation runs use
+the prepared database directly.
+
 ## Configure and prepare your inputs
 
 The **Configure SimPaths UK with your data** window opens at startup. You can

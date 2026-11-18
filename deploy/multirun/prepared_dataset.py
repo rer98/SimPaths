@@ -92,6 +92,23 @@ def check_manifest(manifest):
             raise ArtifactError("Invalid prepared file fingerprint")
 
 
+def check_compaction(identity):
+    proof = identity.get('input_compaction')
+    if proof is None:
+        return
+    if (type(proof) is not dict or set(proof) != {'format_version', 'passed', 'source_receipt_sha256',
+            'source_database_sha256', 'database_sha256', 'logical_sql_sha256', 'original_bytes',
+            'compacted_bytes', 'logical_contents_preserved'}
+            or type(proof['format_version']) is not int or proof['format_version'] != 1
+            or proof['passed'] is not True or proof['logical_contents_preserved'] is not True
+            or any(not re.fullmatch(r'[a-f0-9]{64}', str(proof[key])) for key in
+                ('source_receipt_sha256', 'source_database_sha256', 'database_sha256', 'logical_sql_sha256'))
+            or type(proof['original_bytes']) is not int or type(proof['compacted_bytes']) is not int
+            or not 0 < proof['compacted_bytes'] <= proof['original_bytes']
+            or identity['prepared'].get('input.mv.db') != dict(bytes=proof['compacted_bytes'],sha256=proof['database_sha256'])):
+        raise ArtifactError('Invalid input compaction certificate')
+
+
 def check_receipt(receipt):
     identity = receipt["identity"]
     population = profile_population(identity["quickstart_profile"])
@@ -107,6 +124,7 @@ def check_receipt(receipt):
         if identity["prepared"].get(name, {}).get("bytes", 0) <= 0:
             raise ArtifactError("Prepared Quick Start inputs are incomplete")
     model_parameter_requirements(receipt)
+    check_compaction(identity)
     return receipt
 
 
@@ -179,6 +197,7 @@ def check_input_receipt(receipt):
         if identity['prepared'].get(name,{}).get('bytes',0) <= 0:
             raise ArtifactError('Prepared inputs are incomplete')
     model_parameter_requirements(receipt)
+    check_compaction(identity)
     return receipt
 
 

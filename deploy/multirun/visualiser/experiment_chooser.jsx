@@ -2,7 +2,7 @@
  * Search and page large owned experiments before preparing a bounded chart view.
  * @author ross richardson
  */
-import React,{useEffect,useRef,useState} from 'react';
+import React,{useEffect,useLayoutEffect,useRef,useState} from 'react';
 import {boundedJSON} from './section_source.mjs';
 import {validateSelection,fromQuery,restoreSelection,saveSelection,selectionQuery} from './experiment_choices.mjs';
 
@@ -16,6 +16,7 @@ export function ExperimentChooser({experiment,current=null,force=false,onOpen}){
   const [search,setSearch]=useState(''),[parameter,setParameter]=useState(''),[value,setValue]=useState(''),[ready,setReady]=useState(false);
   const [message,setMessage]=useState('Loading configurations…'),[busy,setBusy]=useState(false);
   const generation=useRef(0),controller=useRef(null),scope=useRef(null),dead=useRef(false);
+  const pageFocus=useRef(null);
   function cancel(){++generation.current;controller.current?.abort();}
   async function load(offset=0,selection=chosen,filters={search,parameter,value,ready}){
     cancel();const serial=generation.current,abort=new AbortController();controller.current=abort;
@@ -65,6 +66,16 @@ export function ExperimentChooser({experiment,current=null,force=false,onOpen}){
     initialise();
     return()=>{dead.current=true;cancel();};
   },[]);
+  useLayoutEffect(()=>{
+    if(busy||!data||!pageFocus.current)return;
+    const {position,label}=pageFocus.current;pageFocus.current=null;
+    const bar=document.querySelector('nav[data-configuration-position="'+position+'"]');
+    if(!bar||document.activeElement!==document.body&&!bar.contains(document.activeElement))return;
+    const buttons=Array.from(bar.querySelectorAll('button')).filter(button=>!button.disabled);
+    const opposite=/^(Next|Last) /.test(label)?'Previous configurations':'Next configurations';
+    (buttons.find(button=>button.getAttribute('aria-label')===label)||
+      buttons.find(button=>button.getAttribute('aria-label')===opposite)||buttons[0])?.focus({preventScroll:true});
+  },[busy,data]);
   useEffect(()=>{
     let channel;
     try{channel=new BroadcastChannel('simpaths-visualiser-cache-v1');channel.onmessage=event=>{
@@ -103,6 +114,27 @@ export function ExperimentChooser({experiment,current=null,force=false,onOpen}){
     }finally{if(serial===generation.current)setBusy(false);}
   }
   const option=data?.parameters.find(item=>item.key===parameter);
+  const pageControls=position=>{
+    if(!data||data.matching<=50)return null;
+    const last=Math.floor((data.matching-1)/50)*50;
+    return <nav aria-label="Configuration pages" data-configuration-position={position}>
+      {[
+        ['First',0,'M6 5v14 M18 5l-7 7 7 7',data.offset===0],
+        ['Previous',Math.max(0,data.offset-50),'M15 5l-7 7 7 7',data.offset===0],
+        ['Next',Math.min(last,data.offset+50),'M9 5l7 7-7 7',data.offset>=last],
+        ['Last',last,'M18 5v14 M6 5l7 7-7 7',data.offset>=last]
+      ].map(([action,offset,path,disabled])=><button key={action} type="button" className="vm-configuration-page-button"
+        aria-label={action+' configurations'} title={action+' page'} disabled={busy||disabled}
+        onClick={()=>{pageFocus.current={position,label:action+' configurations'};load(offset);}}>
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2"
+          strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d={path}/></svg>
+      </button>)}
+    </nav>;
+  };
+  const feedback=<>
+    {message&&<p role="status">{message}</p>}
+    {!busy&&!dead.current&&message&&<button onClick={()=>data?load(data.offset):initialise()}>Retry connection</button>}
+  </>;
   return <main className="vm-chooser">
     <a href="/">Return to My Jobs</a><h1>Choose configurations</h1>
     {data&&<><h2>{data.name}</h2><p>{data.total} configurations. Choose up to 9, including an optional baseline.
@@ -115,6 +147,7 @@ export function ExperimentChooser({experiment,current=null,force=false,onOpen}){
         <ul>{chosen.map(row=><li key={row.configuration}>{row.ordinal}. {row.name}
           {!row.selectable&&' — unavailable'} <button disabled={busy} onClick={()=>toggle(row)} aria-label={'Remove '+row.name}>Remove</button></li>)}</ul>
         <button className="vm-source-button" disabled={busy||!chosen.length||chosen.some(row=>!row.selectable)} onClick={open}>Open Visualiser</button>
+        {feedback}
       </section>
       <form className="vm-choice-filters" onSubmit={event=>{event.preventDefault();load(0);}}>
         <label>Search name, number or setting <input maxLength={200} value={search} onChange={event=>setSearch(event.target.value)}/></label>
@@ -128,6 +161,7 @@ export function ExperimentChooser({experiment,current=null,force=false,onOpen}){
         <button disabled={busy}>Apply filters</button>
       </form>
       <p>{data.matching?data.offset+1:0}–{Math.min(data.offset+50,data.matching)} of {data.matching} matching configurations</p>
+      {pageControls('top')}
       <div className="vm-choice-table"><table><thead><tr><th>Select</th><th>Configuration</th><th>Readiness</th><th>Varying settings</th></tr></thead>
         <tbody>{data.configurations.map(row=>{
           const checked=chosen.some(item=>item.configuration===row.configuration);
@@ -136,10 +170,8 @@ export function ExperimentChooser({experiment,current=null,force=false,onOpen}){
             <th scope="row">{row.ordinal}. {row.name}</th><td>{row.ready?(row.summaries_ready?'Summaries ready':'Completed'):row.state}</td>
             <td>{Object.entries(row.settings).map(([key,value])=><div key={key}>{key}: {value}</div>)}</td></tr>;
         })}</tbody></table></div>
-      <nav aria-label="Configuration pages"><button disabled={busy||data.offset===0} onClick={()=>load(data.offset-50)}>Previous configurations</button>
-        <button disabled={busy||data.offset+50>=data.matching} onClick={()=>load(data.offset+50)}>Next configurations</button></nav>
+      {pageControls('bottom')}
     </>}
-    {message&&<p role="status">{message}</p>}
-    {!busy&&!dead.current&&message&&<button onClick={()=>data?load(data.offset):initialise()}>Retry connection</button>}
+    {!data&&feedback}
   </main>;
 }

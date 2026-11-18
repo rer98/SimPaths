@@ -44,6 +44,7 @@ class SimPathsTrainingStartupTest {
             try (var parameters = mockStatic(Parameters.class);
                  var population = mockStatic(DataParser.class);
                  var tax = mockStatic(TaxDonorDataParser.class);
+                 var compaction = mockStatic(SimPathsInputCompaction.class);
                  var setup = mockStatic(SimPathsSetupService.class)) {
                 var startup = new SimPathsTrainingStartup(input);
                 startup.prepare(choice.equals("none") ? Map.of() : Map.of(choice, true), x -> {});
@@ -52,10 +53,24 @@ class SimPathsTrainingStartupTest {
                 tax.verify(() -> TaxDonorDataParser.databaseFromCSV(Country.UK, 2019, false), times(choice.equals("tax") ? 1 : 0));
                 tax.verify(() -> TaxDonorDataParser.populateDonorTaxUnitTables(Country.UK, false), times(choice.equals("tax") ? 1 : 0));
                 parameters.verify(() -> Parameters.databaseSetup(Country.UK, false, 2019), never());
+                compaction.verify(() -> SimPathsInputCompaction.compact(input.resolve("input")), times(choice.equals("none") ? 0 : 1));
                 startup.validateBuild();
                 Files.writeString(input.resolve("EUROMODpolicySchedule.xlsx"), "new user edit " + choice);
                 assertThrows(IllegalArgumentException.class, startup::validateBuild);
             }
+        }
+    }
+    @Test void failedCompactionCannotApproveAnInputRebuild() throws Exception {
+        fixtures();
+        try (var parameters = mockStatic(Parameters.class); var population = mockStatic(DataParser.class);
+             var setup = mockStatic(SimPathsSetupService.class);
+             var access = mockStatic(microsim.web.server.DatabaseQueryAccess.class);
+             var compaction = mockStatic(SimPathsInputCompaction.class)) {
+            compaction.when(() -> SimPathsInputCompaction.compact(input.resolve("input")))
+                    .thenThrow(new java.io.IOException("Insufficient storage"));
+            var startup = new SimPathsTrainingStartup(input);
+            assertThrows(java.io.IOException.class, () -> startup.prepare(Map.of("population",true), x -> {}));
+            assertThrows(IllegalArgumentException.class, startup::validateBuild);
         }
     }
 }

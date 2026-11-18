@@ -18,6 +18,7 @@ def package(repo, output):
     jar = repo / 'singlerun.jar'
     with zipfile.ZipFile(jar) as archive:
         if not {'simpaths/experiment/SimPathsUserDataStartup.class',
+                'simpaths/experiment/SimPathsInputCompaction.class',
                 'microsim/web/server/DatabaseQueryAccess.class',
                 'microsim/web/server/BackendAuth.class',
                 'microsim/web/server/WorkbookBudget.class'}.issubset(archive.namelist()):

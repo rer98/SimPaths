@@ -42,15 +42,44 @@ def check_smtp(env):
         raise ValueError('Invalid SMTP port or incomplete SMTP login')
 
 
-async def verification_mail(email, code):
+async def verification_mail(email, code, sign_in_url=None):
     from jasmine_web.contact import deliver_email
     from jasmine_web.batch.access import email_address
+    from html import escape
+    import re
+    if not isinstance(code,str) or not re.fullmatch(r'[0-9]{6}',code):
+        raise ValueError('Invalid sign-in code')
     message = EmailMessage()
     message['From'] = email_address(os.environ['SMTP_FROM_EMAIL'])
     message['To'] = email_address(email)
     message['Subject'] = 'Your SimPaths Online sign-in code'
     message.set_content(f'Your sign-in code is {code}. It expires in 10 minutes.\n'
                         'If you did not request this code, ignore this message.\n')
+    if sign_in_url is not None:
+        from urllib.parse import urlsplit
+        from jasmine_web.batch.email_signin import canonical_origin
+        target=urlsplit(sign_in_url)
+        canonical_origin(target.scheme+'://'+target.netloc)
+        if (target.path!='/sign-in' or target.query
+                or not re.fullmatch(r'[A-Za-z0-9_.-]{1,2048}',target.fragment)):
+            raise ValueError('Invalid sign-in URL')
+        message.replace_header('Subject','Your SimPaths Online sign-in link and code')
+        message.set_content('Sign in to MultiRun:\n'+sign_in_url+'\n\n'
+            f'Or enter this sign-in code in your original browser: {code}\n\n'
+            'The link opens automatically in the browser where you requested this email. '
+            'In a different browser, request a new email there or use this code in the original browser.\n'
+            'The link and code expire after 10 minutes. Using either makes the other unusable.\n'
+            'If you did not request this email, ignore it and do not share the link or code.\n')
+        message.add_alternative('<!doctype html><html lang="en"><body>'
+            '<h1>Sign in to MultiRun</h1><p><a href="'+escape(sign_in_url,quote=True)+'" '
+            'style="display:inline-block;padding:12px 20px;background:#174b70;color:#fff;'
+            'text-decoration:none;border-radius:4px">Sign in to MultiRun</a></p>'
+            '<p>Or enter this code in your original browser: <strong>'+code+'</strong></p>'
+            '<p>The link signs you in automatically in the browser where you requested this email. '
+            'If it opens in another browser, request a new email there or use the code in the original browser.</p>'
+            '<p>The link and code expire after 10 minutes. Using either makes the other unusable.</p>'
+            '<p>If you did not request this email, ignore it and do not share the link or code.</p>'
+            '</body></html>',subtype='html')
     # Access.issue runs this coroutine in the existing HTTP thread pool.
     deliver_email(message)
 
@@ -185,6 +214,7 @@ def main(argv=None):
             q.migrate()
             from .runtime import create_application, create_registry
             access, datasets, preparations, keys = create_registry(options, q, options.state, verification_mail,
+                send_link_mail=verification_mail,
                 capacity=Resources(**options.capacity), per_user_active=options.per_user_active)
             if args.command != 'serve':
                 return 0

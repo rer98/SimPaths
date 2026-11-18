@@ -40,20 +40,26 @@ shared VPS do not promise dedicated physical cores or a measured speedup.
 ## Recall and failures
 
 1. SingleRun checks actual shared reservations under the common pool lock. If
-   only CPU is lacking, it records a 30-second recall intent and commits. It
+   only CPU is lacking, it records a 60-second recall intent and commits. It
    does not insert a session or hold a database lock while waiting.
 2. A dedicated PostgreSQL `LISTEN` connection wakes the private dispatcher.
    An executor-local lock serialises quota reconciliation with normal dispatch.
    Reductions bypass the ordinary boost cooldown; output hashing and other long
    file work do not hold this lock.
-3. The worker lowers Docker quotas and verifies the same containers and limits.
-   The journal charges the larger old/target allowance until confirmation. An
-   uncertain or lost reply keeps capacity occupied and is reconciled again.
-4. SingleRun retries its short admission transaction, normally at 100-ms
-   intervals, for up to five seconds of recall waiting. It reserves and starts
-   only when the verified capacity fits. Database/Docker failure can delay or
-   reject a launch; the five seconds is a wait target, not a hard end-to-end
-   network timeout. A failed launch returns a capacity message for retry.
+3. During SingleRun recall the worker can lower and verify quotas on up to
+   two different running model containers concurrently. The dispatcher records
+   and confirms each change separately. If one reply is lost, that container's
+   previous quota stays charged until verified. The next pass reconciles the
+   pending change before planning more reductions. Ordinary balancing, quota
+   increases and changes to validation workers are processed individually.
+4. SingleRun retries admission every half second for up to 45 seconds while
+   the catalogue shows that the session is opening. It starts as soon as the
+   verified CPU allocation fits. A recall that still needs more time returns
+   the usual availability offer. Container startup has its own timeout.
+5. Once an explicit Leave releases the session reservation, the pool holds
+   the idle CPU for SingleRun for one minute. Any eligible user can start a
+   session immediately during that minute. If nobody does, MultiRun can borrow
+   both vCPUs again. Automatic session expiry does not start this grace period.
 
 The recall intent expires so an abandoned launch does not suppress boosts
 indefinitely. Expiry never releases an actual CPU reservation. Concurrent

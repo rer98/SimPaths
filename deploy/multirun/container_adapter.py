@@ -67,11 +67,15 @@ class SimPathsContainerAdapter(SimPathsLocalAdapter):
         local = {**lease.specification, "model_digest": "sha256:" + self.receipt["identity"]["model"]["sha256"]}
         return super()._configuration(SimpleNamespace(specification=local, configuration_id=lease.configuration_id))
 
-    def required_space(self, candidate):
-        required=workspace_required_bytes(self.receipt['identity'])
+    def workspace_estimator(self):
+        """Keep only the setup size and how the release charges per-job storage."""
+        required = workspace_required_bytes(self.receipt['identity'])
         if self.resource_policy.get('profiles') or self.resource_policy['simulation']['storage']['per_repetition_mib']:
-            required=max(required,candidate.resources['storage_mib']*1024**2)
-        return required
+            return lambda candidate: max(required, candidate.resources['storage_mib'] * 1024**2)
+        return lambda candidate: required
+
+    def required_space(self, candidate):
+        return self.workspace_estimator()(candidate)
 
     def _launch_requirements(self, config):
         """Resolve release requirements before the shared staging/heap checks."""

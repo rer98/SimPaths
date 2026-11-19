@@ -483,19 +483,39 @@ class DispatchAdapter:
     def __init__(self, preparation):
         self.preparation = preparation
 
+    @staticmethod
+    def _release_id(lease):
+        run = next(r for r in lease.specification['run_sets'] if r['id'] == lease.configuration_id)
+        return run['parameters'].get('model_release')
+
     def adapter(self, lease):
         if lease.specification.get('operation') == 'prepare':
             return self.preparation
+        spec = lease.specification
         q = self.preparation.datasets.queue
         with q._connection() as c:
             row = c.execute('SELECT * FROM prepared_locations WHERE pool_id=%s AND dataset_id=%s',
-                            (q.pool_id,lease.specification['dataset_id'])).fetchone()
+                            (q.pool_id,spec['dataset_id'])).fetchone()
         if row is None:
             raise ArtifactError('Prepared dataset is unavailable')
-        run=next(r for r in lease.specification['run_sets'] if r['id']==lease.configuration_id)
-        release=self.preparation.releases.get(run['parameters'].get('model_release'),{})
-        return SimPathsContainerAdapter(row['location'],row['model_digest'],
-                                       resource_policy=release.get('resource_policy'))
+        release = self.preparation.releases.get(self._release_id(lease), {})
+        return SimPathsContainerAdapter(row['location'], row['model_digest'],
+                                        resource_policy=release.get('resource_policy'))
+
+    def storage_estimator(self):
+        """Read each bound simulation receipt once per scan; size each job separately."""
+        sizes = {}
+
+        def estimate(candidate):
+            spec = candidate.specification
+            if spec.get('operation') == 'prepare':
+                return self.preparation.required_space(candidate)
+            key = (spec['dataset_id'], spec['prepared_fingerprint'], spec['model_digest'], self._release_id(candidate))
+            if key not in sizes:
+                sizes[key] = self.adapter(candidate).workspace_estimator()
+            return sizes[key](candidate)
+
+        return estimate
 
     def required_space(self, candidate):
         return self.adapter(candidate).required_space(candidate)

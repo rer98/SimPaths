@@ -6,6 +6,7 @@ Model-owned container adapter checks for image/JAR binding and prepared requests
 """
 from types import SimpleNamespace
 from copy import deepcopy
+from contextlib import nullcontext
 import json
 import shlex
 import sys
@@ -128,6 +129,9 @@ class ContainerAdapterTests(unittest.TestCase):
         executor = DockerExecutor(self.fixture.root / 'executor', approved_images=[IMAGE], docker=docker)
         attempt = str(uuid4())
         lease = SimpleNamespace(**vars(self.lease), attempt_id=attempt, execution_key='batch-' + attempt)
+        with patch('deploy.multirun.queue_adapter.shutil.disk_usage', return_value=SimpleNamespace(free=1 << 40)):
+            required, available = executor.storage_checker(self.adapter)(lease)
+            self.assertLess(required, available)
         with patch('deploy.multirun.queue_adapter.shutil.disk_usage',
                    return_value=SimpleNamespace(free=1 << 20)), executor.exclusive():
             rejected = executor.start(lease, self.adapter)
@@ -143,6 +147,38 @@ class ContainerAdapterTests(unittest.TestCase):
             self.assertEqual(json.loads((workspace / 'exit.json').read_text()), rejected)
         docker.call.assert_not_called()
         docker.inspect.assert_not_called()
+
+    def test_storage_scan_shares_a_bound_receipt_and_resolves_it_again_at_launch(self):
+        from deploy.multirun.queue_adapter import read_prepared
+        from deploy.multirun.resource_policy import DEFAULT_POLICY
+        from deploy.multirun.submission_adapter import DispatchAdapter
+        connection = Mock()
+        connection.execute.return_value.fetchone.return_value = dict(location=self.fixture.prepared, model_digest=IMAGE)
+        queue = SimpleNamespace(pool_id='test', _connection=Mock(return_value=nullcontext(connection)))
+        self.spec['run_sets'][0]['parameters']['model_release'] = 'scaled'
+        preparation = SimpleNamespace(datasets=SimpleNamespace(queue=queue),
+                                      releases={'scaled':dict(resource_policy=DEFAULT_POLICY)},
+                                      required_space=Mock(return_value=901))
+        adapter = DispatchAdapter(preparation)
+        with patch('deploy.multirun.queue_adapter.read_prepared', wraps=read_prepared) as receipt:
+            estimate = adapter.storage_estimator()
+            self.assertEqual(estimate(self.lease), 6144 << 20)
+            larger = SimpleNamespace(**dict(vars(self.lease), resources=dict(self.lease.resources, storage_mib=8192)))
+            self.assertEqual(estimate(larger), 8192 << 20)
+            self.assertEqual(estimate(SimpleNamespace(specification={'operation':'prepare'})), 901)
+            self.assertEqual((receipt.call_count, queue._connection.call_count), (1,1))
+            for field in ('dataset_id', 'prepared_fingerprint', 'model_digest'):
+                changed = SimpleNamespace(**dict(vars(self.lease), specification=dict(self.spec, **{field:'other'})))
+                estimate(changed)
+            changed = deepcopy(self.lease)
+            changed.specification['run_sets'][0]['parameters']['model_release'] = 'other'
+            estimate(changed)
+            self.assertEqual((receipt.call_count, queue._connection.call_count), (5,5))
+            adapter.storage_estimator()(self.lease)
+            self.assertEqual((receipt.call_count, queue._connection.call_count), (6,6))
+            connection.execute.return_value.fetchone.return_value = None
+            with self.assertRaisesRegex(ArtifactError, 'unavailable'):
+                adapter.container_command(self.lease, self.fixture.work)
 
 
 if __name__ == '__main__':

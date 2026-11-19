@@ -1461,6 +1461,14 @@ The scheduling implementation has these explicit bounds:
   recall can take the next turn. During a sequence of starts, the dispatcher
   polls active simulations between starts when a second has elapsed since the
   last poll. These polls handle cancellations, output validation and handovers.
+  While checking models for memory or disk pressure, the worker renews its
+  leases as a group. It continues renewing them during a slow check and verifies
+  ownership again before reserving additional resources.
+  Within one admission decision, candidates share a reading of free disk space
+  and outstanding quota reservations. Configurations using the same prepared
+  dataset revision, model image and release also share the input sizing
+  calculation. Each configuration still has its own storage requirement.
+  At launch the executor reserves space and verifies the selected inputs.
   Routine file retirement also runs during sustained admissions.
 - A separate worker checks older successful configurations for missing Visualiser
   results. It starts with the dispatcher and waits 60 seconds after each batch.

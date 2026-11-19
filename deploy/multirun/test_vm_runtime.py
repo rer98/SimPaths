@@ -348,6 +348,11 @@ class VMRuntimeTests(unittest.TestCase):
                 selection = public.post('/api/review-experiment-retries', json=dict(experiment=experiment))
                 self.assertEqual(selection.status_code, 200, selection.text)
                 self.assertEqual(selection.json()['jobs'], [])
+                cancellable = public.post('/api/review-experiment-cancellation', json=dict(experiment=experiment))
+                self.assertEqual(cancellable.status_code, 200, cancellable.text)
+                self.assertEqual([j['id'] for j in cancellable.json()['jobs']], [started['jobs'][0]['id']])
+                unconfirmed = '/api/experiment-cancellations/' + cancellable.json()['request_id']
+                self.assertEqual(public.get(unconfirmed).status_code, 404)
                 original_attempts = attempt_ids(experiment)
                 self.assertEqual(len(original_attempts), 1)
                 cookies = dict(public.cookies)
@@ -482,6 +487,63 @@ class VMRuntimeTests(unittest.TestCase):
             finally:
                 release.set()
         self.assertTrue(visualiser.stop.is_set())
+
+    def test_confirmed_cancellation_survives_closing_public_client(self):
+        import asyncio
+        from jasmine_web.batch.browser import create_app
+        dataset = self.dataset(provider=True)
+        adapter = DummyAdapter(delay=60)
+        adapter.preparation = SimpleNamespace(retire_failed=lambda *a, **kw: None)
+        with patch.object(runtime, 'DispatchAdapter', return_value=adapter):
+            bundle = self.app(private_service=True)
+        public_app = create_app(bundle.service, origin=self.origin)
+        public_closed = Event()
+        stop = FixtureExecutor.stop
+
+        def stop_after_close(executor, lease, reason):
+            if not public_closed.wait(10):
+                raise AssertionError('The browser waited for the model to stop')
+            return stop(executor, lease, reason)
+
+        def workflow():
+            try:
+                with TestClient(public_app, base_url=self.origin) as client:
+                    self.sign_in(client)
+                    form = dict(name='Background cancellation', common=dict(population=20, start_year=2019, end_year=2020),
+                                repetitions=1, baseline='first', auto_retry=False,
+                                run_sets=[dict(id='first', name='Baseline', model_args={})])
+                    review = client.post('/api/review-experiment', json=dict(dataset=dataset, form=form))
+                    self.assertEqual(review.status_code, 200, review.text)
+                    submitted = client.post('/api/submit', json=dict(key='background-stop-proof', review=review.json()['review']))
+                    self.assertEqual(submitted.status_code, 201, submitted.text)
+                    experiment = submitted.json()['id']
+                    def running():
+                        with self.q._connection() as c:
+                            return c.execute("""SELECT a.id FROM attempts a JOIN jobs j ON j.id=a.job_id
+                                WHERE j.experiment_id=%s AND a.phase='running'""", (experiment,)).fetchone()
+                    attempt = until(running)['id']
+                    selection = client.post('/api/review-experiment-cancellation', json=dict(experiment=experiment))
+                    self.assertEqual(selection.status_code, 200, selection.text)
+                    ticket = selection.json()
+                    accepted = client.post('/api/submit', json=dict(key=ticket['request_id'], review=ticket['review']))
+                    self.assertEqual(accepted.status_code, 201, accepted.text)
+            finally:
+                public_closed.set()
+            until(lambda: self.q.inspect(self.owner, experiment)['jobs'][0]['state'] == 'cancelled')
+            with self.q._connection() as c:
+                ended = c.execute('SELECT phase,outcome,stop_evidence FROM attempts WHERE id=%s', (attempt,)).fetchone()
+            self.assertEqual((ended['phase'], ended['outcome']), ('finished','cancelled'))
+            self.assertTrue(ended['stop_evidence'])
+            with TestClient(public_app, base_url=self.origin) as returned:
+                self.sign_in(returned)
+                receipt = returned.get('/api/experiment-cancellations/' + ticket['request_id'])
+                self.assertEqual(receipt.json(), dict(id=ticket['request_id'], experiment=experiment, total=1, requested=1))
+
+        async def exercise():
+            async with bundle.lifespan(None):
+                await asyncio.to_thread(workflow)
+        with patch.object(FixtureExecutor, 'stop', stop_after_close):
+            asyncio.run(exercise())
 
     def test_private_runtime_resumes_accepted_retries_with_the_browser_closed(self):
         import asyncio

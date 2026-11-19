@@ -12,10 +12,11 @@ from pathlib import Path
 import signal
 import sys
 import tempfile
+from threading import Event
 import time
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from uuid import uuid4
 
 from deploy._workflow import frontend_path
@@ -56,6 +57,79 @@ class FixtureExecutor(LocalExecutor):
         self._require_guard()
         if self.inspect(lease)['state']!='stopped':
             raise Conflict('Fixture process termination is unconfirmed')
+
+
+def idle_visualiser():
+    """A scheduler with no pending chart work still has a processor and cache lifecycle."""
+    stop = Event()
+    return SimpleNamespace(max_workers=2, prepare_completions=Mock(return_value=False),
+        discover=Mock(return_value=0), pending_demand=lambda:dict(queued=0,running=0), completion_handover=Mock(),
+        stop=stop, tick=Mock(return_value=False), retire=Mock(return_value=False), close=stop.set)
+
+
+@unittest.skipUnless(DSN, 'Use disposable PostgreSQL')
+class FinishedWorkspaceTests(unittest.TestCase):
+    def setUp(self):
+        from test_attempt_cleanup import AttemptCleanupTests
+        self.f = AttemptCleanupTests()
+        self.addCleanup(self.f.doCleanups)
+        self.f.setUp()
+
+    def scan(self, cleanup):
+        from .local_web import retire_finished
+        from jasmine_web.batch.worker import AdmissionTiming
+        timing = AdmissionTiming()
+        with self.f.executor.exclusive(), patch.object(self.f.executor, 'cleanup', cleanup, create=True):
+            retire_finished(self.f.q, self.f.executor, timing=timing)
+        return timing
+
+    def test_recovered_marker_needs_no_second_cleanup_and_a_fresh_pass_skips_the_workspace(self):
+        from . import local_web
+        lease,path,_ = self.f.attempt(outcome='success')
+        cleanup = Mock()
+        record = local_web._record_workspace_retirements
+        def lose_receipt(queue, attempts):
+            if attempts:
+                raise RuntimeError('Lost database connection')
+            record(queue, attempts)
+        with patch.object(local_web, '_record_workspace_retirements', side_effect=lose_receipt):
+            with self.assertRaisesRegex(RuntimeError, 'Lost database'):
+                self.scan(cleanup)
+        cleanup.assert_called_once()
+        self.assertTrue((path/'payload-retired.json').is_file())
+        self.assertFalse((path/'work/input').exists())
+        self.assertTrue((path/'work/output/partial.csv').exists())
+        self.assertFalse(self.f.sql('SELECT * FROM workspace_retirements'))
+        with patch.object(self.f.q, '_lease', side_effect=AssertionError('Loaded settled specification')):
+            timing = self.scan(cleanup)
+        self.assertEqual(timing.counts['finished_workspace_already_retired'], 1)
+        self.assertEqual(self.f.sql('SELECT attempt_id::text AS id FROM workspace_retirements'),[dict(id=lease.attempt_id)])
+        with patch.object(self.f.executor, 'workspace', side_effect=AssertionError('Reopened retired workspace')):
+            self.assertEqual(self.scan(cleanup).counts['finished_attempt_rows'],0)
+        cleanup.assert_called_once()
+
+    def test_selection_waits_for_finished_and_partial_cleanup_and_rechecks_missing_workspaces(self):
+        completed,workspace,_ = self.f.attempt(outcome='success')
+        partial,partial_path,_ = self.f.attempt('bob',verified=True)
+        failed,_,_ = self.f.attempt('carol')
+        other = workspace.with_name('temporarily-unavailable')
+        workspace.rename(other)
+        cleanup = Mock()
+        before = self.scan(cleanup)
+        self.assertEqual(before.counts['finished_attempt_rows'],1)
+        self.assertEqual(before.counts['finished_workspace_missing'],1)
+        cleanup.assert_not_called()
+        other.rename(workspace)
+        self.f.retire()
+        self.f.sql('UPDATE reservations SET released_at=NULL WHERE attempt_id=%s',(completed.attempt_id,))
+        self.assertEqual(self.scan(cleanup).counts['finished_workspace_retired'],1)
+        self.assertTrue((partial_path/'work/output/partial.csv').is_file())
+        self.f.sql('UPDATE reservations SET released_at=now() WHERE attempt_id=%s',(completed.attempt_id,))
+        self.assertEqual(self.scan(cleanup).counts['finished_workspace_retired'],1)
+        confirmed = {row['id'] for row in self.f.sql('SELECT attempt_id::text AS id FROM workspace_retirements')}
+        self.assertEqual(confirmed,{completed.attempt_id,partial.attempt_id})
+        self.assertNotIn(failed.attempt_id,confirmed)
+        self.assertEqual(self.scan(cleanup).counts['finished_attempt_rows'],0)
 
 
 @unittest.skipUnless(DSN, 'Use vm_proof.py with disposable PostgreSQL')
@@ -271,6 +345,9 @@ class VMRuntimeTests(unittest.TestCase):
                     status = public.get('/api/experiments/'+experiment).json()
                     return status if status.get('jobs') and status['jobs'][0]['state'] == 'active' else None
                 started = until(active)
+                selection = public.post('/api/review-experiment-retries', json=dict(experiment=experiment))
+                self.assertEqual(selection.status_code, 200, selection.text)
+                self.assertEqual(selection.json()['jobs'], [])
                 original_attempts = attempt_ids(experiment)
                 self.assertEqual(len(original_attempts), 1)
                 cookies = dict(public.cookies)
@@ -361,6 +438,90 @@ class VMRuntimeTests(unittest.TestCase):
             with self.assertRaises(Conflict):
                 with database_guard(self.q,exclusive=True):pass
         with state_guard(self.state,exclusive=True),self.assertRaises(ArtifactError):self.app()
+
+    def test_scheduled_dispatch_fills_capacity_while_historical_discovery_is_busy(self):
+        from jasmine_web.batch.preparation_scheduler import PreparationScheduler
+        dataset = self.dataset(provider=True)
+        for index in range(7):
+            owner = self.access.approve_email(f'owner{index}@example.org')
+            self.q.grant_dataset(owner, dataset)
+            self.q.submit(owner, f'submission-{index}', label='Capacity test', model_digest=self.image,
+                          dataset_id=dataset, seed_plan=['606'], run_sets=[dict(id='model', parameters={})],
+                          resources=Resources(300,128,256))
+        app = self.app()
+        service = app.state.submissions
+        visualiser = idle_visualiser()
+        service.visualiser = visualiser
+        service.preparation_scheduler = PreparationScheduler(self.q,visualiser)
+        scanning, release, first_pass = Event(), Event(), Event()
+        def scan():
+            scanning.set()
+            release.wait()
+            return 0
+        visualiser.discover.side_effect = scan
+        observed = []
+        def record(timing, last_idle):
+            if not first_pass.is_set():
+                observed.append((dict(timing.decisions),dict(timing.counts),set(timing.stages)))
+                first_pass.set()
+            return last_idle
+        with patch.object(FixtureExecutor,'start',return_value={'state':'running'}), \
+                patch.object(FixtureExecutor,'inspect',return_value={'state':'running'}), \
+                patch.object(runtime.AdmissionTiming,'publish',new=record), TestClient(app,base_url=self.origin):
+            try:
+                self.assertTrue(scanning.wait(10))
+                self.assertTrue(first_pass.wait(30), 'Capacity checks waited for historical discovery')
+                decisions, counts, stages = observed[0]
+                self.assertEqual(decisions.get('started'), 6, decisions)
+                self.assertEqual(self.q.occupancy()['attempts'], 6)
+                self.assertEqual(counts['visualiser_refreshes'], 7)
+                self.assertEqual(visualiser.discover.call_count, 1)
+                self.assertTrue({'poll_running','cleanup','storage_budget','dataset_dependencies',
+                                 'visualiser_completions','independent_visualiser_demand'} <= stages)
+                self.assertNotIn('visualiser_discovery', stages)
+            finally:
+                release.set()
+        self.assertTrue(visualiser.stop.is_set())
+
+    def test_private_runtime_resumes_accepted_retries_with_the_browser_closed(self):
+        import asyncio
+        from jasmine_web.batch.browser import create_app
+        dataset = self.dataset(provider=True)
+        bundle = self.app(private_service=True)
+        client = TestClient(create_app(bundle.service, origin=self.origin), base_url=self.origin)
+        try:
+            self.sign_in(client)
+            form = dict(name='Background retry', common=dict(population=20, start_year=2019, end_year=2020),
+                        repetitions=1, baseline='first', auto_retry=False,
+                        run_sets=[dict(id='first', name='Baseline', model_args={})])
+            review = client.post('/api/review-experiment', json=dict(dataset=dataset, form=form))
+            self.assertEqual(review.status_code, 200, review.text)
+            submitted = client.post('/api/submit', json=dict(key='background-proof', review=review.json()['review']))
+            self.assertEqual(submitted.status_code, 201, submitted.text)
+            experiment = submitted.json()['id']
+            job = self.q.inspect(self.owner, experiment)['jobs'][0]['id']
+            self.q.cancel(self.owner, job)
+            selection = client.post('/api/review-experiment-retries', json=dict(experiment=experiment))
+            self.assertEqual(selection.status_code, 200, selection.text)
+            self.assertEqual([item['id'] for item in selection.json()['jobs']], [job])
+            accepted = client.post('/api/submit', json=dict(key='confirmed-retry', review=selection.json()['review']))
+            self.assertEqual(accepted.status_code, 201, accepted.text)
+        finally:
+            client.close()
+
+        def progress():
+            with self.q._connection() as c:
+                return c.execute('SELECT processed,queued FROM experiment_retry_requests WHERE experiment_id=%s',
+                                 (experiment,)).fetchone()
+        self.assertEqual(progress(), dict(processed=0, queued=0))
+
+        async def run_without_browser():
+            async with bundle.lifespan(None):
+                await asyncio.to_thread(until, lambda: progress() == dict(processed=1, queued=1))
+        asyncio.run(run_without_browser())
+        with self.q._connection() as c:
+            self.assertEqual(c.execute('SELECT count(*) AS n FROM manual_retries WHERE job_id=%s',
+                                       (job,)).fetchone()['n'], 1)
 
     def test_actual_dispatcher_completes_frozen_runtime_and_provider_download_stays_denied(self):
         dataset = self.dataset(provider=True)

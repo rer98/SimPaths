@@ -98,6 +98,20 @@ def bounds(wait_seconds, poll_seconds):
         raise ValueError('Use a 1-second to 7-day wait and a 1–60 second polling interval')
 
 
+def retry_update_lock(operation, *args, wait_seconds=120, poll_seconds=5,
+                      monotonic=time.monotonic, sleep=time.sleep, **kwargs):
+    """Retry one rolled-back database transaction. Never wrap installer callbacks."""
+    end = monotonic() + wait_seconds
+    while True:
+        try:
+            return operation(*args, **kwargs)
+        except Exception as error:
+            remaining = end - monotonic()
+            if getattr(error, 'sqlstate', None) != '55P03' or remaining <= 0:
+                raise
+            sleep(min(poll_seconds, remaining))
+
+
 def coordinate(queue, reference, candidate, *, install, verify, rollback=None, ready=None,
                wait_seconds=86400, poll_seconds=5, control=None,
                monotonic=time.monotonic, sleep=time.sleep):
@@ -114,24 +128,30 @@ def coordinate(queue, reference, candidate, *, install, verify, rollback=None, r
     if control is None:
         from jasmine_web.batch import update_admission as control
     until = monotonic()+wait_seconds
+    waiting = {}
     while True:
-        current = control.status(queue).get('current')
-        if (not current or current['reference'] != reference or current['candidate'] != candidate):
-            raise ValueError('The pending update does not match this exact candidate')
-        if current['state'] not in ('pending', 'draining'):
-            raise ValueError('Review an already started or settled update before retrying')
-        control.mark_draining(queue, reference, candidate)
-        snapshot = control.status(queue)
-        waiting = snapshot['waiting']
-        blocked = any(waiting.get(key,0) for key in ('input_preparations','chart_processors',
-                      'receiving_uploads','deleting_uploads','deleting_datasets','deleting_artifacts'))
-        if current['mode'] == 'drain':
-            blocked = blocked or waiting['models']
-        if not blocked and (ready is None or ready()):
-            # Recheck under the same pool lock as admissions. Pending handovers
-            # have no active helper and remain charged; they are not blockers.
-            control.begin_install(queue, reference, candidate)
-            break
+        try:
+            snapshot = control.status(queue)
+            current = snapshot.get('current')
+            if (not current or current['reference'] != reference or current['candidate'] != candidate):
+                raise ValueError('The pending update does not match this exact candidate')
+            if current['state'] not in ('pending', 'draining'):
+                raise ValueError('Review an already started or settled update before retrying')
+            control.mark_draining(queue, reference, candidate)
+            waiting = control.status(queue)['waiting']
+            blocked = any(waiting.get(key,0) for key in ('input_preparations','chart_processors',
+                          'receiving_uploads','deleting_uploads','deleting_datasets','deleting_artifacts'))
+            if current['mode'] == 'drain':
+                blocked = blocked or waiting['models']
+            if not blocked and (ready is None or ready()):
+                # Recheck under the pool lock. Work can change between observations.
+                control.begin_install(queue, reference, candidate)
+                break
+        except Exception as error:
+            # PostgreSQL rolled back this transaction. Re-read the durable fence and
+            # all reservations on the next pass, including after a failed begin_install.
+            if getattr(error, 'sqlstate', None) != '55P03':
+                raise
         if monotonic() >= until:
             return dict(reference=reference, state='draining', timed_out=True,
                         admissions_paused=True, waiting=waiting)
@@ -141,20 +161,23 @@ def coordinate(queue, reference, candidate, *, install, verify, rollback=None, r
         install()
         reason = 'verification_failed'
         verification = digest(verify())
-        control.complete(queue, reference, candidate, verification=verification)
+        retry_update_lock(control.complete, queue, reference, candidate, verification=verification,
+                          monotonic=monotonic, sleep=sleep)
         return dict(reference=reference, state='complete', admissions_paused=False,
                     verification=verification)
     except BaseException:
         # A failed process must not silently reopen a potentially mixed release.
-        control.fail(queue, reference, candidate, reason=reason)
+        retry_update_lock(control.fail, queue, reference, candidate, reason=reason, monotonic=monotonic, sleep=sleep)
         if rollback is not None:
             try:
                 verification = digest(rollback())
-                control.recover(queue, reference, candidate, verification=verification)
+                retry_update_lock(control.recover, queue, reference, candidate, verification=verification,
+                                  monotonic=monotonic, sleep=sleep)
                 return dict(reference=reference, state='cancelled', reason='verified_rollback',
                             admissions_paused=False, verification=verification)
             except BaseException:
-                control.fail(queue, reference, candidate, reason='rollback_failed')
+                retry_update_lock(control.fail, queue, reference, candidate, reason='rollback_failed',
+                                  monotonic=monotonic, sleep=sleep)
                 raise
         raise
 

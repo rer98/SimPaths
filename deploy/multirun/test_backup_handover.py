@@ -380,6 +380,9 @@ class NativeHandoverRecoveryTests(unittest.TestCase):
         self.assertEqual(rv.data_bytes(auth['token'],old_key),old_data)
         self.assertEqual(json.loads(rv.catalogue_bytes(auth['token'],old_key))['seeds'],['606'])
         restored.preparation_scheduler.refresh()
+        # The restored completion is already acknowledged. Run the historical
+        # worker's batch explicitly in this fixture, which has no service threads.
+        rv.discover()
         rv.tick()
         ready=[(key,record) for key,record in rv._entries()
                if record['selection']['experiment']==experiment]

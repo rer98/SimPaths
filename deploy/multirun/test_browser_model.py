@@ -364,6 +364,8 @@ class BrowserModelTests(unittest.TestCase):
         self.addCleanup(lambda:setattr(sys,'path',old))
         sys.path.insert(0,str(frontend_path()))
         from deploy.multirun.local_web import retire_finished
+        from jasmine_web.batch.worker import AdmissionTiming
+        timing = AdmissionTiming()
         root=self.fixture.root/'attempt'
         for name in ('request/source.csv','work/input/input.mv.db','work/output/run/input/input.mv.db',
                      'work/output/run/input/options.txt','work/output/run/csv/Person.csv','execution.log'):
@@ -373,15 +375,18 @@ class BrowserModelTests(unittest.TestCase):
         queue=Mock(spec=['_connection','_lease','pool_id','backup_state'],backup_state=self.fixture.root)
         queue._connection.return_value.__enter__=Mock(return_value=Mock())
         queue._connection.return_value.__exit__=Mock(return_value=False)
-        queue._connection.return_value.__enter__.return_value.execute.return_value.fetchall.return_value=[{'outcome':'success'}]
+        queue._connection.return_value.__enter__.return_value.execute.return_value.fetchall.return_value=[
+            dict(id='example',execution_key='example',prepared=False)]
         executor=Mock()
         executor.workspace.return_value=root
         executor.cleanup.side_effect=RuntimeError('Unconfirmed stop')
         with self.assertRaises(RuntimeError):
-            retire_finished(queue,executor)
+            retire_finished(queue,executor,timing=timing)
+        self.assertEqual(timing.failed_stages, {'finished_workspace_cleanup': 1})
+        self.assertEqual(timing.counts['finished_workspace_retired'],0)
         self.assertTrue((root/'request/source.csv').exists())
         executor.cleanup.side_effect=None
-        retire_finished(queue,executor)
+        retire_finished(queue,executor,timing=timing)
         self.assertFalse((root/'request').exists())
         self.assertFalse((root/'work/input').exists())
         self.assertFalse((root/'work/output/run/input/input.mv.db').exists())
@@ -389,7 +394,15 @@ class BrowserModelTests(unittest.TestCase):
             self.assertEqual((root/name).read_text(),'retained evidence')
         self.assertTrue((root/'payload-retired.json').exists())
         executor.cleanup.reset_mock()
-        retire_finished(queue,executor)
+        retire_finished(queue,executor,timing=timing)
+        executor.cleanup.assert_not_called()
+        self.assertEqual(timing.counts, dict(finished_attempt_rows=3,
+            finished_workspace_retired=1, finished_workspace_already_retired=1))
+        connection = queue._connection.return_value.__enter__.return_value
+        connection.execute.side_effect = RuntimeError('private database detail')
+        with self.assertRaises(RuntimeError):
+            retire_finished(queue,executor,timing=timing)
+        self.assertEqual(timing.failed_stages['finished_attempt_query'],1)
         executor.cleanup.assert_not_called()
 
     def test_old_preparation_cleanup_marker_removes_only_successful_upload_copies(self):
@@ -407,19 +420,19 @@ class BrowserModelTests(unittest.TestCase):
         diagnostic.write_text('private diagnostic')
         retained=self.fixture.root/'retained-artifact'
         retained.write_text('published dataset and original uploads are outside the attempt')
-        row={'specification':{'operation':'prepare'},'outcome':'model'}
+        row=dict(id='preparation',execution_key='preparation',prepared=True)
         queue=Mock(spec=['_connection','_lease','pool_id','backup_state'],backup_state=self.fixture.root)
         connection=Mock()
         queue._connection.return_value.__enter__=Mock(return_value=connection)
         queue._connection.return_value.__exit__=Mock(return_value=False)
-        connection.execute.return_value.fetchall.return_value=[row]
+        connection.execute.return_value.fetchall.return_value=[]
         executor=Mock()
         executor.workspace.return_value=root
         # Failed preparation retains its files for investigation.
         retire_finished(queue,executor)
         self.assertTrue(upload.exists())
         executor.cleanup.assert_not_called()
-        row['outcome']='success'
+        connection.execute.return_value.fetchall.return_value=[row]
         executor.cleanup.side_effect=RuntimeError('Unconfirmed container removal')
         with self.assertRaises(RuntimeError):
             retire_finished(queue,executor)

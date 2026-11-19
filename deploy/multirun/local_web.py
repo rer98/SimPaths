@@ -7,11 +7,13 @@ The separate SingleRun frontend and its state registry are not imported or chang
 @author ross richardson
 """
 import argparse
+from contextlib import nullcontext
 import json
 import os
 from pathlib import Path
 import shutil
 import sys
+from types import SimpleNamespace
 
 from deploy._workflow import frontend_path
 from .artifacts import ArtifactError, fingerprint
@@ -57,61 +59,110 @@ def frozen_release(state, image):
     return registry.load(expected_image=image)
 
 
-def retire_finished(queue, executor):
+def retire_finished(queue, executor, *, timing=None):
     from jasmine_web.batch.backup_guard import defer_cleanup
-    return defer_cleanup(_retire_finished)(queue,executor)
+    return defer_cleanup(_retire_finished)(queue,executor,timing=timing)
 
 
-def _retire_finished(queue, executor):
+def _retire_finished(queue, executor, *, timing=None):
     """Release finished container/input copies, retain scientific outputs and logs.
 
     Finished database state and confirmed container removal are prerequisites.
     Safe to repeat after interruption. Does not implement results retention.
     """
-    from jasmine_web.batch.local_executor import atomic_json, read_json
-    with queue._connection() as c:
-        rows=c.execute('''SELECT a.*,j.configuration_id,e.specification,j.resources,j.dataset_id,j.model_digest,j.prepared_fingerprint,j.execution_run,
-            EXISTS (SELECT 1 FROM repetitions r WHERE r.attempt_id=a.id AND r.actual_seed IS NOT NULL) AS verified
-            FROM attempts a JOIN jobs j ON j.id=a.job_id JOIN experiments e ON e.id=j.experiment_id
-            WHERE a.pool_id=%s AND a.phase='finished' AND (a.outcome='success' OR
-                (COALESCE(e.specification->>'operation','simulation')<>'prepare' AND EXISTS
-                    (SELECT 1 FROM repetitions r WHERE r.attempt_id=a.id AND r.actual_seed IS NOT NULL)
-                    AND EXISTS (SELECT 1 FROM attempt_cleanup ac WHERE ac.attempt_id=a.id AND ac.scratch_removed_at IS NOT NULL)))
-            ORDER BY a.finished_at''',(queue.pool_id,)).fetchall()
+    from jasmine_web.batch.local_executor import read_json
+    stage = timing.stage if timing is not None else nullcontext
+    with stage('finished_attempt_query'), queue._connection() as c:
+        # Historical experiments can have multi-megabyte specifications. Read
+        # the operation once per candidate experiment and defer full leases
+        # until a workspace actually needs file removal.
+        rows = c.execute("""WITH pending AS (
+                SELECT a.id,a.execution_key,a.outcome,a.finished_at,j.experiment_id
+                FROM attempts a JOIN jobs j ON j.id=a.job_id
+                WHERE a.pool_id=%s AND a.phase='finished'
+                  AND NOT EXISTS (SELECT 1 FROM reservations r WHERE r.attempt_id=a.id AND r.released_at IS NULL)
+                  AND NOT EXISTS (SELECT 1 FROM workspace_retirements w WHERE w.attempt_id=a.id)
+                  AND (a.outcome='success' OR (
+                       EXISTS (SELECT 1 FROM attempt_cleanup ac WHERE ac.attempt_id=a.id AND ac.scratch_removed_at IS NOT NULL)
+                       AND EXISTS (SELECT 1 FROM repetitions r WHERE r.attempt_id=a.id AND r.actual_seed IS NOT NULL)))
+            ), kinds AS MATERIALIZED (
+                SELECT id,COALESCE(specification->>'operation','simulation')='prepare' AS prepared
+                FROM experiments WHERE id IN (SELECT experiment_id FROM pending)
+            )
+            SELECT p.id,p.execution_key,k.prepared FROM pending p JOIN kinds k ON k.id=p.experiment_id
+            WHERE p.outcome='success' OR NOT k.prepared ORDER BY p.finished_at,p.id""",
+            (queue.pool_id,)).fetchall()
+    if timing is not None:
+        timing.counts['finished_attempt_rows'] += len(rows)
+
+    verified = []
+    pending = {}
     for row in rows:
-        if row.get('outcome') != 'success' and not row.get('verified'):
-            continue  # Unsuccessful attempts use the platform diagnostic lifecycle.
-        lease=queue._lease(row,row)
-        path=executor.workspace(lease)
-        if not path.exists():
-            continue
-        prepared=(row.get('specification',{}).get('operation')=='prepare' and row.get('outcome')=='success')
-        marker=read_json(path/'payload-retired.json') if (path/'payload-retired.json').exists() else None
-        # Earlier cleanup missed the extra upload copies made by preparation.
-        # Upgrade those markers only for successfully published preparation.
-        if marker and (not prepared or marker.get('preparation_uploads_removed')):
-            continue
-        executor.cleanup(lease)
-        # Preserve options.txt in each native run. Everything else in its input
-        # snapshot is a disposable copy; outputs, logs and queue specification stay.
-        targets=[path/'request',path/'work/input',path/'work/tmp']
-        if prepared:
-            targets.append(path/'work/startup/uploads')
-        for snapshot in (path/'work/output').glob('*/input'):
-            if snapshot.is_symlink() or snapshot.parent.is_symlink():
-                raise ArtifactError('Unexpected linked model snapshot')
-            targets.extend(p for p in snapshot.iterdir() if p.name!='options.txt')
-        for target in targets:
-            if any(p.is_symlink() for p in (target.parent,*target.parent.parents)):
-                raise ArtifactError('Unexpected linked attempt storage')
-            if target.is_symlink():
-                target.unlink()
-            elif target.is_dir():
-                shutil.rmtree(target)
+        with stage('finished_workspace_check'):
+            path = executor.workspace(SimpleNamespace(execution_key=row['execution_key']))
+            if not path.exists():
+                if timing is not None:
+                    timing.counts['finished_workspace_missing'] += 1
+                continue
+            marker_path = path/'payload-retired.json'
+            marker = read_json(marker_path) if marker_path.exists() else {}
+            if (marker.get('temporary_inputs_removed') is True and marker.get('outputs_retained') is True
+                    and (not row['prepared'] or marker.get('preparation_uploads_removed') is True)):
+                verified.append(row['id'])
+                if timing is not None:
+                    timing.counts['finished_workspace_already_retired'] += 1
             else:
-                target.unlink(missing_ok=True)
-        atomic_json(path/'payload-retired.json',dict(temporary_inputs_removed=True,outputs_retained=True,
-                                                   preparation_uploads_removed=prepared))
+                pending[row['id']] = (path, row['prepared'])
+    _record_workspace_retirements(queue, verified)
+    if not pending:
+        return
+    with stage('finished_attempt_query'), queue._connection() as c:
+        leases = c.execute("""SELECT a.*,j.configuration_id,e.specification,j.resources,
+                j.dataset_id,j.model_digest,j.prepared_fingerprint,j.execution_run
+            FROM attempts a JOIN jobs j ON j.id=a.job_id JOIN experiments e ON e.id=j.experiment_id
+            WHERE a.pool_id=%s AND a.phase='finished' AND a.id=ANY(%s::uuid[])
+            ORDER BY a.finished_at,a.id""", (queue.pool_id, list(pending))).fetchall()
+    for row in leases:
+        path, prepared = pending[row['id']]
+        with stage('finished_workspace_cleanup'):
+            executor.cleanup(queue._lease(row,row))
+            _retire_workspace_files(path, prepared)
+            _record_workspace_retirements(queue, [row['id']])
+        if timing is not None:
+            timing.counts['finished_workspace_retired'] += 1
+
+
+def _record_workspace_retirements(queue, attempts):
+    if attempts:
+        # File cleanup and atomic marker publication precede this commit.
+        # After a lost acknowledgement the marker is safe to adopt on restart.
+        with queue._connection() as c:
+            c.execute("""INSERT INTO workspace_retirements(attempt_id)
+                SELECT unnest(%s::uuid[]) ON CONFLICT (attempt_id) DO NOTHING""", (attempts,))
+
+
+def _retire_workspace_files(path, prepared):
+    from jasmine_web.batch.local_executor import atomic_json
+    # Preserve options.txt in each native run. Everything else in its input
+    # snapshot is a disposable copy; outputs, logs and queue specification stay.
+    targets=[path/'request',path/'work/input',path/'work/tmp']
+    if prepared:
+        targets.append(path/'work/startup/uploads')
+    for snapshot in (path/'work/output').glob('*/input'):
+        if snapshot.is_symlink() or snapshot.parent.is_symlink():
+            raise ArtifactError('Unexpected linked model snapshot')
+        targets.extend(p for p in snapshot.iterdir() if p.name!='options.txt')
+    for target in targets:
+        if any(p.is_symlink() for p in (target.parent,*target.parent.parents)):
+            raise ArtifactError('Unexpected linked attempt storage')
+        if target.is_symlink():
+            target.unlink()
+        elif target.is_dir():
+            shutil.rmtree(target)
+        else:
+            target.unlink(missing_ok=True)
+    atomic_json(path/'payload-retired.json',dict(temporary_inputs_removed=True,outputs_retained=True,
+                                               preparation_uploads_removed=prepared))
 
 
 def parse_args(argv=None):

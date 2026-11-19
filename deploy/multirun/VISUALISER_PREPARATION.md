@@ -1450,6 +1450,32 @@ The scheduling implementation has these explicit bounds:
   admission; a CPU reduction cannot free memory.
   Work waiting behind an already full set of aggregate workers does not idle
   otherwise available model capacity; no additional preparation can start then.
+  While a completed simulation funds preparation for its experiment through a
+  handover, the scheduler excludes that experiment from independent demand.
+  It still accounts for the resources held by the handover.
+- With preparation scheduling enabled, the dispatcher starts configurations one
+  at a time while eligible work fits. After each confirmed start, it checks
+  current completions, chart demand, dataset eligibility, storage and CPU
+  before claiming another configuration. The database enforces the pool and
+  owner limits at each claim. A runnable chart request or an outstanding CPU
+  recall can take the next turn. During a sequence of starts, the dispatcher
+  polls active simulations between starts when a second has elapsed since the
+  last poll. These polls handle cancellations, output validation and handovers.
+  Routine file retirement also runs during sustained admissions.
+- A separate worker checks older successful configurations for missing Visualiser
+  results. It starts with the dispatcher and waits 60 seconds after each batch.
+  Its saved cursor survives restarts. New completions and current chart requests
+  still receive attention before each model admission.
+- The private executor journal records `multirun_admission` with elapsed
+  milliseconds, times by stage and decision counts. The cleanup and Visualiser
+  refresh totals each include their component stages. The `counts` field records
+  cleanup rows and outcomes, Visualiser refreshes, checks with a backlog and
+  polls between starts. The separate `multirun_visualiser_discovery` record gives
+  the duration of each historical check and the number of requests it handled,
+  including requests for results already in the cache.
+  `failed_stages` lists each stage through which an exception propagated.
+  A single failure can appear at several nesting levels. Resource decisions
+  count candidates considered. One candidate can lack both memory and CPU.
 - The revised candidate enables two independent preparation slots, each with
   up to two seed tasks. Larger groups require their full separately admitted
   CPU/RAM/scratch allowance; a failed larger request falls back to the ordinary

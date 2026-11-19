@@ -191,6 +191,49 @@ class ApplicationUpdateTests(unittest.TestCase):
         self.assertEqual(result['state'],'complete')
         self.assertFalse(result['admissions_paused'])
 
+    def test_rolled_back_drain_transitions_recheck_ownership_and_install_once(self):
+        class LockTimeout(Exception):
+            sqlstate = '55P03'
+        for method in ('status', 'mark_draining', 'begin_install', 'complete'):
+            with self.subTest(method=method):
+                control=Control()
+                original=getattr(control,method)
+                outcomes=[LockTimeout(), None]
+                def interrupted(*args,**kwargs):
+                    error=outcomes.pop(0) if outcomes else None
+                    if error: raise error
+                    return original(*args,**kwargs)
+                setattr(control,method,interrupted)
+                install=Mock()
+                result=self.run_update(control,install=install,sleep=lambda _:None)
+                self.assertEqual(result['state'],'complete')
+                install.assert_called_once()
+                self.assertEqual(control.calls,['begin',('complete',VERIFIED)])
+
+    def test_persistent_drain_lock_respects_deadline_without_starting_installation(self):
+        error=RuntimeError('busy')
+        error.sqlstate='55P03'
+        control=Control()
+        control.mark_draining=Mock(side_effect=error)
+        clock=[0]
+        def sleep(seconds): clock[0]+=seconds
+        install=Mock()
+        result=self.run_update(control,install=install,wait_seconds=3,poll_seconds=2,
+                               monotonic=lambda:clock[0],sleep=sleep)
+        self.assertTrue(result['timed_out'])
+        self.assertEqual(clock[0],3)
+        install.assert_not_called()
+
+    def test_lock_inside_installation_is_never_replayed(self):
+        error=RuntimeError('locked during publication')
+        error.sqlstate='55P03'
+        install=Mock(side_effect=error)
+        control=Control()
+        with self.assertRaises(RuntimeError):
+            self.run_update(control,install=install)
+        install.assert_called_once()
+        self.assertEqual(control.calls,['begin',('fail','install_failed')])
+
     def test_live_mode_retains_models_and_charged_pending_handovers(self):
         control=Control('live',waiting=dict(models=4,pending_handovers=2))
         result=self.run_update(control,install=Mock(),sleep=Mock(side_effect=AssertionError('Do not wait for models')))

@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import signal
 import threading
+import time
 from functools import wraps
 
 from .browser_model import BrowserModel
@@ -33,7 +34,11 @@ from jasmine_web.batch.results import Results
 from jasmine_web.batch.retention import Retention
 from jasmine_web.batch.storage import Storage
 from jasmine_web.batch.submission_service import Submissions
-from jasmine_web.batch.worker import Worker
+from jasmine_web.batch.worker import AdmissionTiming, Worker
+
+
+# Revisit routine retention during a sustained run of successful admissions.
+DISPATCH_HOUSEKEEPING_SECONDS = 60
 
 
 def maintenance_guard(operation):
@@ -214,24 +219,54 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
     fatal=threading.Event()
     def dispatch():
         try:
+            def retire_finished_work(*, include_retention=False):
+                with timing.stage('failed_attempt_cleanup'):
+                    service.attempt_cleanup.retire(timing=timing)
+                with timing.stage('finished_attempt_cleanup'):
+                    retire_finished(q,executor,timing=timing)
+                if include_retention:
+                    service.retention.retire()
+                with timing.stage('dataset_retirement'):
+                    service.lifecycle.retire(state/'artifacts')
+                with timing.stage('output_retirement'):
+                    service.outputs.retire()
+
             def before_claim():
-                if executor.pipeline_storage is not None:executor.pipeline_storage.retire_failed(q)
-                if not storage_budget.tick():
+                nonlocal housekeeping_due, next_housekeeping
+                if stop.is_set():
+                    timing.decisions['shutdown'] += 1
                     return False
-                service.attempt_cleanup.retire()
-                retire_finished(q,executor)
-                service.retention.retire()
-                service.lifecycle.retire(state/'artifacts')
-                service.outputs.retire()
-                service.lifecycle.reconcile()
-                if hasattr(service,'preparation_scheduler'):
-                    service.preparation_scheduler.refresh()
+                if scheduler is not None and not housekeeping_due and time.monotonic() >= next_housekeeping:
+                    # admit_ready already maintains the leases around this callback.
+                    with timing.stage('cleanup'), timing.stage('cleanup_work'):
+                        retire_finished_work()
+                    housekeeping_due = True
+                if housekeeping_due and executor.pipeline_storage is not None:
+                    with timing.stage('retire_pipeline'):
+                        executor.pipeline_storage.retire_failed(q)
+                with timing.stage('storage_budget'):
+                    if not storage_budget.tick():
+                        timing.decisions['storage_budget_unavailable'] += 1
+                        return False
+                if housekeeping_due:
+                    with timing.stage('retention'):
+                        if scheduler is None:
+                            retire_finished_work(include_retention=True)
+                        else:
+                            service.retention.retire()
+                    housekeeping_due = scheduler is None
+                    next_housekeeping = time.monotonic() + DISPATCH_HOUSEKEEPING_SECONDS
+                with timing.stage('dataset_dependencies'):
+                    service.lifecycle.reconcile()
+                if scheduler is not None:
+                    with timing.stage('visualiser_refresh'):
+                        scheduler.refresh(timing=timing)
             scheduler=getattr(service,'preparation_scheduler',None)
             worker=Worker(q,executor,adapter,'local-browser-worker' if local_codes else 'vm-browser-worker',
                           before_claim=before_claim,
                           cpu_hold=scheduler.cpu_hold if scheduler else None,
                           admission_guard=(lambda:scheduler.guard) if scheduler else None,
-                          admission_check=(lambda:scheduler.admit(worker)) if scheduler else None,
+                          admission_check=(lambda:scheduler.admit(worker,decisions=timing.decisions)) if scheduler else None,
                           after_claim=scheduler.claimed if scheduler else None,
                           completion_handover=service.visualiser.completion_handover if scheduler else None,
                           validation_scope=getattr(service,'validation_scope',None),
@@ -239,24 +274,38 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
             from jasmine_web.batch.idle_interactive_cpu import RecallListener
             recall=(RecallListener(q,lambda:worker.rebalance_cpu(reserve_cpu_millis=0,allow_queued=False))
                     if getattr(args,'lend_idle_interactive_cpu',False) else nullcontext())
-            with worker.open(),recall:
+            discovery = scheduler.historical_discovery() if scheduler is not None else nullcontext()
+            with worker.open(), recall, discovery:
+                last_idle = None
                 while not stop.is_set():
+                    timing = AdmissionTiming()
+                    housekeeping_due = True
+                    next_housekeeping = 0
+                    delay = 1
                     try:
-                        worker.tick(claim_new=False)
-                        with worker.maintenance():
-                            service.attempt_cleanup.retire()
-                            retire_finished(q,executor)
-                            service.lifecycle.retire(state/'artifacts')
-                            service.outputs.retire()
-                        worker.tick(max_claims=1 if scheduler else 32)
+                        with timing.stage('poll_running'):
+                            worker.tick(claim_new=False)
+                        with timing.stage('cleanup'), worker.maintenance():
+                            # The difference from the outer time includes lease entry and exit.
+                            with timing.stage('cleanup_work'):
+                                retire_finished_work()
+                        if scheduler is not None:
+                            worker.admit_ready(max_claims=None, timing=timing, follow_running_only=True,
+                                               stop_requested=stop.is_set)
+                        else:
+                            worker.tick(max_claims=32)
                         health['message']=''
                     except Exception as error:
+                        timing.decisions['dispatcher_error'] += 1
                         health['message']=('The dispatcher is waiting for recovery. Submitted jobs remain recorded; check the server terminal.'
                             if local_codes else 'The service is recovering. Your submitted jobs remain recorded.')
                         # Database/connection exceptions can carry credentials.
                         print('Worker waiting for recovery: '+type(error).__name__,flush=True)
-                        stop.wait(5)
-                    stop.wait(1)
+                        delay = 6
+                    finally:
+                        if scheduler is not None:
+                            last_idle = timing.publish(last_idle)
+                    stop.wait(delay)
         except Exception as error:
             health['message']=('The dispatcher stopped. Submitted jobs remain recorded; check the server terminal and restart.'
                 if local_codes else 'The service is restarting. Your submitted jobs remain recorded.')
@@ -311,6 +360,19 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                 except Exception as error:
                     print('Notification checks waiting for recovery: '+type(error).__name__,flush=True)
                 stop.wait(5)
+        def retries():
+            from jasmine_web.batch.retries import process_experiment_retry
+            while not stop.is_set():
+                service.retry_requests_ready.clear()
+                try:
+                    if process_experiment_retry(q):continue
+                except Exception as error:
+                    print('Experiment retries waiting for recovery: '+type(error).__name__,flush=True)
+                    stop.wait(5)
+                    continue
+                if not stop.is_set():service.retry_requests_ready.wait(60)
+        retry_worker=threading.Thread(target=retries,name='multirun-reviewed-retries',daemon=True)
+        retry_worker.start()
         notifications=threading.Thread(target=notify,name='multirun-notifications',daemon=True)
         notifications.start()
         try:
@@ -318,6 +380,8 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
         finally:
             async def shutdown():
                 stop.set()
+                service.retry_requests_ready.set()
+                await asyncio.to_thread(retry_worker.join)
                 # Keep lifecycle fences until in-flight publication/cleanup finishes.
                 # Containers retain independent deadlines and survive this process.
                 await asyncio.to_thread(thread.join)

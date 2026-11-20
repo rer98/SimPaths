@@ -29,6 +29,31 @@ def rows(c, queue, query, tables, args=()):
     return c.execute(sql.SQL(query).format(*[sql.Identifier(queue.schema,t) for t in tables]),args).fetchall()
 
 
+def finished_attempts(c, queue):
+    """Read each experiment's frozen specification once within the exported snapshot."""
+    from psycopg import sql
+    tables = ('attempts', 'jobs', 'output_deletions', 'artifact_retention')
+    query = sql.SQL('''SELECT a.*,j.experiment_id,j.configuration_id,j.resources,j.dataset_id,j.model_digest,
+        j.prepared_fingerprint,j.execution_run,d.requested_at,d.deleted_at,d.reason AS deletion_reason,
+        r.state AS retention_state FROM {} a JOIN {} j ON j.id=a.job_id
+        LEFT JOIN {} d ON d.attempt_id=a.id LEFT JOIN {} r
+          ON r.pool_id=a.pool_id AND r.kind='output' AND r.artifact_id=a.id::text
+        WHERE a.pool_id=%s AND a.phase='finished' ORDER BY j.experiment_id,a.id''').format(
+            *[sql.Identifier(queue.schema, table) for table in tables])
+    specification_query = sql.SQL('SELECT specification FROM {} WHERE id=%s').format(
+        sql.Identifier(queue.schema, 'experiments'))
+    previous_experiment = None
+    with c.cursor(name='backup_finished_attempts', scrollable=False) as attempts:
+        attempts.itersize = 8
+        attempts.execute(query, (queue.pool_id,))
+        for row in attempts:
+            if row['experiment_id'] != previous_experiment:
+                previous_experiment = row['experiment_id']
+                specification = c.execute(specification_query, (previous_experiment,)).fetchone()['specification']
+            row['specification'] = specification
+            yield row
+
+
 def selected_files(c, queue, state):
     """Choose only snapshot-referenced uploads, prepared inputs and settled output."""
     from .queue_adapter import read_prepared
@@ -57,14 +82,7 @@ def selected_files(c, queue, state):
         if path.is_relative_to(state):
             keys.update((path.relative_to(state)/key).as_posix() for key,info in scan(path).items() if stat.S_ISREG(info[2]))
     roots=source_roots(state,[p['location'] for p in prepared])
-    attempts = rows(c,queue,'''SELECT a.*,j.configuration_id,j.resources,j.dataset_id,j.model_digest,
-        j.prepared_fingerprint,j.execution_run,e.specification,d.requested_at,d.deleted_at,d.reason AS deletion_reason,
-        r.state AS retention_state FROM {} a JOIN {} j ON j.id=a.job_id JOIN {} e ON e.id=j.experiment_id
-        LEFT JOIN {} d ON d.attempt_id=a.id LEFT JOIN {} r
-          ON r.pool_id=a.pool_id AND r.kind='output' AND r.artifact_id=a.id::text
-        WHERE a.phase='finished' ORDER BY a.id''',
-        ['attempts','jobs','experiments','output_deletions','artifact_retention'])
-    for row in attempts:
+    for row in finished_attempts(c,queue):
         base=state/'execution'/row['execution_key']
         pending_raw=(row['deletion_reason']=='raw_only' and row['requested_at'] is not None
                      and row['deleted_at'] is None)
@@ -268,10 +286,12 @@ def recover_database(c, queue, manifest, target):
     captured=datetime.fromisoformat(manifest['recovery']['captured_at'])
     c.execute(sql.SQL('SET LOCAL search_path TO {},pg_catalog').format(sql.Identifier(queue.schema)))
     active=rows(c,queue,'''SELECT a.*,j.state,j.auto_retry,j.cancel_requested,j.attempts,j.spent_seconds,
-        j.retry_credit_seconds,j.stop_reason,e.policy,e.owner_id,j.dataset_id,
+        j.retry_credit_seconds,j.stop_reason,e.policy,(p.policy->>'retry_delay_seconds')::integer AS retry_delay_seconds,
+        e.owner_id,j.dataset_id,
         v.model_finished_at,v.deadline AS validation_deadline FROM {} a JOIN {} j ON j.id=a.job_id
         JOIN {} e ON e.id=j.experiment_id LEFT JOIN {} v ON v.attempt_id=a.id
-        WHERE a.phase<>'finished' ORDER BY a.id''',['attempts','jobs','experiments','attempt_validations'])
+        JOIN {} p ON p.id=a.pool_id
+        WHERE a.phase<>'finished' ORDER BY a.id''',['attempts','jobs','experiments','attempt_validations','pools'])
     if [str(r['id']) for r in active] != manifest['recovery']['interrupted_attempts']:
         raise ArtifactError('Interrupted attempt inventory differs from the recovery snapshot')
     for row in active:
@@ -293,7 +313,7 @@ def recover_database(c, queue, manifest, target):
         c.execute(sql.SQL("UPDATE {} SET phase='finished',finished_at=%s,outcome=%s,stop_evidence=%s WHERE id=%s").format(
             sql.Identifier(queue.schema,'attempts')),(at,outcome,evidence,row['id']))
         c.execute(sql.SQL('UPDATE {} SET state=%s,spent_seconds=%s,eligible_at=%s WHERE id=%s').format(
-            sql.Identifier(queue.schema,'jobs')),(state,spent,at+timedelta(seconds=policy.retry_delay_seconds),row['job_id']))
+            sql.Identifier(queue.schema,'jobs')),(state,spent,at+timedelta(seconds=row['retry_delay_seconds']),row['job_id']))
         # Live output is intentionally omitted. Keep confirmed growth for the
         # next attempt, but never replay an external change in the inactive copy.
         c.execute(sql.SQL("UPDATE {} SET state='aborted',finished_at=%s WHERE attempt_id=%s AND state='pending'").format(

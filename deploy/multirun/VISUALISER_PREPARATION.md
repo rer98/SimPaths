@@ -1478,14 +1478,14 @@ The scheduling implementation has these explicit bounds:
   milliseconds, times by stage and decision counts. The cleanup and Visualiser
   refresh totals each include their component stages. The `counts` field records
   cleanup rows and outcomes, Visualiser refreshes, checks with a backlog and
-  polls between starts. The `cpu_rounds` field compares CPU checks at the
-  Visualiser priority decision and immediately before a storage-checked claim.
-  Each row gives the number of models already started in the pass, each check's
-  elapsed time and quota requests, and the number of running attempts read twice.
-  Where both plans completed, the row compares their running CPU targets.
-  The scheduler signature compares the eligible attempts, chosen queued job and
-  CPU budget. Equal signatures can still yield different targets as waiting time
-  accrues. Component times are included in each check's total. The journal keeps
+  polls between starts. When a model gets the turn, the dispatcher checks CPU
+  once using the candidate storage readings and confirms any quota changes
+  before claiming a configuration. When results preparation gets the turn, it
+  immediately rebalances CPU for preparation. Both decisions use the guard
+  shared with processor admission. In `cpu_rounds`, the model check is recorded
+  under `storage` and the preparation check under `priority`. Each row records
+  the number of starts so far, elapsed time and quota requests. End-of-pass CPU
+  redistribution is timed separately in `final_cpu_rebalance`. The journal keeps
   up to eight rounds per pass and counts subsequent rounds in `cpu_rounds_omitted`.
   The separate `multirun_visualiser_discovery` record gives
   the duration of each historical check and the number of requests it handled,

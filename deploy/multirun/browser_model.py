@@ -17,6 +17,7 @@ from .browser_sweep import BrowserSweep
 from .browser_copy import BrowserCopy
 from .schema import COLLECTOR_FIELDS, REQUIRED_OUTPUT, ConfigurationError, DeploymentLimitError, Limits
 from .workload_envelope import MAX_POPULATION, MAX_END_YEAR, validate_workload
+from .vm_frontend import SITE
 
 
 class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
@@ -34,7 +35,7 @@ class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
         repetition_word='repetition' if self.max_repetitions==1 else 'repetitions'
         max_simulations=min(self.max_configurations*self.max_repetitions,self.submission_limits.max_simulations)
         available=self.release_availability()
-        return dict(title='SimPaths Online', subtitle='UK MultiRun',
+        return dict(title=SITE['name'], subtitle=SITE['subtitle'],
             max_configurations=self.max_configurations, configuration_ceiling=Limits().max_run_sets,
             max_repetitions=self.max_repetitions, max_yaml_bytes=Limits().max_bytes,
             yaml=True, sweeps=True, first_seed='606',first_seed_label='randomSeedIfFixed',

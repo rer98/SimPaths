@@ -179,6 +179,46 @@ cannot be approved on a different host/boot. Keep installed-host hot-add,
 capacity-mail inbox delivery and representative mixed-load tests as acceptance
 checks; fictional metadata tests cannot establish provider upgrade behaviour.
 
+### Changing the per-user concurrency limit
+
+To change how many active configurations each account can have across its experiments,
+edit `[pool] per_user_active` in the installed private TOML. From the installed SimPaths
+checkout, apply that setting to the running service with the following command.
+
+```bash
+sudo -u simpaths-online /opt/simpaths-online/venv/bin/python \
+  -m deploy.multirun.compute_capacity \
+  --config /etc/simpaths-online/multirun.toml apply-user-limit
+```
+
+This command reports the previous and applied limits. The next admission checks the
+applied limit for every queued configuration, including older experiments and retries.
+Raising it can admit additional work if CPU, RAM and storage are available. Lowering
+it leaves existing reservations in place. An account at or above the new limit waits
+until completions bring it below the limit. Other accounts can still use available
+capacity. A subsequent service restart validates the pool against the installed TOML.
+
+### Changing worker leases and retry delays
+
+The worker lease is the period for which a worker owns a particular attempt. A healthy worker
+renews it. After expiry a recovery worker can take over the same attempt. The retry delay is
+the minimum time before a fresh attempt becomes eligible for admission.
+
+The optional `[pool]` settings are `lease_seconds` (default 60, range 5–300) and
+`retry_delay_seconds` (default 30, range 1–86400). After editing the installed TOML,
+apply both settings to the running queue with the following command.
+
+```bash
+sudo -u simpaths-online /opt/simpaths-online/venv/bin/python \
+  -m deploy.multirun.compute_capacity \
+  --config /etc/simpaths-online/multirun.toml apply-queue-timing
+```
+
+The next claim, renewal or recovery uses the current lease duration, including for older
+experiments. A shorter renewal honours the time already granted. Automatic and confirmed
+manual retries use the delay in force when scheduled. Previously assigned retry dates,
+model deadlines and attempt budgets retain their recorded values.
+
 ## Disposable native proof
 
 ```bash

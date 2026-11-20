@@ -19,6 +19,7 @@ from deploy._workflow import frontend_path
 from deploy.multirun.artifacts import ArtifactError
 from deploy.multirun.browser_model import BrowserModel
 from deploy.multirun.schema import ConfigurationError, DeploymentLimitError, MODEL_FIELDS
+from deploy.multirun.vm_frontend import SITE
 from deploy.multirun import test_prepared_dataset as prepared_fixture
 
 
@@ -51,6 +52,12 @@ class BrowserModelTests(unittest.TestCase):
         summary=self.model.browser_summary(request)
         self.assertEqual(summary['different'],['savingRate'])
         self.assertEqual(len(summary['configurations']),2)
+
+    def test_signed_in_header_matches_the_public_simpaths_brand(self):
+        form = self.model.browser_form()
+        self.assertEqual((form['title'], form['subtitle']), ('SimPaths', 'Life Course Microsimulation'))
+        self.assertEqual((form['title'], form['subtitle']), (SITE['name'], SITE['subtitle']))
+        self.assertEqual(SITE['logo'], '/static/simpaths-logo.svg')
 
     def test_new_experiments_and_prepared_inputs_default_to_2026(self):
         self.assertEqual(next(f for f in self.model.browser_form()['common'] if f['id']=='end_year')['default'],2026)

@@ -13,10 +13,9 @@ For a read-only terminal overview of an existing service, see
 [operator status](OPERATOR.md).
 For matching PostgreSQL/private-file backups and isolated recovery, see
 [backup and restore](BACKUP.md).
-The page uses the same SimPaths logo and favicon as SingleRun, with the logo
-beside **SimPaths Online**, with **UK MultiRun** beneath the title, including
-before sign-in. The browser tab is titled **SimPaths Online — UK MultiRun**. The
-assets are served locally by JAS-mine-web.
+The page uses the same transparent logo and favicon as SingleRun. The header
+shows **SimPaths** above **LIFE COURSE MICROSIMULATION** before and after sign-in.
+JAS-mine-web serves both images locally.
 
 You can sign in, select prepared training inputs or upload and prepare your own,
 create fixed configuration cards, duplicate them, select a baseline, review the

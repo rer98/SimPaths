@@ -169,6 +169,17 @@ class VMRuntimeTests(unittest.TestCase):
         with self.q._connection() as c:
             c.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(self.schema)))
 
+    def test_registry_restarts_with_operator_applied_queue_timing(self):
+        self.args.lease_seconds = 75
+        self.args.retry_delay_seconds = 17
+        with self.assertRaises(Conflict):
+            runtime.create_registry(self.args, self.q, self.state, self.deliver)
+        self.q.apply_queue_timing(lease_seconds=75, retry_delay_seconds=17)
+        runtime.create_registry(self.args, self.q, self.state, self.deliver)
+        with self.q._connection() as c:
+            row = c.execute('SELECT policy FROM pools WHERE id=%s', (self.q.pool_id,)).fetchone()
+        self.assertEqual((row['policy']['lease_seconds'], row['policy']['retry_delay_seconds']), (75, 17))
+
     def app(self, **kwargs):
         return runtime.create_application(self.args, self.q, self.state, self.access,
             self.datasets, self.preparations, self.keys, self.image, self.origin, **kwargs)
@@ -444,6 +455,27 @@ class VMRuntimeTests(unittest.TestCase):
                 with database_guard(self.q,exclusive=True):pass
         with state_guard(self.state,exclusive=True),self.assertRaises(ArtifactError):self.app()
 
+    def test_drain_skips_candidate_and_quota_work_while_retiring_completed_work(self):
+        from jasmine_web.batch.update_admission import request
+        from jasmine_web.batch.preparation_scheduler import PreparationScheduler
+        app = self.app()
+        service = app.state.submissions
+        service.visualiser = idle_visualiser()
+        service.preparation_scheduler = PreparationScheduler(self.q,service.visualiser)
+        request(self.q,'c'*64,mode='drain')
+        seen = Event()
+        observations = []
+        def record(timing, last_idle):
+            observations.append((dict(timing.decisions),set(timing.stages)))
+            seen.set()
+            return last_idle
+        with patch.object(runtime.AdmissionTiming,'publish',new=record), TestClient(app,base_url=self.origin):
+            self.assertTrue(seen.wait(30))
+        decisions,stages = observations[0]
+        self.assertEqual(decisions.get('update_pause'),1)
+        self.assertTrue({'poll_running','cleanup','visualiser_completions'} <= stages)
+        self.assertFalse({'candidate_storage','cpu_rebalance','final_cpu_rebalance','claim'} & stages)
+
     def test_scheduled_dispatch_fills_capacity_while_historical_discovery_is_busy(self):
         from jasmine_web.batch.preparation_scheduler import PreparationScheduler
         dataset = self.dataset(provider=True)
@@ -467,7 +499,8 @@ class VMRuntimeTests(unittest.TestCase):
         observed = []
         def record(timing, last_idle):
             if not first_pass.is_set():
-                observed.append((dict(timing.decisions),dict(timing.counts),set(timing.stages)))
+                observed.append((dict(timing.decisions),dict(timing.counts),set(timing.stages),
+                                 list(timing.cpu_rounds)))
                 first_pass.set()
             return last_idle
         with patch.object(FixtureExecutor,'start',return_value={'state':'running'}), \
@@ -476,10 +509,12 @@ class VMRuntimeTests(unittest.TestCase):
             try:
                 self.assertTrue(scanning.wait(10))
                 self.assertTrue(first_pass.wait(30), 'Capacity checks waited for historical discovery')
-                decisions, counts, stages = observed[0]
+                decisions, counts, stages, rounds = observed[0]
                 self.assertEqual(decisions.get('started'), 6, decisions)
                 self.assertEqual(self.q.occupancy()['attempts'], 6)
                 self.assertEqual(counts['visualiser_refreshes'], 7)
+                self.assertEqual([r['started_before'] for r in rounds], list(range(7)))
+                self.assertTrue(all('storage' in r and 'priority' not in r for r in rounds))
                 self.assertEqual(visualiser.discover.call_count, 1)
                 self.assertTrue({'poll_running','cleanup','storage_budget','dataset_dependencies',
                                  'visualiser_completions','independent_visualiser_demand'} <= stages)

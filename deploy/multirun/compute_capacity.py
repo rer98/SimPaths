@@ -33,6 +33,8 @@ def main(argv=None):
     child.add_argument('--memory-mib',type=int,help='Optional chosen RAM budget below the safe maximum')
     child=commands.add_parser('apply',help='Approve exactly one previously reviewed proposal')
     child.add_argument('--proposal',required=True,help='UUID returned by preview')
+    commands.add_parser('apply-user-limit', help='Apply the configured [pool] per_user_active to queued work')
+    commands.add_parser('apply-queue-timing', help='Apply the configured worker lease and retry delay')
     args=parser.parse_args(argv)
     try:
         from .privilege_config import trusted_installation
@@ -56,6 +58,11 @@ def main(argv=None):
                 result=budget.status(queue)
             elif args.command=='preview':
                 result=budget.preview(queue,cpu_millis=args.cpu_millis,memory_mib=args.memory_mib)
+            elif args.command=='apply-queue-timing':
+                result=queue.apply_queue_timing(lease_seconds=options.lease_seconds,
+                                                retry_delay_seconds=options.retry_delay_seconds)
+            elif args.command=='apply-user-limit':
+                result=queue.apply_per_user_active(options.per_user_active)
             else:
                 result=budget.apply(queue,args.proposal)
         print(json.dumps(result,indent=2,sort_keys=True,allow_nan=False))

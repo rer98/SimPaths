@@ -29,6 +29,11 @@ JVM settings, scientific parameters, seeds or deadlines.
 - A feasible queued simulation withdraws loan boosts before ordinary admission.
   Imminent unfunded Visualiser work also withdraws them before requesting its
   normal processing reservation. Existing preparation priority remains in force.
+- While another configuration can start, the dispatcher defers new CPU boosts.
+  It keeps existing boosts that leave room for the next claim and verifies any
+  necessary reductions before the claim. Once the remaining configurations are
+  blocked or the queue is empty, running simulations can share spare CPU under
+  the usual fairness and cooldown rules.
 
 For the VPS 12 candidate, the guaranteed ordinary model budget stays **8 vCPUs /
 30 GiB**. With six 5-GiB models, idle SingleRun CPU can raise the total model
@@ -47,7 +52,9 @@ shared VPS do not promise dedicated physical cores or a measured speedup.
    Reductions bypass the ordinary boost cooldown; output hashing and other long
    file work do not hold this lock.
 3. During SingleRun recall the worker can lower and verify quotas on up to
-   two different running model containers concurrently. The dispatcher records
+   four different running model containers concurrently. Two borrowers can each
+   return one vCPU, or four borrowers can each return half a vCPU in one batch.
+   The dispatcher records
    and confirms each change separately. If one reply is lost, that container's
    previous quota stays charged until verified. The next pass reconciles the
    pending change before planning more reductions. Ordinary balancing, quota

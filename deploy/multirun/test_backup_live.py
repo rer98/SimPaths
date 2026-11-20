@@ -239,11 +239,17 @@ class LiveBackupTests(unittest.TestCase):
 
     def test_interrupted_restore_is_idempotent_and_never_charges_offline_time(self):
         from jasmine_web.batch.backup import table_inventory
-        self.active(); self.save()
+        lease = self.active()
+        self.q.apply_queue_timing(lease_seconds=60, retry_delay_seconds=137)
+        self.save()
         def interrupt(): raise RuntimeError('fictional interruption after native dump commit')
         with self.assertRaises(RuntimeError): self.restore(after_database=interrupt)
         self.restore(resume=True)
-        with self.f.target_q._connection() as c: before=table_inventory(c,self.f.target_q)
+        with self.f.target_q._connection() as c:
+            row = c.execute('SELECT j.eligible_at,a.finished_at FROM jobs j JOIN attempts a ON j.id=a.job_id '
+                            'WHERE a.id=%s', (lease.attempt_id,)).fetchone()
+            self.assertEqual(row['eligible_at']-row['finished_at'], timedelta(seconds=137))
+            before=table_inventory(c,self.f.target_q)
         self.restore(resume=True)
         with self.f.target_q._connection() as c: self.assertEqual(before,table_inventory(c,self.f.target_q))
 

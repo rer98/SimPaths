@@ -9,10 +9,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 import sys
 
-from .privilege_config import load_public_config, public_identity_check, trusted_installation, trusted_python
-
-
-SITE=dict(name='SimPaths Online',subtitle='UK MultiRun',logo='/static/simpaths-logo.svg',
+SITE=dict(name='SimPaths',subtitle='Life Course Microsimulation',logo='/static/simpaths-logo.svg',
           icon='/static/simpaths-favicon.svg')
 FOOTER=(('SimPaths','https://simpaths.org'),('GitHub','https://github.com/simpaths/SimPaths'),
         ('CeMPA','https://www.microsimulation.ac.uk/'),
@@ -42,6 +39,7 @@ def create_public_application(remote,origin):
 
 
 def main(argv=None):
+    from .privilege_config import load_public_config, public_identity_check, trusted_installation, trusted_python
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command',choices=('check','preflight','serve'))
     parser.add_argument('--config',type=Path,required=True)

@@ -4,7 +4,7 @@ Operator capacity controls, real runtime restart and native backup/restore proof
 Fictional jobs and measurements only; no scientific simulations or real emails.
 @author ross richardson
 """
-from contextlib import redirect_stdout
+from contextlib import nullcontext, redirect_stdout
 import io
 import json
 from pathlib import Path
@@ -31,6 +31,35 @@ def host(**changes):
 
 
 class ComputeOperatorTests(unittest.TestCase):
+    def test_apply_user_limit_uses_installed_setting_and_preserves_compute_budget(self):
+        from . import maintenance, privilege_config, vm_config, vm_web
+        from jasmine_web.batch import backup, store
+        settings = SimpleNamespace(frontend=frontend_path(), pool_id='example', state=Path('/private/state'),
+                                   per_user_active=8, lease_seconds=75, retry_delay_seconds=15)
+        queue = Mock()
+        queue.apply_per_user_active.return_value = dict(previous=6, per_user_active=8)
+        timing = dict(lease_seconds=75, retry_delay_seconds=15)
+        queue.apply_queue_timing.return_value = dict(current=timing, previous=dict(lease_seconds=60,retry_delay_seconds=30))
+        output = io.StringIO()
+        with (patch.object(privilege_config, 'trusted_installation') as trust,
+              patch.object(vm_config, 'load_config', return_value=settings),
+              patch.object(vm_web, 'check_storage'), patch.object(vm_web, 'database_dsn', return_value='fixture'),
+              patch.object(store, 'Queue', return_value=queue),
+              patch.object(backup, 'database_guard', return_value=nullcontext()),
+              patch.object(maintenance, 'service_state', return_value=nullcontext()),
+              patch.object(budget, 'apply') as apply_budget, redirect_stdout(output)):
+            self.assertEqual(operator.main(['--config','/private/multirun.toml','apply-user-limit']), 0)
+            self.assertEqual(json.loads(output.getvalue()), dict(previous=6, per_user_active=8))
+            output.seek(0)
+            output.truncate()
+            self.assertEqual(operator.main(['--config','/private/multirun.toml','apply-queue-timing']), 0)
+        self.assertEqual(trust.call_count, 2)
+        trust.assert_called_with(Path('/private/multirun.toml'))
+        queue.apply_per_user_active.assert_called_once_with(8)
+        queue.apply_queue_timing.assert_called_once_with(**timing)
+        apply_budget.assert_not_called()
+        self.assertEqual(json.loads(output.getvalue())['current'], timing)
+
     def test_initial_opt_in_and_restart_validation_are_independent_of_monitoring(self):
         queue=Mock();capacity=Resources(8000,16000,32000)
         settings=dict(enabled=True,cgroup='/sys/fs/cgroup/system.slice',reserve_cpu_millis=0,reserve_memory_mib=0)

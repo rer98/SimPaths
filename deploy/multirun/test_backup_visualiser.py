@@ -57,11 +57,11 @@ class LiveRawOnlySelectionTests(unittest.TestCase):
 
     def selected(self):
         def rows(c,queue,query,tables,args=()):
-            if tables[0]=='attempts':return [self.attempt]
             if tables[0]=='repetitions':
                 return [dict(actual_seed=row['seed'],output_fingerprint=row['fingerprint']) for row in self.expected]
             return []
         with patch.object(backup_live,'rows',side_effect=rows), \
+             patch.object(backup_live,'finished_attempts',return_value=[self.attempt]), \
              patch('deploy.multirun.backup_output_receipts._result_configuration',return_value=
                    SimpleNamespace(as_dict=lambda:dict(seed_plan=dict(seeds=['606'])))), \
              patch('deploy.multirun.backup_output_receipts._catalogue_outputs',

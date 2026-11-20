@@ -33,8 +33,8 @@ The VM reads its verified native Person and BenefitUnit
 CSVs and publishes aggregate rows through an authenticated API. The browser does
 not fetch VM CSVs, databases, raw records, private per-run summaries or logs.
 
-The service is branded **SimPaths Online**, with **UK MultiRun** beneath its
-webpage title. Visualiser and guidance-page navigation uses **Return to SimPaths
+The MultiRun header shows **SimPaths** with **LIFE COURSE MICROSIMULATION** beneath
+it. Visualiser and guidance-page navigation uses **Return to SimPaths
 Online**. **SimPathsWeb** remains the development project name, and **JAS-mine-web**
 is the underlying web software; those technical names are not the service title.
 The Visualiser labels service-generated output **Online results**, alongside

@@ -72,6 +72,19 @@ class VMConfigTests(unittest.TestCase):
         self.path.write_text(text or self.text)
         return load_config(self.path)
 
+    def test_queue_timing_defaults_and_bounds(self):
+        defaults = self.config()
+        self.assertEqual((defaults.lease_seconds, defaults.retry_delay_seconds), (60,30))
+        for lease, delay in ((5,1), (300,86400), (4,30), (301,30), (60,0), (60,86401), ('true',30)):
+            with self.subTest(lease=lease, delay=delay):
+                config = self.text.replace('[pool]', f'[pool]\nlease_seconds = {lease}\nretry_delay_seconds = {delay}')
+                if (lease,delay) in ((5,1),(300,86400)):
+                    options = self.config(config)
+                    self.assertEqual((options.lease_seconds, options.retry_delay_seconds), (lease,delay))
+                else:
+                    with self.assertRaises(ValueError):
+                        self.config(config)
+
     def test_operational_metrics_are_bounded_opt_in_and_checks_have_no_side_effects(self):
         options=self.config()
         self.assertTrue(options.operational_metrics)

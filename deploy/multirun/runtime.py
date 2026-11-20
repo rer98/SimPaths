@@ -117,7 +117,8 @@ def create_registry(args,q,state,send_mail,*,capacity=Resources(2000,5120,12288)
     from .storage_budget import bootstrap as storage_budget
     storage_override=storage_budget(args,q,state)
     q.create_pool(capacity,holdback=getattr(args,'holdback',None),policy=Policy(per_user_active=per_user_active,
-        per_user_unfinished=args.max_unfinished_jobs,pool_unfinished=args.pool_unfinished_jobs),
+        per_user_unfinished=args.max_unfinished_jobs,pool_unfinished=args.pool_unfinished_jobs,
+        **{key:getattr(args,key) for key in ('lease_seconds','retry_delay_seconds') if hasattr(args,key)}),
         update_admission_limits=True,
         allow_compute_budget=True,
         storage_mode=getattr(args,'storage_mode','shared'),
@@ -222,6 +223,8 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
             def retire_finished_work(*, include_retention=False):
                 with timing.stage('failed_attempt_cleanup'):
                     service.attempt_cleanup.retire(timing=timing)
+                if service.stops_ready.is_set():
+                    return
                 with timing.stage('finished_attempt_cleanup'):
                     retire_finished(q,executor,timing=timing)
                 if include_retention:
@@ -241,6 +244,8 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                     with timing.stage('cleanup'), timing.stage('cleanup_work'):
                         retire_finished_work()
                     housekeeping_due = True
+                if service.stops_ready.is_set():
+                    return False
                 if housekeeping_due and executor.pipeline_storage is not None:
                     with timing.stage('retire_pipeline'):
                         executor.pipeline_storage.retire_failed(q)
@@ -256,21 +261,33 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                             service.retention.retire()
                     housekeeping_due = scheduler is None
                     next_housekeeping = time.monotonic() + DISPATCH_HOUSEKEEPING_SECONDS
+                if service.stops_ready.is_set():
+                    return False
                 with timing.stage('dataset_dependencies'):
                     service.lifecycle.reconcile()
                 if scheduler is not None:
                     with timing.stage('visualiser_refresh'):
                         scheduler.refresh(timing=timing)
+                # Keep completion delivery, retention and retirement running during
+                # a drain. Candidate disk checks and quota changes serve new starts.
+                with q._connection() as c:
+                    available = c.execute('SELECT update_admission_allowed FROM pools WHERE id=%s',
+                                          (q.pool_id,)).fetchone()['update_admission_allowed']
+                if not available:
+                    timing.decisions['update_pause'] += 1
+                    return False
             scheduler=getattr(service,'preparation_scheduler',None)
             worker=Worker(q,executor,adapter,'local-browser-worker' if local_codes else 'vm-browser-worker',
                           before_claim=before_claim,
                           cpu_hold=scheduler.cpu_hold if scheduler else None,
                           admission_guard=(lambda:scheduler.guard) if scheduler else None,
-                          admission_check=(lambda:scheduler.admit(worker,decisions=timing.decisions)) if scheduler else None,
+                          admission_check=(lambda:scheduler.admit(worker, decisions=timing.decisions,
+                                                                  defer_model_cpu=True)) if scheduler else None,
                           after_claim=scheduler.claimed if scheduler else None,
                           completion_handover=service.visualiser.completion_handover if scheduler else None,
                           validation_scope=getattr(service,'validation_scope',None),
-                          validation_timeout_seconds=getattr(args,'validation_timeout_seconds',10800))
+                          validation_timeout_seconds=getattr(args,'validation_timeout_seconds',10800),
+                          stops_ready=service.stops_ready)
             from jasmine_web.batch.idle_interactive_cpu import RecallListener
             recall=(RecallListener(q,lambda:worker.rebalance_cpu(reserve_cpu_millis=0,allow_queued=False))
                     if getattr(args,'lend_idle_interactive_cpu',False) else nullcontext())
@@ -285,6 +302,8 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                     try:
                         with timing.stage('poll_running'):
                             worker.tick(claim_new=False)
+                        if service.stops_ready.is_set():
+                            continue
                         with timing.stage('cleanup'), worker.maintenance():
                             # The difference from the outer time includes lease entry and exit.
                             with timing.stage('cleanup_work'):
@@ -305,7 +324,8 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                     finally:
                         if scheduler is not None:
                             last_idle = timing.publish(last_idle)
-                    stop.wait(delay)
+                    if not stop.is_set():
+                        service.stops_ready.wait(delay)
         except Exception as error:
             health['message']=('The dispatcher stopped. Submitted jobs remain recorded; check the server terminal and restart.'
                 if local_codes else 'The service is restarting. Your submitted jobs remain recorded.')
@@ -593,14 +613,10 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
         return SimpleNamespace(service=service,lifespan=lifespan,ready=ready,
                                worker_status=lambda:health['message'])
     from jasmine_web.batch.browser import create_app
+    from .vm_frontend import FOOTER, SITE
     app=create_app(service,origin=origin,local_codes=local_codes,
                    lifespan=lifespan,worker_status=lambda:health['message'],
-                   site=dict(name='SimPaths Online',subtitle='UK MultiRun',logo='/static/simpaths-logo.svg',
-                             icon='/static/simpaths-favicon.svg'),
-                   footer_links=(('SimPaths','https://simpaths.org'),
-                                 ('GitHub','https://github.com/simpaths/SimPaths'),
-                                 ('CeMPA','https://www.microsimulation.ac.uk/'),
-                                 ('License','https://github.com/simpaths/SimPaths/blob/main/license.txt')))
+                   site=SITE,footer_links=FOOTER)
     from starlette.responses import JSONResponse
     from starlette.routing import Route
     from starlette.concurrency import run_in_threadpool

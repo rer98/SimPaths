@@ -34,7 +34,7 @@ DEFAULTS = {
     'model': {'image': None},
     'pool': {'cpu_millis': 3000, 'memory_mib': 6144, 'storage_mib': 13312,
              'per_user_active': 1, 'hold_cpu_millis': 0, 'hold_memory_mib': 0, 'hold_storage_mib': 0,
-             'growth_memory_mib': 0},
+             'growth_memory_mib': 0, 'lease_seconds': 60, 'retry_delay_seconds': 30},
     'scheduling': {'adaptive_cpu': False, 'cpu_cooldown_seconds': 30, 'lend_idle_interactive_cpu': False,
                    'preparation_priority_seconds': 60},
     'limits': {'max_configurations': 100, 'max_repetitions': 12,
@@ -184,6 +184,8 @@ def load_config(path):
         number(pool['hold_'+key], 'pool.hold_'+key, 0,
                2**31-1 if storage_mode=='filesystem' and key=='storage_mib' else pool[key]-minimum)
     number(pool['per_user_active'], 'pool.per_user_active', 1, 100)
+    number(pool['lease_seconds'], 'pool.lease_seconds', 5, 300)
+    number(pool['retry_delay_seconds'], 'pool.retry_delay_seconds', 1, 86400)
     number(pool['growth_memory_mib'], 'pool.growth_memory_mib', 0, pool['memory_mib']-5120)
     if pool['per_user_active'] > limits['max_unfinished_jobs']:
         raise ValueError('Active allowance exceeds unfinished-job allowance')
@@ -315,6 +317,7 @@ def load_config(path):
         lend_idle_interactive_cpu=scheduling['lend_idle_interactive_cpu'],
         preparation_priority_seconds=scheduling['preparation_priority_seconds'],
         growth_memory_mib=pool['growth_memory_mib'],
+        lease_seconds=pool['lease_seconds'], retry_delay_seconds=pool['retry_delay_seconds'],
         storage_mode=storage_mode,
         capacity={k: pool[k] for k in ('cpu_millis', 'memory_mib', 'storage_mib')},
         holdback={k: pool['hold_'+k] for k in ('cpu_millis', 'memory_mib', 'storage_mib')},

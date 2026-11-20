@@ -73,8 +73,7 @@ test('shared PR guidance is reused and an incompatible shared interface fails cl
     assert.throws(()=>adaptApp(input.replace('<FolderStructureHelp />','')));
   }
   const dashboard=fs.readFileSync(path.join(source,'src/DashboardSection.js'),'utf8');
-  const retained='useEffect(()=>setEnabledScenarios(previous=>new Set([...previous].filter(name=>allScenarioNames.includes(name)))),[allScenarioNames]);';
-  assert.ok(adaptDashboard(dashboard).includes(retained));
+  assert.ok(adaptDashboard(dashboard).includes('allScenarioNames.filter(name=>!hiddenScenarios.has(name))'));
   assert.equal(adaptDashboard(adaptDashboard(dashboard)),adaptDashboard(dashboard));
   assert.throws(()=>adaptDashboard('unrecognised selection lifecycle'));
 });

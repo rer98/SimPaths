@@ -595,7 +595,7 @@ or Docker. The technical ceiling of 1,000 is not a measured production allocatio
 The same setting supplies the form's maximum, the New experiment description,
 and server-side validation of new submissions. It applies to prepared training
 data, prepared uploaded data and datasets awaiting preparation. The form initially
-selects three repetitions, or the configured maximum if smaller. Restored drafts
+selects five repetitions, or the configured maximum if smaller. Restored drafts
 keep their previously entered count and must satisfy the current limit on review.
 
 Changing the setting requires a service restart and page reload. Lowering it

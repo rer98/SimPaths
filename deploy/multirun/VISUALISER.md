@@ -10,9 +10,7 @@ The refreshed existing Visualiser PR branches share the Getting Started folder
 help with the hosted build. `FolderStructureHelp.js` handles mouse, keyboard and
 touch access and keeps its tooltip below the link within the viewport. The
 connected branch also owns the highlighted source summary, accurate processing
-guidance and preservation of scenario choices when configurations arrive. New
-scenarios start unselected within an open comparison; changing its source key
-starts with all scenarios selected.
+guidance and preservation of scenario choices when configurations arrive.
 
 For these sources the builder copies and fingerprints the shared component and
 uses the native selection behavior. It keeps the compatibility adaptations for
@@ -699,8 +697,9 @@ action; opening or refreshing the page never starts preparation.
 An open experiment checks status every 15 seconds, or every 60 seconds in a
 hidden tab. Newly available configurations and paired comparisons extend its
 catalogue without remounting the dashboard. Existing scenario choices and the
-selected variable remain in place; new alternatives appear as unselected
-buttons. Levels remain available while a comparison is pending. Baseline rows
+selected variable remain in place. Alternatives in the open comparison appear
+automatically as their levels become ready. A scenario the user hides stays
+hidden when its paired differences arrive. Baseline rows
 and unpaired alternatives carry no other alternative's paired differences.
 
 The server assembles the selected chart sections from existing, verified

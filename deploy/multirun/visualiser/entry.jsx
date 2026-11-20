@@ -138,17 +138,19 @@ function Page({selection=null,onChoose=()=>{}}){
   }:undefined;},[catalogue,mode,reload]);
   const alternatives=catalogue?.configurations.filter(c=>c.role==='Scenario').length||0;
   const controls=<>
-    <p className="vm-source-help">{experiment?'This experiment updates as configurations and baseline comparisons become ready. Choose the scenarios to display; new results do not change your selections.':'View your selected online results, or select a local parent folder with a Baseline folder and one folder for each alternative scenario.'}</p>
+    <p className="vm-source-help">{experiment?'Scenarios appear as their charts become ready. Scenarios you hide stay hidden. Paired differences appear when the baseline comparison is ready.':'View your selected online results, or select a local parent folder with a Baseline folder and one folder for each alternative scenario.'}</p>
     {onlineKey&&mode!=='online'&&<button className="vm-source-button" onClick={vm}>View Online Results</button>}
     {mode==='online'&&experimentStatus&&!experimentComplete(experimentStatus)&&<details className="vm-experiment-status">
       <summary>{experimentStatus.ready} of {experimentStatus.total} configurations have charts ready</summary>
       <ul>{experimentStatus.configurations.map(c=><li key={c.id}>{c.name}: {c.charts==='ready'?'Charts ready':
+        c.charts==='queued'?'Waiting for chart preparation':
         c.state==='active'?(c.phase==='validating'?'Validating outputs':'Simulation running'):c.state==='queued'?'Simulation queued':
         c.state==='cancelling'?'Stopping':
         c.state==='review'&&c.validation?'Output validation needs review':
-        ['queued','processing'].includes(c.charts)?'Preparing charts':'Charts not yet available'}
+        c.charts==='processing'?'Preparing charts':'Charts not yet available'}
         {c.charts==='ready'&&c.comparison!=='not_applicable'&&(c.comparison==='ready'?' · Baseline comparison ready':
-          c.comparison==='waiting_baseline'?' · Waiting for baseline comparison':' · Baseline comparison not yet ready')}</li>)}</ul>
+          c.comparison==='waiting_baseline'?' · Waiting for baseline comparison':
+          c.comparison==='processing'?' · Preparing baseline comparison':' · Baseline comparison not yet ready')}</li>)}</ul>
     </details>}
     {mode==='online'&&!experimentComplete(experimentStatus)&&updateNotice&&<p className="vm-source-help" role="status">{updateNotice}</p>}
     {experiment&&mode==='online'&&<button className="vm-source-button" onClick={onChoose}>Change configurations</button>}

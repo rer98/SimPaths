@@ -142,7 +142,16 @@ def validate_selection(configuration, receipt):
     """Constrain saved-population reuse; a different preparation needs a revision."""
     check_receipt(receipt)
     common = configuration["common"]
-    if (configuration["dataset_revision"] != receipt["revision"]
+    revisions = {receipt["revision"]}
+    identity = receipt["identity"]
+    if identity.get("input_compaction") is not None:
+        # Preparations.register_revision binds the catalogue ID to the original
+        # dataset ID and the compact copy's fingerprint. The file receipt keeps
+        # its own native Quick Start revision for standalone callers.
+        source_hash = identity["input_compaction"]["source_receipt_sha256"]
+        original = f"quickstart-{identity['population']}-{source_hash}"
+        revisions.add("dataset-" + digest(dict(original=original, fingerprint=receipt["sha256"])))
+    if (configuration["dataset_revision"] not in revisions
             or common["country"] != "UK" or common["start_year"] != 2019
             or common["population"] != receipt["identity"]["population"]
             or not 2019 <= common["end_year"] <= MAX_END_YEAR):

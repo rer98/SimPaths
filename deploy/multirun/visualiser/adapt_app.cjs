@@ -61,10 +61,16 @@ function adaptDashboard(source){
   }
   const previous='useEffect(()=>setEnabledScenarios(new Set(allScenarioNames)),[allScenarioNames]);';
   const retained='useEffect(()=>setEnabledScenarios(previous=>new Set([...previous].filter(name=>allScenarioNames.includes(name)))),[allScenarioNames]);';
-  if(source.split(retained).length===2)return source;
-  if(source.split(previous).length!==2)throw Error('Review changed scenario selection lifecycle');
-  // The experiment host adds available controls without selecting them or
-  // resetting choices that a user already made in this dashboard instance.
-  return source.replace(previous,retained);
+  const optOut='const [hiddenScenarios,setHiddenScenarios]=useState(()=>new Set());';
+  const visible='const enabledScenarios=useMemo(()=>new Set(allScenarioNames.filter(name=>!hiddenScenarios.has(name))),[allScenarioNames,hiddenScenarios]);';
+  if(source.includes(optOut)&&source.includes(visible))return source;
+  // Older pinned dashboards store the enabled set. Their symmetric toggle can
+  // operate on the hidden set once we replace the state and its refresh effect.
+  const state='const [enabledScenarios,setEnabledScenarios]=useState(()=>new Set(allScenarioNames));';
+  const effect=source.includes(retained)?retained:previous;
+  if(source.split(state).length!==2||source.split(effect).length!==2)
+    throw Error('Review changed scenario selection lifecycle');
+  return source.replace(effect,'').replace(state,optOut+'\n  '+visible)
+    .replaceAll('setEnabledScenarios','setHiddenScenarios');
 }
 module.exports={adaptApp,adaptDashboard};

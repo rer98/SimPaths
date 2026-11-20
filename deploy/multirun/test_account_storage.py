@@ -6,6 +6,7 @@ Checks ordinary live removal, uncertain ownership and asynchronous cache behavio
 """
 from collections import Counter
 from copy import deepcopy
+import gzip
 import hashlib
 import json
 import os
@@ -212,6 +213,39 @@ class AccountStorageTests(unittest.TestCase):
         self.write(path/'receipt.json',b' '*(4*1024**2+1))
         self.assertIsNone(self.observe('alice')['accounts']['alice']['visualiser_bytes'])
 
+    def test_compressed_summaries_count_the_stored_file_blocks_without_opening_the_payload(self):
+        path=self.cache(self.summaries,'alice',summary=True)
+        logical=b'repeated synthetic metrics'*1000
+        compressed=gzip.compress(logical)
+        (path/'metrics.json').unlink()
+        self.write(path/'metrics.json.gz',compressed)
+        receipt=json.loads((path/'receipt.json').read_bytes())
+        receipt.update(format='simpaths.visualiser.private-summary.v2',bytes=len(logical),
+                       sha256=hashlib.sha256(logical).hexdigest(),stored_bytes=len(compressed),
+                       stored_sha256=hashlib.sha256(compressed).hexdigest())
+        self.write(path/'receipt.json',json.dumps(receipt).encode())
+        other=self.cache(self.summaries,'bob',summary=True)
+        expected=sum(self.blocks(f) for f in path.iterdir())
+        original=os.open
+        def metadata_only(name,flags,*args,**kwargs):
+            if not flags&os.O_DIRECTORY:self.assertEqual(str(name),'receipt.json')
+            return original(name,flags,*args,**kwargs)
+        with patch('deploy.multirun.account_storage.os.open',side_effect=metadata_only):
+            report=self.observe('alice','bob')
+        self.assertEqual(report['measure_state'],'ready')
+        self.assertEqual(report['accounts']['alice']['total_bytes'],expected)
+        self.assertEqual(report['accounts']['bob']['visualiser_bytes'],sum(self.blocks(f) for f in other.iterdir()))
+        receipt['identity']['owner']='bob'
+        self.write(path/'receipt.json',json.dumps(receipt).encode())
+        self.assertIsNone(self.observe('alice')['accounts']['alice']['visualiser_bytes'])
+
+    def test_missing_database_metadata_does_not_hide_independent_measurements(self):
+        self.metadata=(None,[],None);path=self.cache(self.charts,'alice')
+        row=self.observe('alice')['accounts']['alice']
+        self.assertIsNone(row['raw_bytes']);self.assertIsNone(row['prepared_bytes'])
+        self.assertEqual(row['visualiser_bytes'],sum(self.blocks(f) for f in path.iterdir()))
+        self.assertEqual(row['uploads_bytes'],0);self.assertIsNone(row['total_bytes'])
+
     def test_entry_and_wall_bounds_remain_incomplete_instead_of_reporting_a_partial_total(self):
         for number in range(3):self.write(self.uploads/f'upload-{number}')
         self.metadata=([],[dict(owner_id='alice',id=f'upload-{n}') for n in range(3)],[])
@@ -273,6 +307,11 @@ class AccountStorageTests(unittest.TestCase):
         reading=self.sampler(('alice','bob'))
         self.assertEqual(reading['measure_state'],'pending');self.assertEqual(reading['accounts']['alice']['raw_bytes'],4096)
         self.assertEqual(len(calls),1)
+        stamp,_=self.sampler._cache[('alice','bob')]
+        with patch('deploy.multirun.account_storage.time.monotonic',return_value=stamp+35):
+            slow=self.sampler(('alice',))
+            self.assertEqual(slow['measure_state'],'pending')
+            self.assertEqual(slow['accounts'],{'alice':reading['accounts']['alice']})
         finish.set();self.sampler._thread.join(2);self.assertFalse(self.sampler._thread.is_alive())
         observed=self.sampler(('alice','bob'));self.assertEqual(observed['measure_state'],'ready')
         observed['accounts']['alice']['raw_bytes']=999

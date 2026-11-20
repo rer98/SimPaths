@@ -15,6 +15,7 @@ import stat
 import threading
 import time
 from types import SimpleNamespace
+from .visualiser_summary_encoding import LEGACY, COMPRESSED
 
 FIELDS=('raw_bytes','workspace_other_bytes','uploads_bytes','prepared_bytes',
         'visualiser_bytes','downloads_bytes')
@@ -36,7 +37,7 @@ class AccountStorage:
             raise ValueError('Invalid account storage observation bounds')
         self.service,self.state,self.executor=service,Path(state),executor
         self.cache_seconds,self.scan_seconds,self.max_entries=cache_seconds,scan_seconds,max_entries
-        self._lock=threading.Lock();self._cache=OrderedDict();self._running=False;self._thread=None
+        self._lock=threading.Lock();self._cache=OrderedDict();self._running=None;self._thread=None
 
     def __call__(self,owners):
         if (type(owners) is not tuple or len(owners)>50 or len(set(owners))!=len(owners)
@@ -55,19 +56,18 @@ class AccountStorage:
                 if not set(key).issubset(selected):continue
                 complete=all(report['accounts'][owner]['total_bytes'] is not None for owner in key)
                 lifetime=self.cache_seconds if complete else min(self.cache_seconds,INCOMPLETE_RETRY_SECONDS)
-                if now-stamp<lifetime:
+                if now-stamp<lifetime or (self._running==selected and report['measure_state']=='pending'):
                     result={**report,'accounts':{owner:report['accounts'][owner] for owner in key}}
-                    if report['observed_at'] is not None:
-                        result['measure_state']='ready' if all(result['accounts'][owner]['total_bytes'] is not None
-                            for owner in key) else report['measure_state']
+                    if complete and report['measure_state']!='pending':
+                        result['measure_state']='ready'
                     self._cache.move_to_end(selected)
                     return json.loads(json.dumps(result))
             if not self._running:
-                self._running=True
+                self._running=key
                 self._thread=threading.Thread(target=self._sample,args=(key,),
                     name='account-storage-observer',daemon=True)
                 try:self._thread.start()
-                except Exception:self._running=False
+                except Exception:self._running=None
             return dict(format=FORMAT,observed_at=None,measure_state='pending',
                         accounts={owner:empty() for owner in owners})
 
@@ -76,19 +76,34 @@ class AccountStorage:
         with q._connection() as c:
             c.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
             c.execute("SET LOCAL statement_timeout='1s'")
-            attempts=c.execute('''SELECT e.owner_id,a.execution_key,e.specification->>'operation' AS operation
+            # Preparation submission records the type in the same transaction.
+            # Reading the scientific specification per attempt can repeatedly
+            # decompress the same large experiment while measuring file usage.
+            queries=('''SELECT e.owner_id,a.execution_key,
+                CASE WHEN p.experiment_id IS NOT NULL THEN 'prepare' END AS operation
                 FROM attempts a JOIN jobs j ON j.id=a.job_id JOIN experiments e ON e.id=j.experiment_id
+                LEFT JOIN preparations p ON p.experiment_id=e.id AND p.pool_id=e.pool_id
                 WHERE a.pool_id=%s AND e.owner_id=ANY(%s::text[]) ORDER BY a.id LIMIT 10001''',
-                (q.pool_id,list(owners))).fetchall()
-            uploads=c.execute('''SELECT owner_id,id FROM uploads WHERE pool_id=%s AND owner_id=ANY(%s::text[])
-                ORDER BY id LIMIT 10001''',(q.pool_id,list(owners))).fetchall()
-            prepared=c.execute('''SELECT r.owner_id,p.location FROM prepared_locations p JOIN dataset_records r
+                '''SELECT owner_id,id FROM uploads WHERE pool_id=%s AND owner_id=ANY(%s::text[])
+                ORDER BY id LIMIT 10001''',
+                '''SELECT r.owner_id,p.location FROM prepared_locations p JOIN dataset_records r
                 ON r.pool_id=p.pool_id AND r.id=p.dataset_id WHERE p.pool_id=%s
-                AND r.owner_id=ANY(%s::text[]) ORDER BY p.dataset_id LIMIT 10001''',
-                (q.pool_id,list(owners))).fetchall()
-        if any(len(rows)>10000 for rows in (attempts,uploads,prepared)):
-            raise ValueError('Account storage metadata exceeds the observation bound')
-        return attempts,uploads,prepared
+                AND r.owner_id=ANY(%s::text[]) ORDER BY p.dataset_id LIMIT 10001''')
+            results=[None]*len(queries)
+            # A savepoint keeps a timed-out category from invalidating the
+            # other reads. Retry only those timeouts, once, in this snapshot.
+            def read(index):
+                try:
+                    with c.transaction():
+                        rows=c.execute(queries[index],(q.pool_id,list(owners))).fetchall()
+                except Exception as error:
+                    if getattr(error,'sqlstate',None) in ('57014','55P03'):return False
+                    raise
+                if len(rows)<=10000:results[index]=rows
+                return True
+            retry=[index for index in range(len(queries)) if not read(index)]
+            for index in retry:read(index)
+        return results
 
     def _sample(self,owners):
         report=dict(format=FORMAT,observed_at=None,measure_state='incomplete',accounts={o:empty() for o in owners})
@@ -102,7 +117,7 @@ class AccountStorage:
         finally:
             with self._lock:
                 self._remember(owners,report)
-                self._running=False
+                self._running=None
 
     def _remember(self,owners,report):
         self._cache[owners]=(time.monotonic(),report);self._cache.move_to_end(owners)
@@ -111,8 +126,13 @@ class AccountStorage:
     def measure(self,owners,*,progress=None):
         started=time.monotonic();deadline=started+self.scan_seconds
         observed_at=datetime.now(timezone.utc).isoformat()
-        attempts,uploads,prepared=self._metadata(owners)
+        try:attempts,uploads,prepared=self._metadata(owners)
+        except Exception:attempts=uploads=prepared=None
         rows={owner:{name:0 for name in FIELDS} for owner in owners}
+        for row in rows.values():
+            if attempts is None:row['raw_bytes']=row['workspace_other_bytes']=None
+            if uploads is None:row['uploads_bytes']=None
+            if prepared is None:row['prepared_bytes']=None
         entries=[0];inodes={};paths={};scopes={};completed=set()
 
         def snapshot(state):
@@ -230,7 +250,7 @@ class AccountStorage:
         except Exception:
             for owner in owners:rows[owner]['raw_bytes']=rows[owner]['workspace_other_bytes']=None
         else:
-            for row in attempts:
+            for row in attempts or ():
                 owner,key=row['owner_id'],row['execution_key']
                 if owner not in rows:continue
                 try:
@@ -255,14 +275,14 @@ class AccountStorage:
         except Exception:
             for owner in owners:rows[owner]['uploads_bytes']=None
         else:
-            for row in uploads:
+            for row in uploads or ():
                 owner,key=row['owner_id'],row['id']
                 if owner not in rows:continue
                 if not isinstance(key,str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,200}',key):
                     rows[owner]['uploads_bytes']=None;continue
                 counted(upload_root/key,owner,('uploads_bytes',),lambda relative:'uploads_bytes')
         finished('uploads_bytes')
-        for row in prepared:
+        for row in prepared or ():
             owner=row['owner_id']
             if owner not in rows:continue
             path=Path(row['location'])
@@ -291,7 +311,7 @@ class AccountStorage:
                 raise ValueError('Cache ownership is unavailable')
             if receipt_name=='receipt.json':
                 canonical=json.dumps(identity,sort_keys=True,separators=(',',':'),allow_nan=False).encode()
-                if (value.get('format')!='simpaths.visualiser.private-summary.v1'
+                if (value.get('format') not in (LEGACY,COMPRESSED)
                         or value.get('key')!=path.name or hashlib.sha256(canonical).hexdigest()!=path.name):
                     raise ValueError('Summary ownership receipt does not match its entry')
             return owner,pinned

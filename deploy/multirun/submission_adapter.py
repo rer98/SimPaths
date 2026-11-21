@@ -15,6 +15,7 @@ import subprocess
 from .artifacts import ArtifactError, digest, fingerprint, inventory, snapshot_files, verify
 from .configuration import normalise
 from .container_adapter import ContainerExecution, SimPathsContainerAdapter, container_submission
+from .java_review import engine_failure_agent
 from .prepare_inputs import selection, selected_sources
 from .prepared_dataset import INPUT_FORMAT, allocation, check_input_receipt, verify_snapshot
 from .queue_adapter import read_prepared
@@ -474,14 +475,16 @@ class PreparationAdapter:
 
 
 class DispatchAdapter:
+    """Route hosted simulations and input preparation through one resource pool."""
+
     def configure_review(self,lease,request,command,seconds,*,state=None):
         adapter=self.adapter(lease)
         configure=getattr(adapter,'configure_review',None)
         return configure(lease,request,command,seconds,state=state) if configure is not None else None
 
-    """Route both operation kinds through one queue/executor resource pool."""
     def __init__(self, preparation):
         self.preparation = preparation
+        self.engine_agent = engine_failure_agent()
 
     @staticmethod
     def _release_id(lease):
@@ -521,7 +524,15 @@ class DispatchAdapter:
         return self.adapter(candidate).required_space(candidate)
 
     def container_command(self, lease, request):
-        return self.adapter(lease).container_command(lease,request)
+        command = self.adapter(lease).container_command(lease, request)
+        if lease.specification.get('operation') == 'prepare':
+            return command
+        (request / 'engine-failure.jar').write_bytes(self.engine_agent)
+        # The read-only request supplies the agent even for old pinned model runners.
+        # Preserve image JVM options, the reviewed script, its PID and its arguments.
+        launch = ('export JDK_JAVA_OPTIONS="${JDK_JAVA_OPTIONS:+$JDK_JAVA_OPTIONS }'
+                  '-javaagent:/request/engine-failure.jar"\nexec "$@"')
+        return ContainerExecution(command.image, ('/bin/sh', '-c', launch, 'multirun', *command.argv), command.inputs)
 
     def validate(self, lease, work):
         return self.adapter(lease).validate(lease,work)

@@ -45,7 +45,7 @@ class SimPathsContainerAdapter(SimPathsLocalAdapter):
         observed=runner.replace(original,'-Dsimpaths.performance.seconds='+str(seconds)+
             ' -cp '+classpath+' simpaths.experiment.SimPathsPerformanceRun simpaths.experiment.SimPathsMultiRun')
         (request/'run-reviewed.sh').write_text(observed)
-        return ContainerExecution(command.image,('/bin/sh','/request/run-reviewed.sh',command.argv[-1]),command.inputs)
+        return ContainerExecution(command.image, (*command.argv[:-2], '/request/run-reviewed.sh', command.argv[-1]), command.inputs)
 
     def __init__(self, prepared, image, *, resource_policy=None):
         super().__init__(prepared)

@@ -1,16 +1,73 @@
 """(C) Copyright 2026, by Ross Richardson
 
-Build an optional observer once, outside job execution, for an immutable model.
-The scientific JAR and its source inputs are never modified.
+Build the hosting JVM helpers independently of immutable model releases.
 @author ross richardson
 """
 import hashlib
+from functools import cache
+import io
 import json
 import os
 from pathlib import Path
 import subprocess
 import tempfile
 import zipfile
+
+
+# This startup agent uses only JDK APIs so it can accompany already reviewed releases.
+ENGINE_GUARD = r"""/* (C) Copyright 2026, by Ross Richardson
+ * End a hosted MultiRun JVM if its simulation engine dies with an uncaught exception.
+ * @author ross richardson
+ */
+package simpaths.hosting;
+
+public final class EngineFailure {
+    private static void printException(Thread thread, Throwable error) {
+        System.err.print("Exception in thread \"" + thread.getName() + "\" ");
+        error.printStackTrace(System.err);
+        System.err.flush();
+    }
+
+    public static void premain(String options) {
+        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((thread, error) -> {
+            for (Class<?> type = thread.getClass(); type != null; type = type.getSuperclass()) {
+                if (type.getName().equals("microsim.engine.SimulationEngine")) {
+                    try {
+                        printException(thread, error);
+                    } finally {
+                        // Shutdown hooks can also wait for the end event the engine can no longer send.
+                        Runtime.getRuntime().halt(1);
+                    }
+                }
+            }
+            if (previous != null) {
+                previous.uncaughtException(thread, error);
+            } else if (!(error instanceof ThreadDeath)) {
+                printException(thread, error);
+            }
+        });
+    }
+}
+"""
+
+
+@cache
+def engine_failure_agent():
+    """Compile once per worker process, using only the hosted service's code."""
+    with tempfile.TemporaryDirectory(prefix='simpaths-engine-') as tmp:
+        root = Path(tmp)
+        source = root/'EngineFailure.java'
+        source.write_text(ENGINE_GUARD)
+        subprocess.run(['javac', '--release', '17', '-proc:none', '-cp', tmp, '-d', tmp, str(source)],
+                       cwd=tmp, check=True, capture_output=True, timeout=60)
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, 'w') as jar:
+            jar.writestr(zipfile.ZipInfo('META-INF/MANIFEST.MF'),
+                         'Manifest-Version: 1.0\r\nPremain-Class: simpaths.hosting.EngineFailure\r\n\r\n')
+            name = 'simpaths/hosting/EngineFailure.class'
+            jar.writestr(zipfile.ZipInfo(name), (root/name).read_bytes())
+        return stream.getvalue()
 
 
 def file_hash(path):

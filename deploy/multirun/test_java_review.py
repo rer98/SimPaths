@@ -17,7 +17,7 @@ STUBS={
  'microsim/engine/SimulationManager.java':'package microsim.engine; public interface SimulationManager {}',
  'microsim/event/SystemEventType.java':'package microsim.event; public enum SystemEventType { End }',
  'microsim/engine/SimulationEngine.java':'''package microsim.engine;
- public class SimulationEngine {
+ public class SimulationEngine extends Thread {
  private static final SimulationEngine INSTANCE=new SimulationEngine();
  public static SimulationEngine getInstance(){return INSTANCE;}
  public SimulationManager[] getModelArray(){return new SimulationManager[]{new simpaths.model.SimPathsModel()};}
@@ -29,6 +29,32 @@ STUBS={
  public class SimPathsModel implements microsim.engine.SimulationManager {
  public int getYear(){return 2035;}
  public java.util.List<Integer> getPersons(){return java.util.List.of(1,2,3);}
+ }''',
+ 'simpaths/experiment/SimPathsMultiRun.java':'''package simpaths.experiment;
+ public class SimPathsMultiRun {
+   public static void main(String[] args) throws InterruptedException {
+     String mode = args[0];
+     Runnable action = () -> { throw new IllegalArgumentException("fixture engine event"); };
+     if (mode.equals("engine")) {
+       // The launcher and a shutdown hook both wait for an end event that never arrives.
+       var end = new java.util.concurrent.CountDownLatch(1);
+       Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+         try { end.await(); } catch (InterruptedException e) { throw new AssertionError(e); }
+       }));
+       new microsim.engine.SimulationEngine() { public void run() { action.run(); } }.start();
+       end.await();
+     } else {
+       Thread helper = new Thread(action, "Thread-2");
+       helper.start();
+       helper.join();
+       for (int i=0; i<2; i++) {
+         Thread engine = new microsim.engine.SimulationEngine();
+         engine.start();
+         engine.join();
+       }
+       System.out.println("both repetitions completed");
+     }
+   }
  }''',
  'Fixture.java':'''public class Fixture {
  public static void main(String[] args) {
@@ -99,6 +125,51 @@ class JavaReviewTests(unittest.TestCase):
         result,_=self.run_java('fail')
         self.assertNotEqual(result.returncode,0)
         self.assertIn('fixture-science-failure',result.stderr)
+
+    def test_hosted_engine_exit_with_and_without_optional_review(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        import shlex
+        from .container_adapter import ContainerExecution, SimPathsContainerAdapter
+        from .submission_adapter import DispatchAdapter
+
+        dispatcher = DispatchAdapter(None)
+        model = object.__new__(SimPathsContainerAdapter)
+        model.prepared = self.root
+        model.receipt = dict(identity=dict(model=dict(sha256=java_review.file_hash(self.model))))
+        lease = SimpleNamespace(specification={})
+        for reviewed in (False, True):
+            with self.subTest(reviewed=reviewed), tempfile.TemporaryDirectory(dir=self.root) as tmp:
+                request = Path(tmp)
+                ordinary = ContainerExecution('sha256:'+'a'*64, ('/bin/sh','/request/run.sh','engine'), str(self.root))
+                script = 'exec java -cp /inputs/model.jar simpaths.experiment.SimPathsMultiRun "$@"\n'
+                (request/'run.sh').write_text(script)
+                with patch.object(dispatcher,'adapter',return_value=model), patch.object(model,'container_command',return_value=ordinary):
+                    cmd = dispatcher.container_command(lease, request)
+                    if reviewed:
+                        cmd = dispatcher.configure_review(lease, request, cmd, 15, state=self.root)
+                self.assertEqual((request/'run.sh').read_text(), script)
+                # Substitute just the two Docker mount paths to exercise the same launch chain on a real JVM.
+                argv = [arg.replace('/request/', tmp+'/') for arg in cmd.argv]
+                runner = Path(argv[-2])
+                runner.write_text(runner.read_text().replace('/request/',tmp+'/').replace('/inputs/model.jar',shlex.quote(str(self.model))))
+                for mode, code in [('engine', 1), ('helper', 0)]:
+                    proc = subprocess.run([*argv[:-1],mode], cwd=tmp, capture_output=True, text=True, timeout=8)
+                    self.assertEqual(proc.returncode, code, proc.stderr)
+                    self.assertIn('java.lang.IllegalArgumentException: fixture engine event', proc.stderr)
+                    self.assertEqual('both repetitions completed' in proc.stdout, mode=='helper')
+
+    def test_hosted_preparation_uses_its_original_command(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from .submission_adapter import DispatchAdapter
+        prepare = Mock()
+        dispatcher = DispatchAdapter(prepare)
+        with tempfile.TemporaryDirectory(dir=self.root) as tmp:
+            request = Path(tmp)
+            self.assertIs(dispatcher.container_command(SimpleNamespace(specification={'operation':'prepare'}),request),
+                          prepare.container_command.return_value)
+            self.assertFalse((request/'engine-failure.jar').exists())
 
     def test_installed_observer_rejects_replaced_jar_or_receipt(self):
         self.assertIsNotNone(java_review.installed(self.root,self.model))

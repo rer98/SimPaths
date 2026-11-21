@@ -286,7 +286,7 @@ of **2026**. Choose **README** inside a session for that profile's instructions.
 | **Parameters / Update Params** | Set up a run. During a simulation, Update Params offers only settings permitted to change at runtime. Locked settings require Reset and another Build. |
 | **Input Files** | Browse/download accessible inputs; edit permitted workbooks in the spreadsheet editor or upload replacements before Build. Read-only files stay protected. Workbook edits do not automatically repeat input preparation. |
 | **Reset** | Reset for another Build. The selected dataset is kept; earlier run folders may remain in Output. |
-| **Speed / Grid / Stack** | Adjust execution delay or chart layout. Speed does not allocate more server CPU. |
+| **Speed / Charts** | Speed adjusts execution delay without changing the server CPU allocation. The button beside **Charts** shows the current layout. Click it to switch between **Grid** and **Stack**. |
 | **DB** | Inspect permitted input/output tables with read-only queries. Output tables require `exportToDatabase` to have been enabled before Build. |
 | **Output** | Download individual files or **Download Complete Run**. Set CSV/database and `persist…` output options before Build. |
 | **Console** | Read progress and diagnostics; expand the pane or download the received log. |
@@ -305,18 +305,15 @@ depend on input suitability and resources; long-run capacity is not guaranteed.
 ### If SingleRun is busy
 
 The **one-session limit covers all four profiles**. **Email me when SingleRun is
-available** lets you verify an address and request one notification. It **does not
-reserve a place**; another user may take the slot before you return.
+available** lets you request a one-off notification. Enter your email address.
+For a public model, the page confirms the request immediately. For a restricted
+model, enter the code sent to your authorised address. You can cancel the alert
+on the confirmation page. Another user may take the slot before you return.
 
 After an explicit **Leave**, notices normally wait five minutes in case the previous
 user is restarting. Closing the browser without Leave holds the slot until idle
 expiry, normally after an hour; there is no additional five-minute delay after
 that cleanup. Notification requests expire after seven days.
-
-The optional **SimPaths news and updates** checkbox is separate and unchecked
-initially. Without it, your address is used only for the availability service.
-Updates signups are retained separately for up to a year and have a management/
-withdrawal link. Integration with a SimPaths mailing list remains future work.
 
 ## 5. SingleRun: use the AI assistant
 

@@ -67,7 +67,7 @@ choose a different dataset or repeat startup configuration after that point.
 
 For a short first run, set `endYear` to **2020** and leave other settings at their
 defaults. After Build, use **Start** to run, **Pause** to inspect results, or
-**Step** to advance incrementally. **Grid** and **Stack** change the chart layout.
+**Step** to advance incrementally. Click the button beside **Charts** to switch between **Grid** and **Stack**.
 
 | Parameter | Meaning in this configuration |
 | --- | --- |

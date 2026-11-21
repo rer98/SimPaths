@@ -23,7 +23,7 @@ address and dataset ID.
 | Access | Address or route | What it permits |
 | --- | --- | --- |
 | Ordinary MultiRun user | <https://13.140.163.1> | Emailed-code sign-in, owned experiments, permitted datasets and results |
-| MultiRun administrator | <https://13.140.163.1/admin> | Separate password **and** emailed code; account and provider-dataset permission changes, service/storage status and change history |
+| MultiRun administrator | <https://13.140.163.1/admin> | Separate password followed by an emailed link or code. Account and provider-dataset permission changes, service/storage status and change history |
 | SingleRun administrator | <https://13.140.163.1:8443/admin> | Existing SingleRun password login and session/user controls |
 | Host operator | SSH as `simpaths-admin` | Installed configuration, software, monitoring, backups, storage and recovery |
 
@@ -42,9 +42,11 @@ connection strings or backup private keys in feedback messages or screenshots.
 ## 2. Manage MultiRun accounts in the browser
 
 Open **MultiRun administration** and enter your administrator email and the
-separate administrator password. Enter the code sent to that inbox. A sign-in
-code grants no authority unless the account is active and on the private
-administrator list. Sessions expire after 30 minutes; sign in again when needed.
+separate administrator password. Open **Sign in to MultiRun administration** in
+the same browser, or enter the six-digit code in the original tab. The link and
+code expire after 10 minutes, and using either consumes both. The service checks
+that the account is active and on the administrator list. Administrator sessions
+expire after one hour.
 Sign out when finished. Administrator sign-out leaves an ordinary MultiRun
 session in the same browser signed in.
 

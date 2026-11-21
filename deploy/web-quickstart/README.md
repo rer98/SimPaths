@@ -29,8 +29,8 @@ number.
 2. Click **Build** and wait until **Start** becomes available. Build loads the
    prepared population and sets up the simulation and charts.
 3. Click **Start** to run, or **Step** to advance incrementally. **Pause** lets you
-   inspect the current charts and results. **Grid** and **Stack** change the chart
-   arrangement without changing the simulation.
+   inspect the current charts and results. Click the button beside **Charts**
+   to switch between the **Grid** and **Stack** layouts.
 4. Open **Output** to download generated files. **DB** lets you inspect available
    input and output database tables. Click **AI** to open the integrated AI
    assistant: ask questions about the model and its parameters, get help using

@@ -432,7 +432,7 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
         from jasmine_web.batch.administrator_password import read_credential
         from .vm_web import administrator_verification_mail
         service.administration = Administration(access, administration['emails'],
-            read_credential(state/'administrator-password.json'), administrator_verification_mail)
+            read_credential(state/'administrator-password.json'), administrator_verification_mail, sign_in_origin=origin)
     print('Automatic resource recovery: '+('enabled for new reviews; frozen ceilings and original retry/time budgets apply'
                                           if recovery else 'disabled'),flush=True)
     from jasmine_web.batch.performance_review import PerformanceReview

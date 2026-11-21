@@ -3,6 +3,8 @@ Captured SMTP messages for the MultiRun link/code pair and separate administrato
 @author ross richardson
 """
 import asyncio
+from email import policy
+from email.parser import BytesParser
 import os
 import sys
 import unittest
@@ -36,14 +38,51 @@ class EmailTemplateTests(unittest.TestCase):
         self.assertIn('href="'+self.url+'"',html)
         self.assertIn('Sign in to MultiRun',html)
 
-    def test_code_only_sender_and_administrator_remain_plain_code_messages(self):
+    def test_user_code_only_sender_remains_plain_text(self):
         asyncio.run(verification_mail('alice@example.org','123456'))
         ordinary=self.send.call_args.args[0]
         self.assertFalse(ordinary.is_multipart());self.assertIn('123456',ordinary.get_content())
-        asyncio.run(administrator_verification_mail('admin@example.org','654321'))
-        admin=self.send.call_args.args[0]
-        self.assertFalse(admin.is_multipart());self.assertIn('administrator password',admin.get_content())
-        self.assertNotIn('/sign-in',admin.get_content())
+
+    def test_administrator_code_ends_the_line_and_only_the_digits_are_bold(self):
+        asyncio.run(administrator_verification_mail('admin@example.org','012345'))
+        self.send.assert_called_once()
+        admin = BytesParser(policy=policy.default).parsebytes(self.send.call_args.args[0].as_bytes(policy=policy.SMTP))
+        self.assertEqual(admin.get_content_type(), 'multipart/alternative')
+        self.assertEqual(admin['To'], 'admin@example.org')
+        self.assertIn('administrator', admin['Subject'])
+        plain = admin.get_body(preferencelist=('plain',)).get_content()
+        html = admin.get_body(preferencelist=('html',)).get_content()
+        self.assertIn('MultiRun administrator sign-in code: 012345', plain.splitlines())
+        self.assertIn('<strong>012345</strong></p>', html)
+        for part in (plain, html):
+            self.assertEqual(part.count('012345'), 1)
+            self.assertIn('administrator password', part)
+            self.assertIn('10 minutes', part)
+            self.assertIn('contact the service operator', part)
+            self.assertNotIn('/sign-in', part)
+
+    def test_administrator_mail_requires_six_ascii_digits(self):
+        for code in ('12345', '１２３４５６', '123456.', '<b>123456</b>'):
+            with self.subTest(code=code), self.assertRaises(ValueError):
+                asyncio.run(administrator_verification_mail('admin@example.org', code))
+        self.send.assert_not_called()
+
+    def test_administrator_multipart_email_has_matching_link_and_code_fallback(self):
+        url = self.url.replace('/sign-in#', '/admin/sign-in#')
+        asyncio.run(administrator_verification_mail('admin@example.org', '012345', url))
+        message = BytesParser(policy=policy.default).parsebytes(self.send.call_args.args[0].as_bytes(policy=policy.SMTP))
+        plain = message.get_body(preferencelist=('plain',)).get_content()
+        html = message.get_body(preferencelist=('html',)).get_content()
+        self.assertIn(url, plain.splitlines())
+        self.assertIn(f'href="{url}"', html)
+        self.assertIn('MultiRun administrator sign-in code: 012345', plain.splitlines())
+        self.assertIn('<strong>012345</strong></p>', html)
+        for part in (plain, html):
+            self.assertIn('browser where you entered your administrator password', part)
+            self.assertIn('10 minutes', part)
+        with self.assertRaises(ValueError):
+            asyncio.run(administrator_verification_mail('admin@example.org','012345',self.url))
+        self.send.assert_called_once()
 
     def test_invalid_code_url_or_recipient_never_reaches_mail_delivery(self):
         for email,code,url in (

@@ -13,7 +13,13 @@ Both credentials expire with the original ten-minute challenge. Successful use
 of either consumes their shared nonce in PostgreSQL, including across concurrent
 requests and service restarts. Existing send limits, code-attempt limits, account
 revocation, session lifetime, ownership checks and CSRF checks remain in force.
-Administrator sign-in retains its separate password and code.
+Administrator sign-in requires the separate administrator password and an active
+account on the administrator list. Its email offers a link for the browser where
+the password was entered and a six-digit code for the original tab. The two
+options share a ten-minute deadline, attempt budget and single-use record.
+The administrator link has a separate signature and browser cookie. The original
+code challenge stays in the password tab. Either route creates a one-hour
+administrator session after checking current access.
 
 The public frontend creates a random, short-lived HttpOnly, Secure, SameSite=Strict
 host-only browser cookie. Production uses the `__Host-` prefix. Resending in the

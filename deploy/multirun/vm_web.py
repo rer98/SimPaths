@@ -6,8 +6,10 @@ No local database bootstrap, console verification codes or laptop deadline credi
 """
 import argparse
 from email.message import EmailMessage
+from html import escape
 import os
 from pathlib import Path
+import re
 import stat
 import sys
 
@@ -42,13 +44,15 @@ def check_smtp(env):
         raise ValueError('Invalid SMTP port or incomplete SMTP login')
 
 
+def _check_sign_in_code(code):
+    if not isinstance(code, str) or not re.fullmatch(r'[0-9]{6}', code):
+        raise ValueError('Invalid sign-in code')
+
+
 async def verification_mail(email, code, sign_in_url=None):
     from jasmine_web.contact import deliver_email
     from jasmine_web.batch.access import email_address
-    from html import escape
-    import re
-    if not isinstance(code,str) or not re.fullmatch(r'[0-9]{6}',code):
-        raise ValueError('Invalid sign-in code')
+    _check_sign_in_code(code)
     message = EmailMessage()
     message['From'] = email_address(os.environ['SMTP_FROM_EMAIL'])
     message['To'] = email_address(email)
@@ -56,13 +60,7 @@ async def verification_mail(email, code, sign_in_url=None):
     message.set_content(f'Your sign-in code is {code}. It expires in 10 minutes.\n'
                         'If you did not request this code, ignore this message.\n')
     if sign_in_url is not None:
-        from urllib.parse import urlsplit
-        from jasmine_web.batch.email_signin import canonical_origin
-        target=urlsplit(sign_in_url)
-        canonical_origin(target.scheme+'://'+target.netloc)
-        if (target.path!='/sign-in' or target.query
-                or not re.fullmatch(r'[A-Za-z0-9_.-]{1,2048}',target.fragment)):
-            raise ValueError('Invalid sign-in URL')
+        _check_sign_in_url(sign_in_url, '/sign-in')
         message.replace_header('Subject','Your SimPaths Online sign-in link and code')
         message.set_content('Sign in to MultiRun:\n'+sign_in_url+'\n\n'
             f'Or enter this sign-in code in your original browser: {code}\n\n'
@@ -84,16 +82,40 @@ async def verification_mail(email, code, sign_in_url=None):
     deliver_email(message)
 
 
-async def administrator_verification_mail(email, code):
+def _check_sign_in_url(url, path):
+    from urllib.parse import urlsplit
+    from jasmine_web.batch.email_signin import canonical_origin
+    target = urlsplit(url)
+    origin = canonical_origin(target.scheme+'://'+target.netloc)
+    if (url != origin+path+'#'+target.fragment or not re.fullmatch(r'[A-Za-z0-9_.-]{1,2048}', target.fragment)):
+        raise ValueError('Invalid sign-in URL')
+
+
+async def administrator_verification_mail(email, code, sign_in_url=None):
     from jasmine_web.contact import deliver_email
     from jasmine_web.batch.access import email_address
+    _check_sign_in_code(code)
     message = EmailMessage()
     message['From'] = email_address(os.environ['SMTP_FROM_EMAIL'])
     message['To'] = email_address(email)
     message['Subject'] = 'Your SimPaths Online MultiRun administrator code'
-    message.set_content(f'Your MultiRun administrator sign-in code is {code}. It expires in 10 minutes.\n'
-        'This code is for the separate administrator login, after the administrator password.\n'
-        'If you did not request it, do not share the code; contact the service operator.\n')
+    instructions = 'Enter this code in the tab where you entered your administrator password. It expires in 10 minutes.'
+    unexpected = 'If you did not request this code, contact the service operator. Do not share the code.'
+    plain_link = html_link = ''
+    if sign_in_url is not None:
+        _check_sign_in_url(sign_in_url, '/admin/sign-in')
+        message.replace_header('Subject', 'Your SimPaths Online MultiRun administrator sign-in link and code')
+        plain_link = 'Sign in to MultiRun administration:\n'+sign_in_url+'\n\n'
+        html_link = '<p><a href="'+escape(sign_in_url, quote=True)+'">Sign in to MultiRun administration</a></p>'
+        instructions = ('Open the link in the browser where you entered your administrator password, '
+                        'or enter the code in the original tab. Both expire after 10 minutes. Using either uses up both.')
+        unexpected = 'If you did not request this email, contact the service operator. Do not share the link or code.'
+    message.set_content(plain_link+f'MultiRun administrator sign-in code: {code}\n\n{instructions}\n\n{unexpected}\n')
+    message.add_alternative(
+        '<!doctype html><html lang="en"><body>'+html_link+
+        f'<p>MultiRun administrator sign-in code: <strong>{code}</strong></p>'
+        f'<p>{instructions}</p><p>{unexpected}</p>'
+        '</body></html>', subtype='html')
     deliver_email(message)
 
 

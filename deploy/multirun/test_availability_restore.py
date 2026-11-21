@@ -39,9 +39,12 @@ class AvailabilityRestoreTests(unittest.TestCase):
         # Capture one in-flight lease, representing an interrupted sender.
         with state.connection() as c:c.execute("UPDATE availability_delivery SET explicit_leave_until='epoch'")
         outstanding=source.claim([keys[1]])
-        opted=source.verified_signup(source.busy('fictional','updates-network','slots'),
-                                    'updates@example.org',updates=True)
-        source_interest=InterestStore(state); source_rows=source_interest.export()['rows']
+        source.subscribe(source.busy('fictional','third-network','slots'),'third@example.org')
+        contact=str(uuid4())
+        with state.connection() as c:
+            c.execute("""INSERT INTO availability_interest(id,email,state,consent_version,consent_text,consented_at,expires_at)
+                VALUES (%s,'legacy@example.org','active','simpaths-news-v1','Original opt-in',clock_timestamp(),
+                        clock_timestamp()+interval '365 days')""",(contact,))
         with state.connection() as c:
             c.execute("UPDATE availability_delivery SET explicit_leave_until=clock_timestamp()+interval '5 minutes'")
         before=source.status(days=3660)
@@ -74,10 +77,10 @@ class AvailabilityRestoreTests(unittest.TestCase):
                          (before['current']['pending'],before['current']['sending']))
         self.assertEqual(target.get_all_sessions(),[])
         recovered_interest=InterestStore(target)
-        self.assertEqual(source_rows,recovered_interest.export()['rows'])
-        recovered_interest.withdraw(opted['interest_id'])
-        self.assertEqual(recovered_interest.export()['active'],0)
-        self.assertEqual(source_interest.export()['active'],1)
+        self.assertTrue(recovered_interest.contact(contact))
+        self.assertTrue(recovered_interest.withdraw(contact))
+        self.assertFalse(recovered_interest.contact(contact))
+        self.assertTrue(InterestStore(state).contact(contact))
 
     def test_running_host_backup_preserves_requests_and_demand_without_admission(self):
         self.roundtrip(True)

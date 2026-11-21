@@ -1083,18 +1083,14 @@ overlap. Captured senders were used, with no real mail or scientific runs.
 - [ ] Apply SingleRun migrations 003 and 004 with the reviewed private frontend release.
   Verify the canonical HTTPS origin and private SMTP/inbox before enabling
   `VM_AVAILABILITY_EMAILS=true`; see [EMAIL_SETUP.md](EMAIL_SETUP.md).
-- [ ] Check a busy launch, verified email signup and cancellation on the VM.
+- [ ] Check a busy public launch, on-page alert confirmation and cancellation on the VM.
+  Check that restricted launches require verification of the alert address.
   Confirm no session is reserved, explicit Leave delays notices five minutes
   after completed cleanup, and idle expiry adds no new delay. Returning users
   can launch during the delay, and capacity is rechecked before sending.
 - [ ] Check the SingleRun admin demand report and daily CSV/JSON export. Confirm
   addresses are absent, and verify the pending list and numeric history through
   the unified VM backup/restore route before public use.
-- [ ] Verify the optional SimPaths updates checkbox is unchecked by default,
-  requires email verification, and records consent independently of the one-off
-  notification. Check withdrawal, local expiry and the separate private signup
-  export before agreeing a handover with the mailing-list owner.
-
 Local availability/consent evidence (22 October): all **98 non-browser checks**
 passed in `/tmp-codex/singlerun-availability-consent-20261022-185657/model-proof/report.json`.
 That report preserves a superseded browser-fixture failure. The corrected native

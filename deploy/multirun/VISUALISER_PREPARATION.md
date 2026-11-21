@@ -1475,7 +1475,16 @@ The scheduling implementation has these explicit bounds:
   Its saved cursor survives restarts. New completions and current chart requests
   still receive attention before each model admission.
 - The private executor journal records `multirun_admission` with elapsed
-  milliseconds, times by stage and decision counts. The cleanup and Visualiser
+  milliseconds, decision counts and failed stages in normal operation.
+  To enable detailed timings on the VPS, run
+  `sudo touch /run/simpaths-multirun-detailed-timings`. To turn them off, run
+  `sudo rm -f /run/simpaths-multirun-detailed-timings`. Each admission pass reads
+  the setting when it begins and reports it in `detailed_timings`. The switch
+  also controls CPU recall diagnostics and successful chart-discovery timings.
+  Discovery errors are logged in both modes. Neither command requires a service
+  restart. The setting resets to off when the host reboots. For paired timing
+  comparisons, enable it before the first pass and leave it on through both runs.
+  In detailed mode, the journal includes times by stage. The cleanup and Visualiser
   refresh totals each include their component stages. The `counts` field records
   cleanup rows and outcomes, Visualiser refreshes, checks with a backlog and
   polls between starts. When a model gets the turn, the dispatcher checks CPU

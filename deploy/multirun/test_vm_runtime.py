@@ -455,6 +455,7 @@ class VMRuntimeTests(unittest.TestCase):
                 with database_guard(self.q,exclusive=True):pass
         with state_guard(self.state,exclusive=True),self.assertRaises(ArtifactError):self.app()
 
+    @patch('jasmine_web.batch.worker.scheduler_timings_enabled', new=lambda: True)
     def test_drain_skips_candidate_and_quota_work_while_retiring_completed_work(self):
         from jasmine_web.batch.update_admission import request
         from jasmine_web.batch.preparation_scheduler import PreparationScheduler
@@ -476,6 +477,7 @@ class VMRuntimeTests(unittest.TestCase):
         self.assertTrue({'poll_running','cleanup','visualiser_completions'} <= stages)
         self.assertFalse({'candidate_storage','cpu_rebalance','final_cpu_rebalance','claim'} & stages)
 
+    @patch('jasmine_web.batch.worker.scheduler_timings_enabled', new=lambda: True)
     def test_scheduled_dispatch_fills_capacity_while_historical_discovery_is_busy(self):
         from jasmine_web.batch.preparation_scheduler import PreparationScheduler
         dataset = self.dataset(provider=True)

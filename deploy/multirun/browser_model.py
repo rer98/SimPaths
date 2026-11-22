@@ -20,6 +20,11 @@ from .workload_envelope import MAX_POPULATION, MAX_END_YEAR, validate_workload
 from .vm_frontend import SITE
 
 
+# Older Quick Start receipts identify the shipped schedule by its exact workbook
+# contents. The year range alone cannot identify the policy files or tax years.
+TRAINING_SCHEDULE_SHA256 = '0c647a4f8a8feb590cc343cb8c64fc7a6f66034e098e035d3e43423983d7b5ee'
+
+
 class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
     def browser_release(self,key):
         value=self.releases[key]
@@ -100,6 +105,9 @@ class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
         values = dict(start_year=identity['start_year'], population=identity.get('population',20000),
                       end_year=2026)
         fixed_model_args=model_parameter_requirements(receipt)
+        schedule = identity.get('selection', {}).get('schedule')
+        if training and identity['prepared']['EUROMODpolicySchedule.xlsx']['sha256'] == TRAINING_SCHEDULE_SHA256:
+            schedule = [[f'uk_{year}_std.txt', str(year), str(year), ''] for year in range(2011, 2027)]
         release=identity.get('release',{}).get('id')
         if release is None:
             release=next((key for key,entry in self.releases.items()
@@ -112,7 +120,7 @@ class BrowserModel(BrowserYaml, BrowserSweep, BrowserCopy, SubmissionModel):
                                if k=='input.mv.db' or k.lower().endswith(('.xlsx','.xls'))},
                         population=identity['prepared'].get('input.mv.db'),
                         workbooks={k: v for k,v in identity['prepared'].items() if k.lower().endswith('.xlsx')},
-                        schedule=identity.get('selection',{}).get('schedule'),
+                        schedule=schedule,
                         policy_years=identity.get('policy_years')),
                     locked=['start_year','population'] if training else ['start_year'],
                     **({'fixed_model_args':fixed_model_args} if fixed_model_args else {}))

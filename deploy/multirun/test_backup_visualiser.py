@@ -175,8 +175,9 @@ class VisualiserBackupFilesTests(unittest.TestCase):
                 finally:release.set();worker.join(3)
 
     def test_cache_lock_wait_remains_bounded(self):
+        from jasmine_web.batch.backup_guard import VisualiserBackupBusy
         with lock(self.cache/'maintenance.lock'):
-            with self.assertRaises(BlockingIOError):
+            with self.assertRaises(VisualiserBackupBusy):
                 with archive.capture_lock(self.cache/'maintenance.lock',seconds=0):pass
 
     def test_busy_processor_is_omitted_instead_of_copying_partial_publication(self):

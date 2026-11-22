@@ -193,7 +193,8 @@ def report(status, *, now=None, config=None):
         overdue=stale,
         local_retention=local_retention(config) if config is not None else None,
         retention_rule=retention_rule(config) if config is not None else None,
-        last_success_age_seconds=age,pending_stage=current['stage'] if current else (
+        last_success_age_seconds=age,pending_stage=(
+            'visualiser-maintenance' if current.get('waiting_for_visualiser') else current['stage']) if current else (
             incident['stage'] if incident and incident['stage'] in ('local-cleanup','replacement-check')
             and not incident.get('resolved_at') else None),
         last_attempt_at=current.get('last_attempt_at') if current else None,
@@ -538,7 +539,7 @@ def retention(root, config, status, now, *, transport=None):
 
 def failure_diagnostic(error,stage):
     """Fixed error classes and public code locations, never exception contents."""
-    classes={'ArtifactError','BackupBusy','ValueError','TypeError','KeyError','RuntimeError',
+    classes={'ArtifactError','BackupBusy','VisualiserBackupBusy','ValueError','TypeError','KeyError','RuntimeError',
              'OSError','FileNotFoundError','PermissionError','TimeoutExpired','JSONDecodeError',
              'CalledProcessError'}
     modules={'backup_schedule.py','backup_live.py','backup_files.py','backup_transport.py',
@@ -660,7 +661,7 @@ def run(config, *, now=None, capture=capture_backup, encrypt=seal, transport=Non
         frontend=vm_config(source['config']).frontend
     else: frontend=Path(source.get('frontend') or frontend_path())
     sys.path.insert(0,str(frontend.resolve(strict=True)))
-    from jasmine_web.batch.backup_guard import BackupBusy,file_guard
+    from jasmine_web.batch.backup_guard import BackupBusy,VisualiserBackupBusy,file_guard
     clock=(lambda:now) if now is not None else utc
     now=clock()
     from .backup_files import reserve_space
@@ -691,6 +692,8 @@ def run(config, *, now=None, capture=capture_backup, encrypt=seal, transport=Non
             plain=storage/'plain'; cipher=storage/'recovery.tar.gpg'
             try:
                 attempted=clock();job['last_attempt_at']=attempted.isoformat()
+                job['retry_at']=None
+                job.pop('waiting_for_visualiser',None)
                 if job['stage']=='capturing':
                     if not plain.exists() and not cipher.exists():job['capture_started_at']=attempted.isoformat()
                     elif 'capture_started_at' not in job:job['capture_started_at']=job['started_at']
@@ -741,7 +744,11 @@ def run(config, *, now=None, capture=capture_backup, encrypt=seal, transport=Non
             except Exception as error:
                 failed=clock();delay=min(5,policy['retry_minutes']) if isinstance(error,BackupBusy) else policy['retry_minutes']
                 job['retry_at']=(failed+timedelta(minutes=delay)).isoformat()
-                record_failure(status,job['stage'],failed,error=error)
+                if isinstance(error,VisualiserBackupBusy):
+                    job['waiting_for_visualiser']=True
+                if (not job.get('waiting_for_visualiser') or status['incident']
+                        or report(status,now=failed,config=config)['overdue']):
+                    record_failure(status,job['stage'],failed,error=error)
                 atomic_json(root/'status.json',status)
         if ready:
             maintain_local(root,config,status,clock(),transport,clock=clock)

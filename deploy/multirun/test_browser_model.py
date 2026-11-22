@@ -146,6 +146,16 @@ class BrowserModelTests(unittest.TestCase):
         self.assertNotIn(str(self.path),str(description))
         self.assertEqual(description['inputs']['comparison_state'],'prepared')
         self.assertEqual(description['inputs']['files'],self.receipt['identity']['prepared'])
+        self.assertIsNone(description['inputs']['schedule'])
+
+    def test_legacy_training_schedule_matches_the_shipped_workbook(self):
+        from .artifacts import fingerprint
+        receipt=deepcopy(self.receipt)
+        workbook=Path(__file__).resolve().parents[2]/'input/EUROMODoutput/training/EUROMODpolicySchedule.xlsx'
+        receipt['identity']['prepared']['EUROMODpolicySchedule.xlsx']=fingerprint(workbook)
+        with patch('deploy.multirun.browser_model.read_prepared',return_value=receipt):
+            rows=self.model.describe_dataset(self.resolved)['inputs']['schedule']
+        self.assertEqual(rows,[[f'uk_{year}_std.txt',str(year),str(year),''] for year in range(2011,2027)])
 
     def test_pending_input_comparison_exposes_sources_without_claiming_prepared_files(self):
         defaults={'parameters.xls':dict(bytes=12,sha256='a'*64)}
@@ -159,6 +169,7 @@ class BrowserModelTests(unittest.TestCase):
         self.assertEqual(description['inputs']['comparison_state'],'pending')
         self.assertEqual(description['inputs']['files'],{})
         self.assertEqual(description['inputs']['source_files'],{**defaults,**uploads})
+        self.assertEqual(description['inputs']['schedule'],definition['model']['selection']['schedule'])
         self.assertEqual(description['values']['end_year'],2026)
 
     def test_file_comparison_includes_legacy_workbooks_without_exposing_unrelated_files(self):

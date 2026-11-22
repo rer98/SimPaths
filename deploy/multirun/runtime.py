@@ -565,9 +565,11 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
     if getattr(service,'administration',None) is not None:
         from .operator_status import AdministratorStorage
         from .storage_budget import docker_storage_root
+        from .update_package import backup_running
         service.administration.storage_reader=AdministratorStorage(service,state,executor,
             docker_root=docker_storage_root if getattr(args,'storage_mode','shared')=='filesystem' else None)
         service.administration.account_storage_reader=service.access.account_storage_reader
+        service.administration.backup_running_reader=lambda:backup_running(seconds=2)
     service.notifications=Notifications(service,admin_email=args.admin_email,
         sender=smtp_sender(os.environ['SMTP_FROM_EMAIL']) if args.notification_emails else None,
         storage_wait_emails=getattr(args,'storage_wait_emails',False),

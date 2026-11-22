@@ -502,7 +502,8 @@ def _backup_snapshot(config_path):
         latest = value.get('latest')
         last = _timestamp(latest['finished_at']) if latest else None
         stage = value.get('pending_stage')
-        if stage not in (None, 'capturing', 'sealing', 'copying', 'complete', 'local-cleanup', 'replacement-check'):
+        if stage not in (None, 'capturing', 'sealing', 'copying', 'complete', 'local-cleanup', 'replacement-check',
+                         'visualiser-maintenance'):
             raise ValueError('Invalid backup stage')
         overdue = value.get('overdue')
         if type(overdue) is not bool:

@@ -95,6 +95,32 @@ recipient = "operator@example.invalid"
         self.assertEqual(schedule.load_status(self.storage)['incident']['diagnostic'],result['failure']['diagnostic'])
         result=self.execute(now=self.now+timedelta(minutes=31)); self.assertTrue(result['passed'])
 
+    def test_visualiser_contention_retries_quickly_and_alerts_only_once_overdue(self):
+        from jasmine_web.batch.backup_guard import VisualiserBackupBusy
+        def busy(*args):
+            raise VisualiserBackupBusy('fictional contention')
+        successful=self.execute()['latest']
+        due=self.now+timedelta(days=1)
+        waiting=self.execute(now=due,capture=busy)
+        self.assertTrue(waiting['passed'])
+        self.assertEqual(waiting['pending_stage'],'visualiser-maintenance')
+        self.assertEqual(waiting['retry_at'],(due+timedelta(minutes=5)).isoformat())
+        self.assertEqual(waiting['latest'],successful)
+        self.assertIsNone(waiting['failure'])
+        self.assertEqual(self.messages,[])
+        premature=self.execute(now=due+timedelta(minutes=4),
+                               capture=lambda *_: self.fail('Capture ran before retry'))
+        self.assertEqual(premature['last_attempt_at'],waiting['last_attempt_at'])
+        overdue=self.execute(now=due+timedelta(minutes=30),capture=busy)
+        self.assertTrue(overdue['overdue'])
+        self.assertEqual(overdue['failure']['diagnostic']['error_type'],'VisualiserBackupBusy')
+        self.assertEqual(len(self.messages),1)
+        recovered=self.execute(now=due+timedelta(minutes=35))
+        self.assertTrue(recovered['passed'])
+        self.assertIsNone(recovered['pending_stage'])
+        self.assertNotEqual(recovered['latest'],successful)
+        self.assertTrue(self.messages[1][1]['recovered'])
+
     def test_failure_diagnostic_never_serializes_private_exception_messages_or_paths(self):
         try:
             raise FileNotFoundError(2,'private scientific row',str(self.root/'private-user-file.csv'))

@@ -25,6 +25,7 @@ HEX=re.compile('[a-f0-9]{64}')
 @contextmanager
 def capture_lock(path,*,seconds=30):
     """Wait for brief cache housekeeping without discarding the streamed backup."""
+    from jasmine_web.batch.backup_guard import VisualiserBackupBusy
     from jasmine_web.batch.downloads import lock
     deadline=time.monotonic()+seconds
     with ExitStack() as held:
@@ -33,7 +34,8 @@ def capture_lock(path,*,seconds=30):
                 held.enter_context(lock(path));break
             except BlockingIOError:
                 remaining=deadline-time.monotonic()
-                if remaining<=0:raise
+                if remaining <= 0:
+                    raise VisualiserBackupBusy('Waiting for Visualiser maintenance') from None
                 time.sleep(min(0.05,remaining))
         yield
 

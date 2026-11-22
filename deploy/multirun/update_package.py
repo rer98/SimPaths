@@ -175,6 +175,15 @@ def command(*args, seconds=180):
     return value.stdout
 
 
+def backup_running(*, seconds=180):
+    try:
+        state = command('systemctl','show','simpaths-backup.service',
+                        '--property=ActiveState','--value',seconds=seconds).strip()
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError('The backup service status could not be read') from error
+    return state not in ('inactive','failed')
+
+
 def atomic(path, body):
     trusted(path)
     fd,name=tempfile.mkstemp(prefix='.application-update-',dir=path.parent)
@@ -263,12 +272,10 @@ class Installation:
                             '--property=ActiveState') for unit in SINGLE}
 
     def backup_idle(self):
-        state=command('systemctl','show','simpaths-backup.service','--property=ActiveState','--value').strip()
-        if state not in ('inactive','failed'):raise ValueError('Wait for the current backup without stopping it')
+        if backup_running():raise ValueError('Wait for the current backup without stopping it')
 
     def ready(self):
-        state=command('systemctl','show','simpaths-backup.service','--property=ActiveState','--value').strip()
-        return state in ('inactive','failed')
+        return not backup_running()
 
     def service_ready(self, *, start_public=True):
         script="""import sys

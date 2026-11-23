@@ -104,6 +104,11 @@ class PackageTests(unittest.TestCase):
         self.assertNotIn('COPY --chown=10001:10001 input/', result)
         self.assertLess(result.index('apt-get update'), result.index('COPY singlerun.jar'))
         self.assertLess(result.index('DatabaseQueryAccess'), result.index('simpaths.packaging.CompactInputDatabase'))
+        for dockerfile in (template, result):
+            self.assertLess(dockerfile.index('simpaths.packaging.CompactInputDatabase'),
+                            dockerfile.index('--prepare-donor-lookup'))
+            self.assertLess(dockerfile.index('--prepare-donor-lookup'),
+                            dockerfile.index('USER 10001:10001'))
         self.assertIn('rm -f /app/query-access.json /app/input-compaction.json', result)
         self.assertIn('rm /tmp/input-compactor.jar', result)
 

@@ -23,9 +23,7 @@ import microsim.matching.MatchingScoreClosure;
 import org.apache.commons.collections4.keyvalue.MultiKey;
 import org.apache.commons.collections4.map.LinkedMap;
 import org.apache.commons.collections4.map.MultiKeyMap;
-import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.time.StopWatch;
-import org.apache.commons.lang3.tuple.Triple;
 import org.apache.commons.math3.util.Pair;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -60,9 +58,14 @@ import java.util.random.RandomGenerator;
 public class SimPathsModel extends AbstractSimulationManager implements EventListener {
 
     @Transient private transient Runnable quickStartBuildValidation;
+    @Transient private transient boolean preparedDonorLookup;
 
     public void setQuickStartBuildValidation(Runnable validation) {
         quickStartBuildValidation = validation;
+    }
+
+    public void enablePreparedDonorLookup() {
+        preparedDonorLookup = true;
     }
 
     public boolean isIgnoreTargetsAtPopulationLoad() { return ignoreTargetsAtPopulationLoad; }
@@ -470,6 +473,9 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
         educationInnov = new Random(SimulationEngine.getRnd().nextLong());
         popAlignInnov = new Random(SimulationEngine.getRnd().nextLong());
 
+        // The pilot checks the effective schedule on every Build, including after workbook edits.
+        if (preparedDonorLookup) Parameters.EUROMODpolicyScheduleSystemYearMap.clear();
+
         // load model parameters
         Parameters.loadParameters(country, maxAge, enableIntertemporalOptimisations, projectFormalChildcare,
                 projectSocialCare, donorPoolAveraging, taxDonorUpratingByWage, fixTimeTrend, flagDefaultToTimeSeriesAverages,
@@ -504,7 +510,7 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
             taxDatabaseUpdate();
             TaxDonorDataParser.populateDonorTaxUnitTables(country, false); // Populate tax unit donor tables from person data
         }
-        populateTaxdbReferences();
+        DonorLookup.initialise(java.nio.file.Path.of(RunDatabasePath), preparedDonorLookup && !flagUpdateCountry);
 
         // run pre-simulation diagnostic tests
         //TestTaxRoutine.run();
@@ -3477,134 +3483,6 @@ public class SimPathsModel extends AbstractSimulationManager implements EventLis
         return alignEmployment;
     }
 
-
-    /**
-     *
-     * POPULATE PARAMETERS.taxdbReferences FOR EVALUATING TAX AND BENEFIT PAYMENTS
-     *
-     */
-    private static void populateTaxdbReferences() {
-
-        Map<Triple<Integer,Integer,Integer>,List<Integer>> taxdbReferences = Parameters.getTaxdbReferences();
-        if (taxdbReferences.size() == 0) {
-            // Checks if the map is already populated; if not proceed with the code below. This should happen only on the first run of the model.
-
-            System.out.println("Populating donor database indices");
-
-            //------------------------------------------------------------
-            // start work
-            //------------------------------------------------------------
-            EntityTransaction txn = null;
-            EntityManagerFactory factory = null;
-            EntityManager em = null;
-            try {
-
-                // access database and obtain donor pool
-                var propertyMap = new HashMap<String, String>();
-                propertyMap.put("hibernate.connection.url", "jdbc:h2:file:" + RunDatabasePath + ";TRACE_LEVEL_FILE=0;TRACE_LEVEL_SYSTEM_OUT=0;AUTO_SERVER=TRUE");
-                factory = Persistence.createEntityManagerFactory("tax-database", propertyMap);
-                em = factory.createEntityManager();
-                txn = em.getTransaction();
-                txn.begin();
-                String query = "SELECT DISTINCT tu FROM DonorTaxUnit tu LEFT JOIN FETCH tu.policies tp ORDER BY tp.originalIncomePerMonth";
-                //String query = "SELECT tu FROM DonorTaxUnit tu";
-                List<DonorTaxUnit> donorPool = em.createQuery(query).getResultList();
-//                donorPool.sort(Comparator.comparingDouble(tu ->
-//                        tu.getPolicyBySystemYear(Parameters.BASE_PRICE_YEAR).getOriginalIncomePerMonth()
-//                ));
-
-                System.out.println("Completed accessing donor data from the database");
-
-                double[][] dataDualIncome = {}, dataChildcare = {}, dataDualIncomeChildcare = {};
-
-                // loop over each donor
-                for (int ii = 0; ii < donorPool.size(); ii++) {
-
-                    DonorTaxUnit donor = donorPool.get(ii);
-                    for (int fromYear : Parameters.EUROMODpolicyScheduleSystemYearMap.keySet()) {
-
-                        // populate taxdbReferences
-                        int systemYear = Parameters.EUROMODpolicyScheduleSystemYearMap.get(fromYear).getValue();
-                        DonorTaxUnitPolicy donorPolicy = donor.getPolicyBySystemYear(systemYear);
-                        for (int jj = 0; jj < Parameters.TAXDB_REGIMES; jj++) {
-
-                            int index = donorPolicy.getDonorKey(jj);
-
-                            Triple<Integer, Integer, Integer> key =  Triple.of(systemYear, jj, index);
-                            List<Integer> donors = taxdbReferences.get(key);
-                            if (donors == null) {
-                                // need to instantiate list
-
-                                taxdbReferences.put(key, new ArrayList<>());
-                                taxdbReferences.get(key).add(ii);
-                            } else {
-                                // list exists - need to find correct insertion point
-
-                                int kk = donors.size() - 1;
-                                while (kk >= -1) {
-                                    if (kk == -1) {
-                                        // reached bottom of existing list
-
-                                        taxdbReferences.get(key).add(0, ii);
-                                    } else {
-                                        // internal to list
-
-                                        DonorTaxUnit lastDonor = donorPool.get(donors.get(kk));
-                                        if (lastDonor.getPolicyBySystemYear(systemYear).getOriginalIncomePerMonth() <=
-                                                donor.getPolicyBySystemYear(systemYear).getOriginalIncomePerMonth()) {
-                                            // append donor to end of list
-
-                                            taxdbReferences.get(key).add(kk + 1, ii);
-                                            kk = -1;
-                                        }
-                                    }
-                                    kk--;
-                                }
-                            }
-                        }
-                    }
-
-
-                    // collect data for populating MahalanobisDistance objects
-                    double originalIncome = donor.getPolicyBySystemYear(Parameters.BASE_PRICE_YEAR).getNormalisedOriginalIncomePerMonth();
-                    double secondIncome = donor.getPolicyBySystemYear(Parameters.BASE_PRICE_YEAR).getNormalisedSecondIncomePerMonth();
-                    double childcareCost = donor.getPolicyBySystemYear(Parameters.BASE_PRICE_YEAR).getNormalisedChildcareCostPerMonth();;
-                    if (secondIncome > 0.01 && childcareCost < 0.01) {
-                        double[] datum = {originalIncome, secondIncome};
-                        dataDualIncome = ArrayUtils.add(dataDualIncome, datum);
-                    }
-                    if (childcareCost > 0.01 && secondIncome < 0.01) {
-                        double[] datum = {originalIncome, childcareCost};
-                        dataChildcare = ArrayUtils.add(dataChildcare, datum);
-                    }
-                    if (secondIncome>0.01 && childcareCost>0.01) {
-                        double[] datum = {originalIncome, secondIncome, childcareCost};
-                        dataDualIncomeChildcare = ArrayUtils.add(dataDualIncomeChildcare, datum);
-                    }
-                }
-                MahalanobisDistance mdDualIncome = new MahalanobisDistance(dataDualIncome);
-                MahalanobisDistance mdChildcare = new MahalanobisDistance(dataChildcare);
-                MahalanobisDistance mdDualIncomeChildcare = new MahalanobisDistance(dataDualIncomeChildcare);
-
-                // instantiate Parameters for retrieval
-                Parameters.setTaxdbReferences(taxdbReferences);
-                Parameters.setDonorPool(donorPool);
-                Parameters.setMdDualIncome(mdDualIncome);
-                Parameters.setMdChildcare(mdChildcare);
-                Parameters.setMdDualIncomeChildcare(mdDualIncomeChildcare);
-
-                // close database connection
-                txn.commit();
-            } catch (Exception e) {
-                if (txn != null && txn.isActive()) {
-                    txn.rollback();
-                }
-                e.printStackTrace();
-            } finally {
-                closeDatabaseResources(em, factory);
-            }
-        }
-    }
 
     public void clearPersonsToMatch() {
 

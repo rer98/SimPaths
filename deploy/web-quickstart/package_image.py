@@ -51,7 +51,7 @@ def release_dockerfile(template, base_tag):
             + ' && chown -R 10001:10001 /app/input\n'
             # Older prepared bases predate non-root execution. Reuse the full
             # runtime setup, including writable output and protected code files.
-            + template[template.index('RUN mkdir -p output'):])
+            + template[template.index('RUN java -Djava.awt.headless=true'):])
 
 
 def package(source, repo, output):

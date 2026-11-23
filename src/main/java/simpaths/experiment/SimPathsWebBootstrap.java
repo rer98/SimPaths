@@ -12,6 +12,10 @@ public final class SimPathsWebBootstrap {
     private SimPathsWebBootstrap() {}
 
     public static void main(String[] args) throws Exception {
+        if (args.length == 1 && args[0].equals("--prepare-donor-lookup")) {
+            SimPathsQuickStart.prepareDonorLookup();
+            return;
+        }
         boolean prepareOnly = false;
         boolean rebuild = false;
         for (String arg : args) {

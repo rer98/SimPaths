@@ -512,3 +512,8 @@ fictional administrator browser/database/recovery evidence are
 (C) Copyright 2026, by Ross Richardson; @author ross richardson. This does not
 claim ownership of real user addresses, private settings, existing scientific
 data or third-party software.
+
+The prepared Quick Start donor lookup implementation and its generated packaging
+format and validation evidence are (C) Copyright 2026, by Ross Richardson;
+@author ross richardson. Bundled training data and upstream components retain
+their existing ownership and licences.

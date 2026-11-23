@@ -13,6 +13,7 @@ import microsim.web.SimulationServer;
 import simpaths.data.Parameters;
 import simpaths.model.SimPathsModel;
 import simpaths.model.enums.Country;
+import simpaths.model.taxes.DonorLookup;
 
 /* (C) Copyright 2026, by Ross Richardson
  *
@@ -22,6 +23,7 @@ import simpaths.model.enums.Country;
  *
  */
 public final class SimPathsQuickStart {
+    private static final int DONOR_LOOKUP_PILOT_POPULATION = 20_000;
     private static boolean enabled;
     private static SimPathsStartupConfig selectedProfile = SimPathsStartupConfig.quickStart();
     private SimPathsQuickStart() {}
@@ -51,7 +53,9 @@ public final class SimPathsQuickStart {
     }
 
     static void attach(SimPathsModel model) {
-        if (enabled) model.setQuickStartBuildValidation(() -> {
+        if (!enabled) return;
+        if (selectedProfile.populationSize() == DONOR_LOOKUP_PILOT_POPULATION) model.enablePreparedDonorLookup();
+        model.setQuickStartBuildValidation(() -> {
             selectedProfile.validatePreparedBuildParameters(Map.of(
                     "country", model.getCountry(), "startYear", model.getStartYear(),
                     "endYear", model.getEndYear(), "popSize", model.getPopSize(),
@@ -61,6 +65,15 @@ public final class SimPathsQuickStart {
                     "ignoreTargetsAtPopulationLoad", model.isIgnoreTargetsAtPopulationLoad()));
             requireReady(true);
         });
+    }
+
+    static void prepareDonorLookup() throws IOException {
+        var profile = profileConfiguration(readValidatedReceipt(Path.of("profile.json")));
+        if (profile.populationSize() != DONOR_LOOKUP_PILOT_POPULATION) return;
+        String input = Parameters.getInputDirectory();
+        Parameters.readEUROMODpolicySchedule(Country.UK,
+                Path.of(input, "EUROMODoutput", "training", "EUROMODpolicySchedule.xlsx").toString());
+        DonorLookup.prepare(Path.of(input, "input"));
     }
 
     static JsonNode readReceipt(Path file) throws IOException {

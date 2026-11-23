@@ -152,7 +152,7 @@ public class DonorTaxImputation {
         // value between iiTarget and iiTarget-1 (if iiTarget-1 exists)
         //------------------------------------------------------------
         // The candidate pool is organised in increasing order of original income
-        // ordering is controlled by database query in SimPathsModel.populateTaxdbReferences
+        // DonorLookup preserves the candidate order when preparing and loading the lookup.
         // normalised income is monthly in BASE_PRICE_YEAR prices (same as EUROMOD)
         // Search here uses the golden search algorithm
         targetNormalisedOriginalIncome = Parameters.normaliseWeeklyIncome(keys.getPriceYear(), keys.getOriginalIncomePerWeek());

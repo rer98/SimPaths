@@ -44,6 +44,9 @@ RUN java -cp app.jar microsim.web.server.DatabaseQueryAccess input/input query-a
         /app/input/input /app/query-access.json /app/input-compaction.json \
     && rm /tmp/input-compactor.jar \
     && find input -user root -exec chown 10001:10001 {} +
+# Generate only for the 20,000-person Quick Start pilot.
+RUN java -Djava.awt.headless=true -Xmx2g -cp /app/app.jar simpaths.experiment.SimPathsWebBootstrap --prepare-donor-lookup \
+    && if [ -f prepared-donor-lookup.bin.gz ]; then chmod 0444 prepared-donor-lookup.bin.gz; fi
 RUN mkdir -p output .simpaths-startup && chown 10001:10001 output .simpaths-startup \
     && chmod 0755 /app \
     && chmod 0444 app.jar webserver.properties README.md license.txt COPYRIGHT.md profile.json release.json query-access.json input-compaction.json

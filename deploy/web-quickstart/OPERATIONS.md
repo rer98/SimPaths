@@ -104,10 +104,10 @@ not this saved population. Use `prepare_profile.py` for a complete Quick Start
 package. See [WEB_QUICK_START.md](../../WEB_QUICK_START.md) for runtime checks and
 desktop/web launch details.
 
-### Prepared donor lookup pilot
+### Prepared UKMOD donor lookup
 
-For the 20,000-person profile, the image builds the UKMOD donor lookup after
-compacting the input database. A successful first Build logs
+For both Quick Start profiles (20,000 and 50,000 people), the image builds the
+UKMOD donor lookup after compacting the input database. A successful first Build logs
 `Loaded prepared UKMOD donor lookup`. Build uses the database when the packaged
 lookup is missing, unreadable, or the effective policy schedule or input database
 differs. The lookup belongs beside `profile.json` and is generated for each

@@ -23,7 +23,6 @@ import simpaths.model.taxes.DonorLookup;
  *
  */
 public final class SimPathsQuickStart {
-    private static final int DONOR_LOOKUP_PILOT_POPULATION = 20_000;
     private static boolean enabled;
     private static SimPathsStartupConfig selectedProfile = SimPathsStartupConfig.quickStart();
     private SimPathsQuickStart() {}
@@ -54,7 +53,7 @@ public final class SimPathsQuickStart {
 
     static void attach(SimPathsModel model) {
         if (!enabled) return;
-        if (selectedProfile.populationSize() == DONOR_LOOKUP_PILOT_POPULATION) model.enablePreparedDonorLookup();
+        model.enablePreparedDonorLookup();
         model.setQuickStartBuildValidation(() -> {
             selectedProfile.validatePreparedBuildParameters(Map.of(
                     "country", model.getCountry(), "startYear", model.getStartYear(),
@@ -68,8 +67,7 @@ public final class SimPathsQuickStart {
     }
 
     static void prepareDonorLookup() throws IOException {
-        var profile = profileConfiguration(readValidatedReceipt(Path.of("profile.json")));
-        if (profile.populationSize() != DONOR_LOOKUP_PILOT_POPULATION) return;
+        readValidatedReceipt(Path.of("profile.json"));
         String input = Parameters.getInputDirectory();
         Parameters.readEUROMODpolicySchedule(Country.UK,
                 Path.of(input, "EUROMODoutput", "training", "EUROMODpolicySchedule.xlsx").toString());

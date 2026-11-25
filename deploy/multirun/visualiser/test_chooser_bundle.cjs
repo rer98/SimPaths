@@ -12,7 +12,7 @@ const experiment='00000000-0000-4000-8000-000000000001',scope='d'.repeat(64);
 const id=n=>'configuration-'+n,job=n=>'00000000-0000-4000-8000-'+String(n+2).padStart(12,'0');
 async function wait(check){const until=Date.now()+8000;while(!check()){
   if(Date.now()>until)throw Error('Compiled chooser did not reach expected state');await new Promise(r=>setTimeout(r,5));}}
-async function fixture({query='',saved=null,offline=false,total=1024,missing=false}={}){
+async function fixture({query='',saved=null,offline=false,total=1024,missing=false,chartsReady=false,pairsReady=false}={}){
   const errors=[],requests=[],posts=[],console=new VirtualConsole();console.on('jsdomError',e=>errors.push(e.message));
   const dom=new JSDOM(fs.readFileSync(path.join(build,'index.html'),'utf8'),{
     url:'https://localhost/visualiser/experiment/'+experiment+query,runScripts:'outside-only',pretendToBeVisual:true,virtualConsole:console});
@@ -28,6 +28,8 @@ async function fixture({query='',saved=null,offline=false,total=1024,missing=fal
     if(down)throw Error('Fictional connection failure');
     if(denied)return response({error:'Sign in again.'},403);
     if(parsed.pathname==='/api/session')return response({signed_in:true,csrf:'private-fixture'});
+    if(q.get('opening')==='1'&&total>9)
+      return response({format:'simpaths.visualiser.choose.v1',experiment});
     if(parsed.pathname.endsWith('/choices')){
       const picked=q.getAll('picked').map(key=>Number(key.split('-').at(-1))).filter(n=>n<total&&!(missing&&n===0)).map(row);
       let rows=Array.from({length:total},(_,n)=>row(n));
@@ -46,9 +48,9 @@ async function fixture({query='',saved=null,offline=false,total=1024,missing=fal
     }
     const chosen=q.getAll('chosen'),ids=chosen.length?chosen:Array.from({length:total},(_,n)=>id(n));
     return response({format:'simpaths.visualiser.experiment.v1',experiment,url:'/visualiser/experiment/'+experiment,
-      publication:null,ready:0,total:ids.length,pending:true,retryable:false,
+      publication:chartsReady?'a'.repeat(64):null,ready:chartsReady?ids.length:0,total:ids.length,pending:!pairsReady,retryable:false,
       configurations:ids.map(key=>({id:job(Number(key.split('-').at(-1))),configuration:key,name:key,
-        state:'succeeded',charts:'queued',comparison:'not_applicable'}))});
+        state:'succeeded',charts:chartsReady?'ready':'queued',comparison:q.get('baseline')&&key!==q.get('baseline')?(pairsReady?'ready':'queued'):'not_applicable'}))});
   };
   new vm.Script(fs.readFileSync(path.join(build,'visualiser.js'),'utf8')).runInContext(dom.getInternalVMContext());
   const button=text=>Array.from(doc.querySelectorAll('button')).find(b=>(b.getAttribute('aria-label')||b.textContent.trim())===text);
@@ -130,6 +132,24 @@ test('initial failure retries the normal small-experiment opening without enqueu
     }finally{boundary.dom.window.close();}
   }
 });
+test('one through nine configurations open without entering the chooser; ten get a bounded first page',async()=>{
+  for(const total of [1,9,10]){
+    const f=await fixture({total});try{
+      if(total<=9)await wait(()=>f.button('Change configurations'));
+      else await wait(f.idle);
+      const urls=f.requests.map(r=>new URL(r.url,'https://localhost'));
+      assert.equal(urls.filter(u=>u.searchParams.get('opening')==='1').length,1);
+      assert.equal(urls.filter(u=>u.pathname.endsWith('/choices')).length,total>9?1:0);
+      assert.equal(f.doc.body.textContent.includes('Choose configurations'),total>9);
+      assert.equal(f.posts.length,0);
+      if(total<=9){
+        f.button('Change configurations').click();await wait(f.idle);
+        assert.ok(f.doc.body.textContent.includes('Choose configurations'));
+      }
+    }finally{f.dom.window.close();}
+  }
+});
+
 test('unavailable saved baselines are removed and a revised valid selection can be saved',async()=>{
   const f=await fixture({saved:JSON.stringify({configurations:[id(0),id(600)],baseline:id(0)}),missing:true});try{
     await wait(f.idle);assert.ok(f.doc.body.textContent.includes('Some saved configurations are unavailable'));
@@ -161,4 +181,19 @@ test('opening progress and errors stay below the button, with a single message a
     assert.equal(f.button('Open Visualiser'),undefined);assert.equal(f.button('Retry connection'),undefined);
     assert.ok(!f.doc.body.textContent.includes('Policy 1'));assert.deepEqual(f.errors,[]);
   }finally{f.dom.window.close();}
+});
+
+test('selection readiness counts only the chosen charts and baseline comparisons without enqueueing',async()=>{
+  for(const pairsReady of [false,true]){
+    const f=await fixture({chartsReady:true,pairsReady});
+    try{
+      await wait(()=>f.doc.body.textContent.includes(pairsReady?'Ready to open · 5 selected':'5/5 charts ready · 0/4 comparisons ready'));
+      const select=f.doc.querySelector('section select');select.value='';
+      select.dispatchEvent(new f.w.Event('change',{bubbles:true}));
+      await wait(()=>f.doc.body.textContent.includes('Ready to open · 5 selected'));
+      f.button('Open Visualiser').click();await wait(()=>f.button('Change configurations'));
+      assert.equal(f.posts.length,0);
+      assert.ok(!f.requests.some(r=>r.url==='/api/session'));
+    }finally{f.dom.window.close();}
+  }
 });

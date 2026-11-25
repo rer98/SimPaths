@@ -28,7 +28,7 @@ export function validateExperiment(value,experiment){
 }
 
 export class ExperimentSource extends SectionSource{
-  constructor(experiment,{onUpdated=()=>{},onStatus=()=>{},selection=null,...options}={}){
+  constructor(experiment,{onUpdated=()=>{},onStatus=()=>{},onChooseRequired,selection=null,...options}={}){
     if(!uuid(experiment))throw Error('Invalid experiment.');
     super(experiment.replaceAll('-','').repeat(2),options);
     this.experiment=experiment;this.url='/api/visualiser-experiments/'+experiment;
@@ -47,6 +47,7 @@ export class ExperimentSource extends SectionSource{
         return fetcher(url,init);
       };
     }
+    this.onChooseRequired=onChooseRequired;
     this.pinPublication=true;this.status=null;this.onUpdated=onUpdated;this.onStatus=onStatus;
     this.refreshing=null;
   }
@@ -72,14 +73,19 @@ export class ExperimentSource extends SectionSource{
   close(){this.refreshAbort?.abort();super.close();}
   async refreshOnce(signal,retry=true){
     try{
-      const response=await this.fetcher(this.url,{credentials:'same-origin',cache:'no-store',signal});
+      const automatic=!this.selection&&!!this.onChooseRequired;
+      const response=await this.fetcher(automatic?this.url+'?opening=1':this.url,{credentials:'same-origin',cache:'no-store',signal});
       const {value,bytes}=await boundedJSON(response,256*1024,signal);
-      const status=validateExperiment(value,this.experiment);this.stats.bytes+=bytes;
+      this.stats.bytes+=bytes;
       if(this.closed||signal?.aborted)throw new DOMException('Chart source closed.','AbortError');
       const scope=response.headers?.get('x-visualiser-cache-scope');
       if(this.scope&&scope!==this.scope){
         await this.clear();this.invalidate();throw Error('Your sign-in has changed. Return to Results and reopen the Visualiser.');
       }
+      if(automatic&&value?.format==='simpaths.visualiser.choose.v1'&&value.experiment===this.experiment){
+        this.onChooseRequired();return null;
+      }
+      const status=validateExperiment(value,this.experiment);
       this.scope=hash(scope)?scope:null;
       this.diskActive=!!(this.scope&&this.disk&&await this.disk.activate(this.scope));
       const previous=this.status;this.status=status;this.onStatus(status,previous);

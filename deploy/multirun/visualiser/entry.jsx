@@ -45,7 +45,7 @@ function Page({selection=null,onChoose=()=>{}}){
         if(serial!==generation.current)return;
         setCatalogue(null);setExperimentStatus(null);setUpdateNotice('');setConnectionIssue(null);setMessage(text);
       }};
-      const source=experiment?new ExperimentSource(key,{...options,selection,
+      const source=experiment?new ExperimentSource(key,{...options,selection,onChooseRequired:onChoose,
         onUpdated:value=>{if(serial===generation.current)setCatalogue(value);},
         onStatus:(value,previous)=>{
           if(serial!==generation.current)return;
@@ -166,6 +166,8 @@ function Page({selection=null,onChoose=()=>{}}){
     {message&&<p className="vm-source-message" role="status">{message} <a href="/">Return to SimPaths Online</a></p>}
     {alternatives>0&&<p className="vm-source-help">Use the scenario buttons to show or hide any of the {alternatives} selected alternatives. Charts load the data for your current selection.</p>}
   </>;
+  if(experiment&&!selection&&mode==='online'&&!experimentStatus&&message==='Loading online results…'&&!connectionIssue)
+    return <main className="vm-chooser"><p role="status">{message}</p></main>;
   return <App dataSource={{rows:local||[],viewSource,controls,key:local?'local':key,
     label:mode==='saved'?'saved comparison':local?'locally saved data':'Online results',names:local?undefined:names,
     description:mode==='saved'?'Saved comparison sections are read on this device and are never uploaded.':'Online results are produced on the remote server. Locally saved files are processed entirely in your browser and are not uploaded.',
@@ -173,7 +175,8 @@ function Page({selection=null,onChoose=()=>{}}){
     showDelta:local!=null||catalogue?.comparison_available===true,notice:catalogue?.notice}}/>;
 }
 function ExperimentPage(){
-  const [choice,setChoice]=useState(null),[choosing,setChoosing]=useState(true);
+  const [choice,setChoice]=useState(null);
+  const [choosing,setChoosing]=useState(()=>new URLSearchParams(location.search).has('chosen'));
   const forceChooser=useRef(false);
   const experiment=location.pathname.split('/').pop();
   return choosing?<ExperimentChooser experiment={experiment} current={choice} force={forceChooser.current} onOpen={selected=>{

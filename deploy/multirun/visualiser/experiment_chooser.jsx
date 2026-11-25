@@ -4,6 +4,7 @@
  */
 import React,{useEffect,useLayoutEffect,useRef,useState} from 'react';
 import {boundedJSON} from './section_source.mjs';
+import {validateExperiment} from './experiment_source.mjs';
 import {validateSelection,fromQuery,restoreSelection,saveSelection,selectionQuery} from './experiment_choices.mjs';
 
 const api='/api/visualiser-experiments/';
@@ -16,6 +17,7 @@ export function ExperimentChooser({experiment,current=null,force=false,onOpen}){
   const [search,setSearch]=useState(''),[parameter,setParameter]=useState(''),[value,setValue]=useState(''),[ready,setReady]=useState(false);
   const [message,setMessage]=useState('Loading configurations…'),[busy,setBusy]=useState(false);
   const generation=useRef(0),controller=useRef(null),scope=useRef(null),dead=useRef(false);
+  const [reviewing,setReviewing]=useState(()=>force||!new URLSearchParams(location.search).has('chosen'));
   const pageFocus=useRef(null);
   function cancel(){++generation.current;controller.current?.abort();}
   async function load(offset=0,selection=chosen,filters={search,parameter,value,ready}){
@@ -43,24 +45,29 @@ export function ExperimentChooser({experiment,current=null,force=false,onOpen}){
     }finally{if(serial===generation.current)setBusy(false);}
   }
   async function initialise(){
-      const first=await load(0,[]);
-      if(!first||dead.current)return;
-      let selected=current;
-      if(!selected){
-        try{selected=fromQuery(new URLSearchParams(location.search));}catch(error){setMessage(error.message);}
+    let selected=current;
+    const linked=!force&&!current&&new URLSearchParams(location.search).has('chosen');
+    if(!selected&&linked){
+      try{selected=fromQuery(new URLSearchParams(location.search));}catch(error){setMessage(error.message);}
+    }
+    if(!selected&&!linked){try{selected=restoreSelection(experiment,localStorage);}catch{}}
+    const first=await load(0,(selected?.configurations||[]).map(configuration=>({configuration})));
+    if(!first||dead.current)return;
+    if(selected){
+      setBaseline(first.picked.some(row=>row.configuration===selected.baseline)?selected.baseline:null);
+      if(first.picked.length!==selected.configurations.length){
+        setMessage('Some saved configurations are unavailable. Review your selection.');
+      }else if(linked&&first.picked.every(row=>row.selectable)){
+        onOpen(validateSelection(selected));return;
       }
-      if(!selected){try{selected=restoreSelection(experiment,localStorage);}catch{}}
-      if(!force&&!current&&!selected&&first.total<=first.automatic_limit){onOpen(null);return;}
-      if(!selected){const ids=first.defaults.slice(0,first.total<=first.automatic_limit?9:5);selected={configurations:ids,baseline:ids.includes(first.baseline)?first.baseline:null};}
-      if(selected.configurations.length){
-        const fresh=await load(0,selected.configurations.map(configuration=>({configuration})));
-        if(fresh)setBaseline(fresh.picked.some(row=>row.configuration===selected.baseline)?selected.baseline:null);
-        if(fresh&&!current&&new URLSearchParams(location.search).has('chosen')&&
-            fresh.picked.length===selected.configurations.length&&fresh.picked.every(row=>row.selectable)){
-          onOpen(validateSelection(selected));return;
-        }
-        if(fresh&&fresh.picked.length!==selected.configurations.length)setMessage('Some saved configurations are unavailable. Review your selection.');
-      }
+    }else{
+      const ids=first.defaults.slice(0,first.total<=first.automatic_limit?9:5);
+      const rows=ids.map(id=>first.configurations.find(row=>row.configuration===id));
+      if(rows.every(Boolean))setChosen(rows);
+      else if(!await load(0,ids.map(configuration=>({configuration}))))return;
+      setBaseline(ids.includes(first.baseline)?first.baseline:null);
+    }
+    setReviewing(true);
   }
   useEffect(()=>{
     initialise();
@@ -86,6 +93,40 @@ export function ExperimentChooser({experiment,current=null,force=false,onOpen}){
     };}catch{}
     return()=>channel?.close();
   },[]);
+  const [readiness,setReadiness]=useState(null);
+  const selectionKey=data&&chosen.length&&chosen.every(row=>row.selectable)&&
+    (!baseline||chosen.some(row=>row.configuration===baseline))?
+    selectionQuery({configurations:chosen.map(row=>row.configuration),baseline}).toString():'';
+  useEffect(()=>{
+    if(!selectionKey)return;
+    const abort=new AbortController();
+    let timer;
+    async function check(){
+      try{
+        const result=await read(api+experiment+'?'+selectionKey,abort.signal);
+        if(abort.signal.aborted||dead.current)return;
+        if(result.scope!==scope.current)throw Object.assign(Error('Your sign-in changed. Return to My Jobs.'),{status:403});
+        const status=validateExperiment(result.value,experiment);
+        const requested=new URLSearchParams(selectionKey);
+        const ids=requested.getAll('chosen'),base=requested.get('baseline');
+        if(status.total!==ids.length||status.configurations.some(row=>!ids.includes(row.configuration)))return;
+        const paired=status.configurations.filter(row=>row.configuration!==base&&row.comparison==='ready').length;
+        const ready=status.ready===ids.length&&(!base||paired===ids.length-1);
+        const label=ready?'Ready to open · '+ids.length+' selected':
+          status.ready+'/'+ids.length+' charts ready'+(base&&ids.length>1?' · '+paired+'/'+(ids.length-1)+' comparisons ready':'');
+        setReadiness({key:selectionKey,label,ready});
+        if(!ready&&status.pending)timer=setTimeout(check,15000);
+      }catch(error){
+        if(abort.signal.aborted)return;
+        setReadiness(null);
+        if([401,403,404].includes(error.status)){
+          cancel();dead.current=true;setData(null);setChosen([]);setBaseline(null);setBusy(false);setMessage(error.message);
+        }
+      }
+    }
+    timer=setTimeout(check,300);
+    return ()=>{abort.abort();clearTimeout(timer);};
+  },[experiment,selectionKey]);
   function toggle(row){
     setChosen(previous=>previous.some(item=>item.configuration===row.configuration)?
       previous.filter(item=>item.configuration!==row.configuration):[...previous,row]);
@@ -96,17 +137,19 @@ export function ExperimentChooser({experiment,current=null,force=false,onOpen}){
     setBusy(true);setMessage('Checking access and preparing the selected charts…');
     try{
       const selected=validateSelection({configurations:chosen.map(row=>row.configuration),baseline});
-      const session=(await read('/api/session',abort.signal)).value;
-      if(serial!==generation.current)return;
-      if(!session.signed_in)throw Object.assign(Error('Sign in again from My Jobs.'),{status:403});
-      // The server checks ownership, current grants and its fixed selection limit again.
-      const response=await fetch(api+experiment,{method:'POST',credentials:'same-origin',cache:'no-store',signal:abort.signal,
-        headers:{'Content-Type':'application/json','X-CSRF-Token':session.csrf},body:JSON.stringify(selected)});
-      const {value:status}=await boundedJSON(response,256*1024,abort.signal);
-      if(serial!==generation.current)return;
+      if(!(readiness?.key===selectionKey&&readiness.ready)){
+        const session=(await read('/api/session',abort.signal)).value;
+        if(serial!==generation.current)return;
+        if(!session.signed_in)throw Object.assign(Error('Sign in again from My Jobs.'),{status:403});
+        // The server checks ownership, current grants and its fixed selection limit again.
+        const response=await fetch(api+experiment,{method:'POST',credentials:'same-origin',cache:'no-store',signal:abort.signal,
+          headers:{'Content-Type':'application/json','X-CSRF-Token':session.csrf},body:JSON.stringify(selected)});
+        await boundedJSON(response,256*1024,abort.signal);
+        if(serial!==generation.current)return;
+      }
       try{saveSelection(experiment,selected,localStorage);}catch{}
       history.replaceState(null,'',location.pathname+'?'+selectionQuery(selected));
-      onOpen(selected,status);
+      onOpen(selected);
     }catch(error){
       if(serial!==generation.current||error.name==='AbortError')return;
       if([401,403,404].includes(error.status)){dead.current=true;setData(null);setChosen([]);setBaseline(null);}
@@ -135,6 +178,10 @@ export function ExperimentChooser({experiment,current=null,force=false,onOpen}){
     {message&&<p role="status">{message}</p>}
     {!busy&&!dead.current&&message&&<button onClick={()=>data?load(data.offset):initialise()}>Retry connection</button>}
   </>;
+  if(!reviewing)return <main className="vm-chooser"><a href="/">Return to My Jobs</a>
+    {message?<p role="status">{message}</p>:<p role="status">Opening online results…</p>}
+    {!busy&&!dead.current&&message&&<button onClick={initialise}>Retry connection</button>}
+  </main>;
   return <main className="vm-chooser">
     <a href="/">Return to My Jobs</a><h1>Choose configurations</h1>
     {data&&<><h2>{data.name}</h2><p>{data.total} configurations. Choose up to 9, including an optional baseline.
@@ -148,6 +195,7 @@ export function ExperimentChooser({experiment,current=null,force=false,onOpen}){
           {!row.selectable&&' — unavailable'} <button disabled={busy} onClick={()=>toggle(row)} aria-label={'Remove '+row.name}>Remove</button></li>)}</ul>
         <button className="vm-source-button" disabled={busy||!chosen.length||chosen.some(row=>!row.selectable)} onClick={open}>Open Visualiser</button>
         {feedback}
+        {!message&&readiness?.key===selectionKey&&<p aria-live="polite">{readiness.label}</p>}
       </section>
       <form className="vm-choice-filters" onSubmit={event=>{event.preventDefault();load(0);}}>
         <label>Search name, number or setting <input maxLength={200} value={search} onChange={event=>setSearch(event.target.value)}/></label>

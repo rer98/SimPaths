@@ -120,6 +120,11 @@ if(request.operation==='run'){
   // Feed and release one run's private metrics at a time. Match by actual seed.
   for(const file of request.metrics)core.accumulateRunMetrics(grouped,readMetrics(file));
   const rows=core.finaliseAggregation(grouped);
+  // Older releases emit age bands; the tabbed release publishes individual
+  // ages and an open upper band. Accept only the calculation's own labels.
+  const pyramidAges=Number.isInteger(core.PYRAMID_TOP_AGE)
+    ? Array.from({length:core.PYRAMID_TOP_AGE+1},(_,age)=>core.pyramidAge(age))
+    : core.getStratifierDef('Age').order;
   for(const row of rows){
     if(row.variable==='Employment status')row.variable_value=({
       EmployedOrSelfEmployed:'Employed or self employed',NotEmployed:'Not employed',
@@ -131,7 +136,7 @@ if(request.operation==='run'){
       : row.metric_type==='income_bin'&&core.INCOME_BIN_VARS[row.variable]
         ? [...core.INCOME_BIN_VARS[row.variable].labels,'Missing']
         : row.metric_type==='pyramid_bin'&&row.variable==='Age'
-          ? [...core.getStratifierDef('Age').order,'Missing']
+          ? [...pyramidAges,'Missing']
         : variable.type==='numeric'?['Mean','Continuous Mean','Missing']:[...variable.order,'Missing'];
     const stratifier=core.getStratifierDef(row.stratifier);
     const groups=row.stratifier==='Overall'?['Overall']:[...stratifier.order,'Missing'];

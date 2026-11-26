@@ -357,6 +357,29 @@ class ApplicationPackageTests(unittest.TestCase):
                 else:
                     installer.check_visualiser_calculation()
 
+    def test_archive_can_retire_only_after_its_final_protected_source_expires(self):
+        installer=self.installation()
+        build=self.root/'visualiser';build.mkdir()
+        installer.options.visualiser_build=build
+        science={'runner.cjs':'a'*64,'calculation.cjs':'b'*64}
+        archive={'runner.cjs':'c'*64,'calculation.cjs':'d'*64}
+        files=science|{'historical-'+name:digest for name,digest in archive.items()}
+        old=dict(mode='development-paired',files=files,historical=dict(files=archive))
+        (build/'build.json').write_text(json.dumps(old))
+        candidate=self.source/'programs/visualiser/build.json'
+        candidate.parent.mkdir()
+        body=json.dumps(dict(mode=old['mode'],files=science)).encode()
+        candidate.write_bytes(body)
+        installer.plan={'targets':{'visualiser/build.json':dict(after=package.digest(body))}}
+        with patch.object(self.q,'_connection') as connection:
+            query=connection.return_value.__enter__.return_value
+            query.execute.return_value.fetchone.return_value={'sources':1}
+            with self.assertRaisesRegex(ValueError,'historical Visualiser calculator'):
+                installer.check_visualiser_calculation()
+            self.assertEqual(json.loads(query.execute.call_args.args[1][1]),archive)
+            query.execute.return_value.fetchone.return_value={'sources':0}
+            installer.check_visualiser_calculation()
+
     def test_exact_same_schema_and_candidate_receipt_are_required(self):
         self.assertEqual(self.validate(),self.plan)
         with self.assertRaises(ValueError):package.validate_package(self.source,'f'*64,self.q)

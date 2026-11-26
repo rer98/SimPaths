@@ -20,7 +20,9 @@ async function waitFor(check){
     await new Promise(resolve=>setTimeout(resolve,10));
   }
 }
-test('the compiled connected application boots, loads every alternative and draws paired charts',async()=>{
+const manifest=JSON.parse(fs.readFileSync(path.join(build,'build.json'),'utf8'));
+for(const historical of (manifest.historical?[false,true]:[false])){
+test('the '+(historical?'historical':'current')+' reader draws the prepared paired charts',async()=>{
   const errors=[],requests=[],key='a'.repeat(64);
   const console=new VirtualConsole();console.on('jsdomError',error=>errors.push(error.message));
   console.on('error',error=>errors.push(String(error)));
@@ -29,6 +31,7 @@ test('the compiled connected application boots, loads every alternative and draw
   });
   try{
     const w=dom.window,doc=w.document;
+    w.scrollTo=()=>{};
     w.ResizeObserver=class {constructor(cb){this.cb=cb;}observe(){this.cb([{contentRect:{width:900,height:500}}]);}disconnect(){}};
     w.SVGElement.prototype.getBBox=()=>({width:40,height:12,x:0,y:0});
     w.SVGElement.prototype.getComputedTextLength=()=>40;
@@ -42,9 +45,16 @@ test('the compiled connected application boots, loads every alternative and draw
       comparison_available:true,notice:'Fictional paired results',limits:{response_bytes:8*1024**2,response_rows:20000},
       variables:[{name:row('baseline',40).variable,module:'Health',years:[2019],
         views:[{stratifier:'Overall',kind:'levels',bytes:2000,rows:3}]}]};
+    if(historical)metadata.calculator_revision=manifest.historical.revision;
     w.fetch=async function(url){
+      requests.push(url);
+      if(url.startsWith('/visualiser-assets/')){
+        const pages={'interpreting-results.html':'Interpreting-results.html','citation.html':'citation.html','funders.html':'funders.html'};
+        const file=pages[url.slice('/visualiser-assets/'.length)];
+        assert.ok(file);return new Response(fs.readFileSync(path.join(build,file),'utf8'));
+      }
       if(this?.document!==doc)throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
-      requests.push(url);assert.ok(url.startsWith('/api/visualiser/'+key+'/'));
+      assert.ok(url.startsWith('/api/visualiser/'+key+'/'));
       if(denied)return new Response(JSON.stringify({error:'Sign in with an approved email'}),{status:403});
       if(url.endsWith('/catalogue'))return new Response(JSON.stringify(metadata));
       const params=new URL(url,'http://localhost').searchParams;
@@ -57,10 +67,17 @@ test('the compiled connected application boots, loads every alternative and draw
     await waitFor(()=>doc.body.textContent.includes('Policy B'));
     const button=text=>Array.from(doc.querySelectorAll('button')).find(b=>b.textContent.trim()===text);
     const help=button('View folder structure'),guidance=help.closest('p');
-    assert.ok(guidance.textContent.includes('folders sit within.'));
-    assert.ok(guidance.textContent.indexOf('runs from your model output.')<guidance.textContent.indexOf('View folder structure'));
-    assert.ok(guidance.textContent.indexOf('View folder structure')<guidance.textContent.indexOf('Use "Visualise Locally Saved Data"'));
-    assert.ok(guidance.parentElement.querySelector('h4').textContent.includes('Getting Started'));
+    const tab=id=>doc.querySelector('[role="tab"][href="#/'+id+'"]');
+    if(manifest.historical)assert.equal(Boolean(tab('interpreting-results')),!historical);
+    if(tab('interpreting-results')){
+      assert.match(guidance.textContent,/Baseline and Scenario subfolders.*View folder structure/);
+      assert.equal(guidance.parentElement.querySelector('h3').textContent.trim(),'Connect Data');
+    }else{
+      assert.ok(guidance.textContent.includes('folders sit within.'));
+      assert.ok(guidance.textContent.indexOf('runs from your model output.')<guidance.textContent.indexOf('View folder structure'));
+      assert.ok(guidance.textContent.indexOf('View folder structure')<guidance.textContent.indexOf('Use "Visualise Locally Saved Data"'));
+      assert.ok(guidance.parentElement.querySelector('h4').textContent.includes('Getting Started'));
+    }
     assert.equal(doc.querySelectorAll('.folder-structure-help, .vm-folder-help').length,1);
     assert.equal(doc.querySelector('[role="tooltip"]'),null);
     help.parentElement.dispatchEvent(new w.MouseEvent('mouseover',{bubbles:true}));
@@ -80,7 +97,7 @@ test('the compiled connected application boots, loads every alternative and draw
     button('Mental Component Summary (MCS)').click();
     await waitFor(()=>doc.querySelectorAll('svg path[fill="none"][stroke-dasharray]:not([stroke-dasharray="none"])').length===2);
     assert.ok(doc.body.textContent.includes('Policy A'));
-    assert.ok(doc.querySelector('a[href="/visualiser-assets/Interpreting-results.html"]'));
+    assert.ok(tab('interpreting-results') || doc.querySelector('a[href="/visualiser-assets/Interpreting-results.html"]'));
     assert.equal(doc.querySelector('img[src="canary"]'),null);
     button('Δ Baseline → Scenario').click();
     await waitFor(()=>doc.body.textContent.includes('uncertainty intervals use paired run differences'));
@@ -89,14 +106,25 @@ test('the compiled connected application boots, loads every alternative and draw
     denied=true;
     button('Reload charts from server').click();
     await waitFor(()=>doc.querySelector('.vm-source-message')?.textContent.includes('Sign in with an approved email'));
-    assert.equal(doc.querySelectorAll('svg').length,0);
+    assert.equal(doc.querySelectorAll('svg path[stroke-dasharray]').length,0);
     assert.equal(requests.at(-1),'/api/visualiser/'+key+'/catalogue');
+    if(tab('interpreting-results')){
+      tab('interpreting-results').click();
+      const panel=page=>doc.querySelector('.sp-page[data-page="'+page+'.html"] .container');
+      await waitFor(()=>panel('interpreting-results'));
+      panel('interpreting-results').querySelector('a[href="citation.html"]').click();
+      await waitFor(()=>panel('citation'));
+      tab('funders').click();
+      await waitFor(()=>panel('funders')?.querySelector('img[src$="UKRILogo.png"]'));
+      assert.equal(tab('funders').getAttribute('aria-selected'),'true');
+    }
     assert.deepEqual(errors,[]);
   }catch(error){
-    error.message+='; fictional fixture state: '+JSON.stringify({errors,
+    error.message+='; fictional fixture state: '+JSON.stringify({errors,requests,
       sourceMessages:Array.from(dom.window.document.querySelectorAll('.vm-source-message')).map(p=>p.textContent),
       paths:dom.window.document.querySelectorAll('svg path[fill="none"][stroke-dasharray]:not([stroke-dasharray="none"])').length,
       buttons:Array.from(dom.window.document.querySelectorAll('button')).map(b=>b.textContent.trim())});
     throw error;
   }finally{dom.window.close();}
 });
+}

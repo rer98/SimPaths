@@ -8,7 +8,7 @@ const {adaptApp,adaptDashboard}=require('./adapt_app.cjs');
 const {dependencyReceipt,emittedPackages}=require('./build_metadata.cjs');
 const args={};
 for(let i=2;i<process.argv.length;i+=2){
-  if(!['--source','--dependencies','--output'].includes(process.argv[i])||!process.argv[i+1])throw Error('Invalid build arguments');
+  if(!['--source','--dependencies','--output','--historical-source','--historical-build','--current-build'].includes(process.argv[i])||!process.argv[i+1])throw Error('Invalid build arguments');
   args[process.argv[i].slice(2)]=path.resolve(process.argv[i+1]);
 }
 if(!args.source||!args.dependencies||!args.output) throw Error('Use --source CHECKOUT --dependencies NODE_MODULES --output NEW_DIRECTORY');
@@ -39,6 +39,8 @@ const licences=new Map();
 const emitted={};
 const selected=['App.js','parseCore.js','useAggregatedData.js','DashboardSection.js','localFolderParser.js',
   'AggregateDataPanel.js','aggregateDataSource.js','useAggregateView.js','csvParse.js','tooltipContent.js'];
+const tabbed=fs.existsSync(path.join(args.source,'src/StaticPage.js'));
+if(tabbed)selected.push('StaticPage.js','ScenarioGraphic.js','InfoPages.js');
 if(fs.existsSync(path.join(args.source,'src/FolderStructureHelp.js')))selected.push('FolderStructureHelp.js');
 fs.mkdirSync(args.output,{recursive:true,mode:0o700});
 const staging=path.join(args.output,'source');
@@ -47,12 +49,48 @@ for(const name of selected){
   let text=fs.readFileSync(path.join(args.source,'src',name),'utf8');
   hashes[name]=sha(text);
   if(name==='App.js')text=adaptApp(text);
+  if(name==='StaticPage.js'){
+    const wrapper='<div className="sp-page"';
+    if(!text.includes(wrapper))throw Error('Review changed guidance tab markup');
+    text=text.replace(wrapper,wrapper+' data-page={file}');
+  }
   if(name==='DashboardSection.js')text=adaptDashboard(text);
   const transformed=babel.transformSync(text,{
     filename:name,presets:[[reactPreset,{runtime:'automatic'}]],
     babelrc:false,configFile:false,comments:true}).code;
   fs.writeFileSync(path.join(staging,name),transformed,{mode:0o600});
 }
+// The original reader labels pyramid bins and denominators differently. Build it
+// from the same reviewed sources as the archived calculator.
+let historical=null;
+if(args['historical-build']||args['historical-source']){
+  if(!args['historical-source'])throw Error('Supply the matching historical reader sources');
+  const archive=args['historical-build']||path.join(__dirname,'historical','f6384fa6');
+  const original=fs.readFileSync(path.join(archive,'build.json'));
+  if(sha(original)!=='b4fff0679de68fd2acd64a081c2348cdb9735289385530504f41ccdc9d35aace')
+    throw Error('Unqualified historical Visualiser build');
+  const old=JSON.parse(original);
+  historical={revision:old.revision,node:old.toolchain.node,files:{}};
+  const folder=path.join(staging,'historical');
+  fs.mkdirSync(folder);
+  for(const [name,digest] of Object.entries(old.source_hashes).filter(([n])=>n.endsWith('.js'))){
+    let source=fs.readFileSync(path.join(args['historical-source'],'src',name),'utf8');
+    if(sha(source)!==digest)throw Error('Historical reader differs at '+name);
+    if(name==='App.js')source=adaptApp(source);
+    if(name==='DashboardSection.js')source=adaptDashboard(source);
+    const code=babel.transformSync(source,{filename:name,presets:[[reactPreset,{runtime:'automatic'}]],
+      babelrc:false,configFile:false}).code;
+    fs.writeFileSync(path.join(folder,name),code);
+  }
+  for(const name of ['runner.cjs','calculation.cjs','calculation.cjs.LICENSE.txt','dependencies.LICENSE.txt']){
+    const bytes=fs.readFileSync(path.join(archive,name));
+    if(sha(bytes)!==old.files[name])throw Error('Historical calculator differs at '+name);
+    fs.writeFileSync(path.join(args.output,'historical-'+name),bytes);
+    if(name.endsWith('.cjs'))historical.files[name]=old.files[name];
+  }
+}
+fs.writeFileSync(path.join(staging,'historical-reader.js'),
+  historical?'export {default} from "./historical/App";' :'export default null;');
 fs.copyFileSync(path.join(__dirname,'entry.jsx'),path.join(staging,'entry.jsx'));
 fs.copyFileSync(path.join(__dirname,'comparison_data.mjs'),path.join(staging,'comparison_data.mjs'));
 fs.copyFileSync(path.join(__dirname,'section_source.mjs'),path.join(staging,'section_source.mjs'));
@@ -101,6 +139,20 @@ const compile=(entry,filename,target)=>new Promise((resolve,reject)=>{
   await compile(path.join(staging,'entry.js'),'visualiser.js','web');
   await compile(path.join(staging,'server.js'),'calculation.cjs','node');
   fs.copyFileSync(path.join(__dirname,'runner.cjs'),path.join(args.output,'runner.cjs'));
+  // Recompiling Webpack under a different path can change module IDs. Keep
+  // the approved current scientific bytes for a presentation-only release.
+  if(args['current-build']){
+    const previous=JSON.parse(fs.readFileSync(path.join(args['current-build'],'build.json'),'utf8'));
+    if(previous.revision!==revision() || previous.mode!=='development-paired' ||
+       ['parseCore.js','useAggregatedData.js','csvParse.js'].some(name=>hashes[name]!==previous.source_hashes[name]) ||
+       JSON.stringify(dependencyState.record)!==JSON.stringify(previous.dependency_lock) ||
+       JSON.stringify(emitted['calculation.cjs'])!==JSON.stringify(previous.emitted_packages['calculation.cjs']) ||
+       sha(fs.readFileSync(path.join(args.output,'runner.cjs')))!==previous.files['runner.cjs'])
+      throw Error('Current scientific build inputs have changed');
+    const calc=fs.readFileSync(path.join(args['current-build'],'calculation.cjs'));
+    if(sha(calc)!==previous.files['calculation.cjs'])throw Error('Current scientific bundle failed its checksum');
+    fs.writeFileSync(path.join(args.output,'calculation.cjs'),calc);
+  }
   const baseCss=fs.readFileSync(path.join(args.source,'src/index.css'),'utf8');
   hashes['index.css']=sha(baseCss);
   fs.writeFileSync(path.join(args.output,'visualiser.css'),baseCss+'\n'+fs.readFileSync(path.join(__dirname,'visualiser.css'),'utf8'));
@@ -110,7 +162,9 @@ const compile=(entry,filename,target)=>new Promise((resolve,reject)=>{
     hashes['public/'+name]=sha(content);
     fs.writeFileSync(path.join(args.output,name),content);
   }
-  for(const name of ['Interpreting-results','citation']){
+  const pages=['Interpreting-results','citation'];
+  if(tabbed)pages.push('funders');
+  for(const name of pages){
     const sourceName=name==='Interpreting-results'?'interpreting-results':name;
     let text=fs.readFileSync(path.join(args.source,'public',sourceName+'.html'),'utf8');
     hashes['public/'+sourceName+'.html']=sha(text);
@@ -126,7 +180,20 @@ const compile=(entry,filename,target)=>new Promise((resolve,reject)=>{
       .replace(/← Back to (?:Dashboard|Visualiser)/,'← Return to SimPaths Online');
     if(/<script\b|\son\w+\s*=|<link[^>]+href="https?:|<img[^>]+src="https?:/i.test(text))
       throw Error('Review changed guidance resources before hosting');
+    if(tabbed){
+      // StaticPage embeds the .container fragment. Scope each reviewed stylesheet
+      // to that tab while keeping the directly accessible guidance pages styled.
+      const css=style[1].replace(/:root/g,'&');
+      fs.appendFileSync(path.join(args.output,'visualiser.css'),
+        '\n.sp-page[data-page="'+sourceName+'.html"]{'+css+'}\n');
+      text=text.replace('class="back-link" href="./"','class="back-link" href="/"');
+    }
     fs.writeFileSync(path.join(args.output,name+'.html'),text);
+  }
+  if(tabbed){
+    const licence=fs.readFileSync(path.join(args.source,'LICENSE'));
+    hashes.LICENSE=sha(licence);
+    fs.writeFileSync(path.join(args.output,'visualiser.LICENSE.txt'),licence);
   }
   fs.writeFileSync(path.join(args.output,'dependencies.LICENSE.txt'),[...licences].sort().map(
     ([name,text])=>name+'\n\n'+text).join('\n\n'));
@@ -146,7 +213,7 @@ const compile=(entry,filename,target)=>new Promise((resolve,reject)=>{
     dependencies[name]=pkg.version;
   }
   const identity={format:'simpaths.visualiser.build.v1',
-    revision:revision(),
+    revision:revision(),...(historical?{historical}:{}),
     mode:'development-paired',transport:'simpaths.visualiser.catalogue.v1',source_hashes:hashes,dependencies,
     toolchain:{node:process.version,webpack:webpack.version,babel:babel.version},
     dependency_lock:dependencyState.record,emitted_packages:emitted,files};

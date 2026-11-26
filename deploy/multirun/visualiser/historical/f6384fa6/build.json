@@ -1,0 +1,235 @@
+{
+  "format": "simpaths.visualiser.build.v1",
+  "revision": "f6384fa6ea856802dadd7a115aca02c719142bdc",
+  "mode": "development-paired",
+  "transport": "simpaths.visualiser.catalogue.v1",
+  "source_hashes": {
+    "App.js": "2e10600e2bd428dfac88dc944920aa408119a795fafa924a110fa2421cf183ab",
+    "parseCore.js": "5c8fa3e803dcc0bea78f1d6647cdb298fa8369d9df7788a9a37c5990bc4033a0",
+    "useAggregatedData.js": "a2fdc018ddf17eae77a681923cdd3a862b500525d5ace1e21707b16f0e069720",
+    "DashboardSection.js": "f578823c19b12bce90d4ada261e911f7881f41f05f9fb699fc4e79f8d589a1c6",
+    "localFolderParser.js": "afb0036a8e5eed273d0eec64a130361e24743ce529446898b07b0d6d18cdb83b",
+    "AggregateDataPanel.js": "5498131eafd4863b4a979d41bcb94d0a2d6068b230f6901c7b9a7e54196ae51b",
+    "aggregateDataSource.js": "5d27ca2c84278dcb077f41da1497677f287ae0e7c415f8924bea49e8f8ad86bd",
+    "useAggregateView.js": "5e8d1761e7c757d7d260f4c60eb1a2a1efd14dedd96f8165f6bc0d7a75e5b0c3",
+    "csvParse.js": "3a08281b7dbd5b823f0262766bfd78ea7a20076d60f247dfea936eec4fa11961",
+    "tooltipContent.js": "8a0b4560e9866e15187f439c51d10aba8570ec95cda58af245a0b6aa3dc38805",
+    "FolderStructureHelp.js": "3f60696e84e16fa0ec549e9bffb81c54732894e15748663f058c9876ca61d2c5",
+    "index.css": "daf22c296c801d3d533083361cc59fbdc22e5bfe528aa4bad1973b54cc5448a4",
+    "public/pmh_logo.png": "f9d02cdf93bdf750f5f89da788bedc612c4ff00d22d682a8c390c7b4afc34e2b",
+    "public/UKRILogo.png": "0aae57f914287d26994fde8ca0e285c1d5daae41f6a391184d2f4576a9892605",
+    "public/SimPaths-logo-transparent.png": "af173b41ac0aa1d468aa4c6c3b83231f91732ab8ace53e8570638095f4c9c8d8",
+    "public/interpreting-results.html": "75568d5c34c5747ef8d715c36527f25fbd90888096b4c09ed24f173d949bd952",
+    "public/citation.html": "af3dd95c1a37e40e2139ba35568ad1ffea80e2525b6c2bf82ebfc8ae4dbe7ff3"
+  },
+  "dependencies": {
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "d3": "7.9.0"
+  },
+  "toolchain": {
+    "node": "v22.23.1",
+    "webpack": "5.112.0",
+    "babel": "7.29.7"
+  },
+  "dependency_lock": {
+    "package_json_sha256": "668944f7be7e0106f296e84b2cb9dadac1145362806a3791e16c7a515f34e46c",
+    "package_lock_sha256": "688762e865a543fff77433aa140f249d928a3799dc26bc0f26b0b709f3217676",
+    "lockfile_version": 3,
+    "locked_packages": 140
+  },
+  "emitted_packages": {
+    "visualiser.js": [
+      {
+        "name": "d3",
+        "version": "7.9.0",
+        "path": "d3"
+      },
+      {
+        "name": "d3-array",
+        "version": "3.2.4",
+        "path": "d3-array"
+      },
+      {
+        "name": "d3-axis",
+        "version": "3.0.0",
+        "path": "d3-axis"
+      },
+      {
+        "name": "d3-brush",
+        "version": "3.0.0",
+        "path": "d3-brush"
+      },
+      {
+        "name": "d3-color",
+        "version": "3.1.0",
+        "path": "d3-color"
+      },
+      {
+        "name": "d3-dispatch",
+        "version": "3.0.1",
+        "path": "d3-dispatch"
+      },
+      {
+        "name": "d3-dsv",
+        "version": "3.0.1",
+        "path": "d3-dsv"
+      },
+      {
+        "name": "d3-ease",
+        "version": "3.0.1",
+        "path": "d3-ease"
+      },
+      {
+        "name": "d3-fetch",
+        "version": "3.0.1",
+        "path": "d3-fetch"
+      },
+      {
+        "name": "d3-format",
+        "version": "3.1.2",
+        "path": "d3-format"
+      },
+      {
+        "name": "d3-interpolate",
+        "version": "3.0.1",
+        "path": "d3-interpolate"
+      },
+      {
+        "name": "d3-path",
+        "version": "3.1.0",
+        "path": "d3-path"
+      },
+      {
+        "name": "d3-scale",
+        "version": "4.0.2",
+        "path": "d3-scale"
+      },
+      {
+        "name": "d3-selection",
+        "version": "3.0.0",
+        "path": "d3-selection"
+      },
+      {
+        "name": "d3-shape",
+        "version": "3.2.0",
+        "path": "d3-shape"
+      },
+      {
+        "name": "d3-timer",
+        "version": "3.0.1",
+        "path": "d3-timer"
+      },
+      {
+        "name": "d3-transition",
+        "version": "3.0.1",
+        "path": "d3-transition"
+      },
+      {
+        "name": "d3-zoom",
+        "version": "3.0.0",
+        "path": "d3-zoom"
+      },
+      {
+        "name": "internmap",
+        "version": "2.0.3",
+        "path": "internmap"
+      },
+      {
+        "name": "react",
+        "version": "19.2.7",
+        "path": "react"
+      },
+      {
+        "name": "react-dom",
+        "version": "19.2.7",
+        "path": "react-dom"
+      },
+      {
+        "name": "scheduler",
+        "version": "0.27.0",
+        "path": "scheduler"
+      }
+    ],
+    "calculation.cjs": [
+      {
+        "name": "d3",
+        "version": "7.9.0",
+        "path": "d3"
+      },
+      {
+        "name": "d3-brush",
+        "version": "3.0.0",
+        "path": "d3-brush"
+      },
+      {
+        "name": "d3-color",
+        "version": "3.1.0",
+        "path": "d3-color"
+      },
+      {
+        "name": "d3-dispatch",
+        "version": "3.0.1",
+        "path": "d3-dispatch"
+      },
+      {
+        "name": "d3-dsv",
+        "version": "3.0.1",
+        "path": "d3-dsv"
+      },
+      {
+        "name": "d3-ease",
+        "version": "3.0.1",
+        "path": "d3-ease"
+      },
+      {
+        "name": "d3-interpolate",
+        "version": "3.0.1",
+        "path": "d3-interpolate"
+      },
+      {
+        "name": "d3-selection",
+        "version": "3.0.0",
+        "path": "d3-selection"
+      },
+      {
+        "name": "d3-timer",
+        "version": "3.0.1",
+        "path": "d3-timer"
+      },
+      {
+        "name": "d3-transition",
+        "version": "3.0.1",
+        "path": "d3-transition"
+      },
+      {
+        "name": "d3-zoom",
+        "version": "3.0.0",
+        "path": "d3-zoom"
+      },
+      {
+        "name": "react",
+        "version": "19.2.7",
+        "path": "react"
+      }
+    ]
+  },
+  "files": {
+    "COPYRIGHT.md": "11ba22f2e9040f0b7f88eb438bf70a006f67508433c2da01724da288698a9ae6",
+    "Interpreting-results.css": "0361ca6132e6ff16ffecfd9ed6d588266e0a74adaefb5c7c6de0ceb5b8026363",
+    "Interpreting-results.html": "01b873c887d53f028eb88fd29c0a0f35bc06099a30c4319c17f110ed999bd835",
+    "SimPaths-logo-transparent.png": "af173b41ac0aa1d468aa4c6c3b83231f91732ab8ace53e8570638095f4c9c8d8",
+    "UKRILogo.png": "0aae57f914287d26994fde8ca0e285c1d5daae41f6a391184d2f4576a9892605",
+    "calculation.cjs": "20bf2115262bf16cdd2aee537eaf4d25ddbdc5a02bd6ec803f5152499ba734f5",
+    "calculation.cjs.LICENSE.txt": "70f7f55f070e7c146dfccf95f9b1cb184c7c7cb8ae59580073f783715d0bd2de",
+    "citation.css": "5dfd2154719e31aecb7f718163e03adce24b3e3d3a8b65bbeb2d0489501a903b",
+    "citation.html": "868838c278333544b146c5a19ec6a23fdbae37b6ea07cc6af32808d437acbcb5",
+    "dependencies.LICENSE.txt": "a20f7893925db6a22e51ef07faa59946c6af04b9d922f7b41be2ba0c5dfe198d",
+    "index.html": "305c91c48b857efcb58fac41e37a1b30e501c5d5391d4ec70993b342c9cdd428",
+    "pmh_logo.png": "f9d02cdf93bdf750f5f89da788bedc612c4ff00d22d682a8c390c7b4afc34e2b",
+    "runner.cjs": "2efdc92bc9f96f8cce07c9fbe885a7ec26fb129d2bcf1e095b2b6a45cdcc6b32",
+    "visualiser.css": "618880781a486bd29cc6769542c95105201761c35b5ebf785a55f786c25c1b3c",
+    "visualiser.js": "eb367b8717967d207ae6902f895153a34257fb8c96ab5e5e3ca4beee76a37ef0",
+    "visualiser.js.LICENSE.txt": "fcd44eaa24992e4f238a50dc8ab77d8b2052e6c8006c8aef3187f764cf55406d"
+  }
+}

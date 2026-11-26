@@ -71,7 +71,9 @@ export async function boundedJSON(response,maximum,signal,onBytes=()=>{}){
 }
 
 export function validateCatalogue(value){
-  if(!keys(value,['format','publication','configurations','seeds','notice','comparison_available','limits','variables'])||
+  const version=value?.calculator_revision;
+  if(version!==undefined&&version!=='f6384fa6ea856802dadd7a115aca02c719142bdc'||
+      !keys(value,['format','publication','configurations','seeds','notice','comparison_available','limits','variables',...(version?['calculator_revision']:[])])||
       value.format!==CATALOGUE_FORMAT||!hash(value.publication)||!Array.isArray(value.configurations)||
       value.configurations.length<1||value.configurations.length>100||typeof value.notice!=='string'||value.notice.length>500||
       typeof value.comparison_available!=='boolean'||!Array.isArray(value.seeds)||value.seeds.length>1000||

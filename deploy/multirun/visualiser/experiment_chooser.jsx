@@ -22,7 +22,7 @@ function SelectedProgress({status,base,requested}){
 }
 const AvailableResults=React.memo(function AvailableResults({row,baselineNames}){
   return <td>
-    {row.ready&&row.summaries_ready&&<div>Summaries ready</div>}
+    {row.ready&&row.summaries_ready&&<div>Summaries ready{row.historical_reader?' · calculator '+row.historical_reader.slice(0,12):''}</div>}
     {row.charts_ready&&<div>Charts ready</div>}
     {row.comparison_baselines?.map(ordinal=><div key={ordinal}>Comparison with baseline #{ordinal}
       {baselineNames?.[ordinal]&&' ('+baselineNames[ordinal]+')'}</div>)}

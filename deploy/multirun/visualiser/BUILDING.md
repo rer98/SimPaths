@@ -132,3 +132,26 @@ no advisories matched. The upstream application's separate CRA lock still has
 findings and is not the selected integration compiler. Compact evidence is
 retained in `solveit_SimPathsWeb/security-review/2026-10-20/hardening-evidence.json`.
 These checks did not promote a release or alter scientific benchmark runtimes.
+
+## Opening results with a historical calculator
+
+A retained summary records the Node version, calculation mode and hashes of the
+runner and calculator that produced it. The November build can also host the
+earlier calculator. Its exact runner, calculation bundle, original manifest
+and notices are in `historical/f6384fa6`. Pass `--historical-source` a checkout
+of the Visualiser integration at `c99f2533603e65f3f9666d5110b16628527b2975`.
+That checkout matches the per-file hashes of the reader that was built for
+this edition. The compiler verifies the archived manifest, reader sources and
+calculator bytes. To use a copy of the original release directory, also pass
+`--historical-build`. Supply `--current-build` with
+the qualified current bundle to preserve its exact calculator bytes when
+building the combined reader.
+
+MultiRun chooses the calculator from the retained source records. Historical
+preparation is available on request until the existing summary protection
+expires. Its baseline and scenarios must use the same calculation. Both the
+connected Visualiser and the downloaded package use that edition's chart
+definitions. An unrecognised calculation needs a separately qualified reader
+and calculator. Preserve their build artifacts while protected summaries refer
+to them. An application update checks database references before retiring a
+registered historical calculator.

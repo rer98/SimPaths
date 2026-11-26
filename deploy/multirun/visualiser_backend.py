@@ -6,6 +6,7 @@ restricted provider results still require approved disclosure controls.
 @author ross richardson
 """
 from contextlib import ExitStack, contextmanager, nullcontext
+from copy import copy
 from collections import Counter, OrderedDict
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 import hashlib
@@ -32,7 +33,7 @@ class VisualiserBackend:
     # glob that could also expose bundled simulation data or server calculations.
     APPLICATION_ASSETS=frozenset({'index.html','visualiser.js','visualiser.css',
         'pmh_logo.png','UKRILogo.png','Interpreting-results.html','Interpreting-results.css',
-        'citation.html','citation.css','SimPaths-logo-transparent.png'})
+        'citation.html','citation.css','funders.html','funders.css','SimPaths-logo-transparent.png'})
 
     def __init__(self, build, execution_root, *, public_datasets=(), memory_mib=1024,
                  summary_cache_root=None, summary_cache_bytes=2*1024**3,
@@ -71,6 +72,8 @@ class VisualiserBackend:
             if (name in self.APPLICATION_ASSETS or
                     re.fullmatch(r'\d+\.visualiser\.js',name) or name.endswith('.LICENSE.txt')):
                 self.assets[name]=content
+        if 'Interpreting-results.html' in self.assets:
+            self.assets['interpreting-results.html']=self.assets['Interpreting-results.html']
         self.manifest=manifest
         self.supports_summary_cache=(b'simpaths.visualiser.role-independent-metrics.v1'
                                      in (self.build/'runner.cjs').read_bytes())
@@ -97,6 +100,37 @@ class VisualiserBackend:
         self.public_datasets=frozenset(public_datasets)
         self.identity=dict(build=manifest,publication='own-and-public-preview-v1',
                            public_datasets=sorted(self.public_datasets),node=version,memory_mib=memory_mib)
+
+        self.historical_calculators=()
+        history=manifest.get('historical')
+        if history:
+            expected={'runner.cjs':'2efdc92bc9f96f8cce07c9fbe885a7ec26fb129d2bcf1e095b2b6a45cdcc6b32',
+                      'calculation.cjs':'20bf2115262bf16cdd2aee537eaf4d25ddbdc5a02bd6ec803f5152499ba734f5'}
+            revision='f6384fa6ea856802dadd7a115aca02c719142bdc'
+            if history!=dict(revision=revision,node='v22.23.1',files=expected) or any(
+                    manifest['files'].get('historical-'+name)!=digest for name,digest in expected.items()):
+                raise ValueError('Unrecognised historical Visualiser calculator')
+            if self.summary_cache and version==history['node']:
+                archived=copy(self)
+                archived.manifest=dict(format=manifest['format'],mode='development-paired',files=expected,revision=revision)
+                archived.identity=dict(self.identity,build=archived.manifest)
+                archived.historical_revision=revision
+                self.historical_calculators=(archived,)
+
+    def in_workspace(self,work):
+        """Give this worker an isolated copy of the matched historical Node modules."""
+        if not getattr(self,'historical_revision',None):return self
+        from jasmine_web.batch.results import open_output
+        archived=copy(self)
+        archived.build=Path(work)/'calculator'
+        archived.build.mkdir(mode=0o700)
+        for name,digest in self.manifest['files'].items():
+            with open_output(self.build,'historical-'+name) as source:
+                content=source.read(8*1024**2+1)
+            if hashlib.sha256(content).hexdigest()!=digest:
+                raise ValueError('Historical calculator failed verification')
+            (archived.build/name).write_bytes(content)
+        return archived
 
     @staticmethod
     def calculation_identity(identity):
@@ -526,7 +560,9 @@ class VisualiserBackend:
         identity=self._summary_identity(configuration,run,inputs) if self.summary_cache is not None else None
         if self.summary_cache is not None:self.summary_cache.preflight_entry(identity)
         with ExitStack() as stack:
-            retained=configuration.get('retained_only',False)
+            retained=configuration.get('retained_only',False) or bool(getattr(self,'historical_revision',None))
+            if getattr(self,'historical_revision',None) and not config.get('summary_retention'):
+                raise ValueError('Historical preparation requires a protected summary')
             if retained:
                 self._require_summary_lifetime(config)
             descriptors=[] if retained else [stack.enter_context(self._verified_source(item,check=check)) for item in inputs]
@@ -639,6 +675,8 @@ class VisualiserBackend:
         notice='Development preview using Visualiser revision '+self.manifest['revision'][:12]+(
             '. Policy impacts and uncertainty use runs with matching random seeds.' if self.paired else
             '. Baseline and scenario levels are shown. Paired impact calculations will use the updated Visualiser release.')
+        if getattr(self,'historical_revision',None):
+            notice='Historical Visualiser calculator '+self.historical_revision[:12]+'. '+notice
         if comparison_set:
             if self.paired:
                 # Accumulator memory scales with one baseline/alternative pair,

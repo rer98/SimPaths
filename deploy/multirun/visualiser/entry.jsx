@@ -6,6 +6,7 @@
 import React,{useEffect,useState,useRef,useMemo} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App';
+import HistoricalApp from './historical-reader';
 import {parseLocalFolder} from './localFolderParser';
 import {SectionSource} from './section_source.mjs';
 import {ExperimentSource,preparationLabel} from './experiment_source.mjs';
@@ -173,7 +174,16 @@ function Page({selection=null,receipt=null,onChoose=()=>{}}){
   </>;
   if(experiment&&!selection&&mode==='online'&&!experimentStatus&&message==='Loading online results…'&&!connectionIssue)
     return <main className="vm-chooser"><p role="status">{message}</p></main>;
-  return <App dataSource={{rows:local||[],viewSource,controls,key:local?'local':key,
+  const archivedRevision='f6384fa6ea856802dadd7a115aca02c719142bdc';
+  const savedFiles=mode==='saved'?client.current?.manifest?.provenance?.calculation_files:null;
+  const archivedRunner=savedFiles?.['runner.cjs']==='2efdc92bc9f96f8cce07c9fbe885a7ec26fb129d2bcf1e095b2b6a45cdcc6b32';
+  const archivedCalculation=savedFiles?.['calculation.cjs']==='20bf2115262bf16cdd2aee537eaf4d25ddbdc5a02bd6ec803f5152499ba734f5';
+  const historical=catalogue?.calculator_revision===archivedRevision || archivedRunner&&archivedCalculation;
+  if(historical&&!HistoricalApp || savedFiles&&(historical||archivedCalculation)&&!(archivedRunner&&archivedCalculation))
+    return <main><p>This saved comparison needs a reader that matches its calculator.</p>
+      <a href="/">Return to SimPaths Online</a></main>;
+  const Reader=historical?HistoricalApp:App;
+  return <Reader dataSource={{rows:local||[],viewSource,controls,key:local?'local':key,
     label:mode==='saved'?'saved comparison':local?'locally saved data':'Online results',names:local?undefined:names,
     description:mode==='saved'?'Saved comparison sections are read on this device and are never uploaded.':'Online results are produced on the remote server. Locally saved files are processed entirely in your browser and are not uploaded.',
     navigation:<a className="vm-return" href="/">Return to SimPaths Online</a>,

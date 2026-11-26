@@ -207,10 +207,10 @@ class VisualiserBackend:
         from datetime import datetime
         retained=configuration.get('summary_retention')
         if retained is not None:
-            from jasmine_web.batch.visualiser_sources import validate_retention
+            from jasmine_web.batch.visualiser_sources import SummaryCalculationMismatch, validate_retention
             _,deadline=validate_retention(retained)
             if retained['backend']!=self.calculation_identity(self.identity):
-                raise ValueError('Retained summary calculation is incompatible')
+                raise SummaryCalculationMismatch()
             return deadline
         window=configuration.get('summary_legacy_seconds',self.summary_retention_seconds)
         if type(window) not in (int,float) or not 0<window<=365*86400:

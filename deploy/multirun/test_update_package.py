@@ -14,7 +14,7 @@ import stat
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from . import update_package as package
 
@@ -323,6 +323,39 @@ class ApplicationPackageTests(unittest.TestCase):
         # state-machine fixture; no service account lookup is needed here.
         result.backup_fence=lambda:None
         return result
+
+    def test_deploying_a_new_calculator_checks_live_promises_but_ui_changes_do_not(self):
+        installer=self.installation()
+        build=self.root/'visualiser';build.mkdir()
+        installer.options.visualiser_build=build
+        files={'runner.cjs':'a'*64,'calculation.cjs':'b'*64,'visualiser.js':'c'*64}
+        old=dict(mode='development-paired',files=files)
+        (build/'build.json').write_text(json.dumps(old))
+        candidate=self.source/'programs/visualiser/build.json'
+        candidate.parent.mkdir()
+        def prepare(files):
+            body=json.dumps(dict(old,files=files)).encode()
+            candidate.write_bytes(body)
+            installer.plan={'targets':{'visualiser/build.json':dict(after=package.digest(body))}}
+        prepare(dict(files,**{'visualiser.js':'d'*64}))
+        with patch.object(self.q,'_connection',side_effect=AssertionError('presentation-only update')):
+            installer.check_visualiser_calculation()
+        prepare(dict(files,**{'runner.cjs':'e'*64}))
+        with self.assertRaisesRegex(ValueError,'both Visualiser manifests'):
+            installer.check_visualiser_calculation()
+        installer.plan['targets']['visualiser/runner.cjs']=dict(before='a'*64,after='e'*64)
+        with patch.object(self.q,'_connection') as connection:
+            query=connection.return_value.__enter__.return_value
+            for current,legacy in ((1,0),(0,1),(0,0)):
+                first,second=MagicMock(),MagicMock()
+                first.fetchone.return_value={'sources':current}
+                second.fetchone.return_value={'sources':legacy}
+                query.execute.side_effect=[None,first,second]
+                if current or legacy:
+                    with self.assertRaisesRegex(ValueError,'Visualiser calculator upgrade'):
+                        installer.check_visualiser_calculation()
+                else:
+                    installer.check_visualiser_calculation()
 
     def test_exact_same_schema_and_candidate_receipt_are_required(self):
         self.assertEqual(self.validate(),self.plan)

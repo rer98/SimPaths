@@ -58,7 +58,13 @@ export async function boundedJSON(response,maximum,signal,onBytes=()=>{}){
     if(bytes>maximum)throw Error('The chart response exceeds its size limit.');
   }
   aborted(signal);
-  const value=JSON.parse(content);
+  let value;
+  try{value=JSON.parse(content);}catch{
+    const message=[401,403].includes(response.status)?'Your session has changed. Return to My Jobs and sign in again.':
+      response.status===404?'These results are unavailable.':
+      'The service did not return a response we could read. Please retry.';
+    throw Object.assign(Error(message),{status:response.status});
+  }
   if(!response.ok){const error=Error(typeof value?.error==='string'?value.error:'Online results are unavailable.');
     error.status=response.status;throw error;}
   return {value,bytes:new TextEncoder().encode(content).length};

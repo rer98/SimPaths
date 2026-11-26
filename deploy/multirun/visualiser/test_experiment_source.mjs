@@ -100,3 +100,13 @@ test('selected members and baseline accompany every status, catalogue, chart and
   }
   f.source.close();
 });
+
+test('per-configuration progress distinguishes completed charts and an unfinished comparison',async()=>{
+  const {preparationLabel}=await import('./experiment_source.mjs');
+  const row={state:'succeeded',charts:'ready',comparison:'processing',comparison_progress:{processed:2,total:6}};
+  assert.equal(preparationLabel(row),'Charts ready');
+  assert.equal(preparationLabel(row,true),'Preparing comparison (2/6 repetitions processed)');
+  assert.equal(preparationLabel({...row,comparison:'ready'},true),'Comparison ready');
+  assert.match(preparationLabel({...row,comparison:'incompatible'},true,true),/different Visualiser calculation version/);
+  assert.equal(preparationLabel({...row,comparison:'not_applicable'},true),'');
+});

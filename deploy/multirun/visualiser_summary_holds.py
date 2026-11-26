@@ -275,9 +275,12 @@ class SummaryHolds:
                 checkpoint()
                 record = requested[key]
                 if key in previous:
+                    if previous[key]['comparison'].startswith('source-retained:') and record['scope']!=previous[key]['scope']:
+                        from jasmine_web.batch.visualiser_sources import SummaryCalculationMismatch
+                        raise SummaryCalculationMismatch()
                     if (previous[key]['comparison'].startswith('source-retained:')
                             and any(record[k]!=previous[key][k]
-                                    for k in ('created_at','expires_at','scope','configurations'))):
+                                    for k in ('created_at','expires_at','configurations'))):
                         raise SummaryCapacityError('A canonical source guarantee requires reviewed migration')
                     record = dict(record, expires_at=min(record['expires_at'], previous[key]['expires_at']))
                 if allocation.admit(record,owner_entries):
@@ -344,7 +347,10 @@ class SummaryHolds:
             seen.add(key)
             if key in records:
                 previous=records[key]
-                if (any(record[k]!=previous[k] for k in ('scope','configurations'))
+                if record['scope']!=previous['scope']:
+                    from jasmine_web.batch.visualiser_sources import SummaryCalculationMismatch
+                    raise SummaryCalculationMismatch()
+                if (record['configurations']!=previous['configurations']
                         or not qualification and any(record[k]!=previous[k] for k in ('created_at','expires_at'))
                         or qualification and record['expires_at']<previous['expires_at']):
                     raise SummaryCapacityError('A canonical summary source changed')

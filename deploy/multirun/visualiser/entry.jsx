@@ -8,14 +8,14 @@ import {createRoot} from 'react-dom/client';
 import App from './App';
 import {parseLocalFolder} from './localFolderParser';
 import {SectionSource} from './section_source.mjs';
-import {ExperimentSource} from './experiment_source.mjs';
+import {ExperimentSource,preparationLabel} from './experiment_source.mjs';
 import {PortableSource} from './portable_source.mjs';
 import {ExperimentChooser} from './experiment_chooser';
 
 const experimentComplete=status=>status?.total>0&&status.ready===status.total&&
   status.configurations.every(config=>config.charts==='ready'&&['ready','not_applicable'].includes(config.comparison));
 
-function Page({selection=null,onChoose=()=>{}}){
+function Page({selection=null,receipt=null,onChoose=()=>{}}){
   const key=location.pathname.split('/').pop();
   const experiment=/^\/visualiser\/experiment\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(location.pathname);
   const onlineKey=experiment||/^[a-f0-9]{64}$/.test(key);
@@ -140,17 +140,22 @@ function Page({selection=null,onChoose=()=>{}}){
   const controls=<>
     <p className="vm-source-help">{experiment?'Scenarios appear as their charts become ready. Scenarios you hide stay hidden. Paired differences appear when the baseline comparison is ready.':'View your selected online results, or select a local parent folder with a Baseline folder and one folder for each alternative scenario.'}</p>
     {onlineKey&&mode!=='online'&&<button className="vm-source-button" onClick={vm}>View Online Results</button>}
-    {mode==='online'&&experimentStatus&&!experimentComplete(experimentStatus)&&<details className="vm-experiment-status">
+    {mode==='online'&&selection&&receipt&&!experimentStatus?.configurations.some(c=>c.charts==='incompatible'||c.comparison==='incompatible')&&!experimentComplete(experimentStatus)&&<p role="status">
+      Your chart preparation continues if you leave this page.
+      {receipt.email&&' We’ll email you when your selection is ready.'}
+    </p>}
+    {mode==='online'&&experimentStatus&&!experimentComplete(experimentStatus)&&<details open={!!selection} className="vm-experiment-status">
       <summary>{experimentStatus.ready} of {experimentStatus.total} configurations have charts ready</summary>
-      <ul>{experimentStatus.configurations.map(c=><li key={c.id}>{c.name}: {c.charts==='ready'?'Charts ready':
-        c.charts==='queued'?'Waiting for chart preparation':
+      {selection?<ul>{experimentStatus.configurations.map(c=><li key={c.id}>{c.name}: {preparationLabel(c,false,!!receipt)}
+        {c.comparison!=='not_applicable'&&' · '+preparationLabel(c,true,!!receipt)}</li>)}</ul>:<ul>{experimentStatus.configurations.map(c=><li key={c.id}>{c.name}: {c.charts==='ready'?'Charts ready':
+        c.charts==='incompatible'?preparationLabel(c):c.charts==='queued'?'Waiting for chart preparation':
         c.state==='active'?(c.phase==='validating'?'Validating outputs':'Simulation running'):c.state==='queued'?'Simulation queued':
         c.state==='cancelling'?'Stopping':
         c.state==='review'&&c.validation?'Output validation needs review':
         c.charts==='processing'?'Preparing charts':'Charts not yet available'}
         {c.charts==='ready'&&c.comparison!=='not_applicable'&&(c.comparison==='ready'?' · Baseline comparison ready':
-          c.comparison==='waiting_baseline'?' · Waiting for baseline comparison':
-          c.comparison==='processing'?' · Preparing baseline comparison':' · Baseline comparison not yet ready')}</li>)}</ul>
+          c.comparison==='incompatible'?' · '+preparationLabel(c,true):c.comparison==='waiting_baseline'?' · Waiting for baseline comparison':
+          c.comparison==='processing'?' · Preparing baseline comparison':' · Baseline comparison not yet ready')}</li>)}</ul>}
     </details>}
     {mode==='online'&&!experimentComplete(experimentStatus)&&updateNotice&&<p className="vm-source-help" role="status">{updateNotice}</p>}
     {experiment&&mode==='online'&&<button className="vm-source-button" onClick={onChoose}>Change configurations</button>}
@@ -175,13 +180,13 @@ function Page({selection=null,onChoose=()=>{}}){
     showDelta:local!=null||catalogue?.comparison_available===true,notice:catalogue?.notice}}/>;
 }
 function ExperimentPage(){
-  const [choice,setChoice]=useState(null);
+  const [choice,setChoice]=useState(null),[receipt,setReceipt]=useState(null);
   const [choosing,setChoosing]=useState(()=>new URLSearchParams(location.search).has('chosen'));
   const forceChooser=useRef(false);
   const experiment=location.pathname.split('/').pop();
-  return choosing?<ExperimentChooser experiment={experiment} current={choice} force={forceChooser.current} onOpen={selected=>{
-    setChoice(selected);setChoosing(false);
-  }}/>:<Page selection={choice} onChoose={()=>{
+  return choosing?<ExperimentChooser experiment={experiment} current={choice} force={forceChooser.current} onOpen={(selected,confirmation=null)=>{
+    setChoice(selected);setReceipt(confirmation);setChoosing(false);
+  }}/>:<Page selection={choice} receipt={receipt} onChoose={()=>{
     // Keep the chosen members in memory, but make the URL reopen the chooser.
     history.replaceState(null,'',location.pathname);forceChooser.current=true;setChoosing(true);
   }}/>;

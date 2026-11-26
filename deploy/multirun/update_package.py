@@ -27,6 +27,10 @@ PROJECTS = {'JAS-mine-web', 'SimPaths'}
 MAX_FILE = 32 * 1024**2
 
 
+class IncompatibleVisualiserUpdate(ValueError):
+    """The candidate calculator would strand summaries still within retention."""
+
+
 def digest(body):
     return hashlib.sha256(body).hexdigest()
 
@@ -324,8 +328,53 @@ raise SystemExit(main(['preflight','--config','/etc/simpaths-online/public.toml'
         if self.backup_fd is not None:
             os.close(self.backup_fd);self.backup_fd=None
 
+    def check_visualiser_calculation(self):
+        """Refuse a calculator replacement that would strand live summary promises."""
+        build=getattr(self.options,'visualiser_build',None)
+        if not build:return
+        directory=Path(build)
+        targets=self.plan['targets']
+        names=('runner.cjs','calculation.cjs')
+        # Some installations use an immutable build outside the application tree.
+        if not directory.is_relative_to(ROOT):return
+        prefix=directory.relative_to(ROOT)
+        affected={name:str(prefix/name) for name in (*names,'build.json') if str(prefix/name) in targets}
+        if not affected:return
+        before=json.loads(trusted(directory/'build.json').read_bytes())
+        after=before
+        if 'build.json' in affected:
+            body=trusted(self.source/'programs'/affected['build.json']).read_bytes()
+            if digest(body)!=targets[affected['build.json']]['after']:
+                raise ValueError('The candidate Visualiser manifest changed')
+            after=json.loads(body)
+        old=dict(mode=before['mode'],files={k:before['files'][k] for k in names})
+        for key in names:
+            installed=old['files'][key]
+            target=targets.get(affected.get(key),{})
+            if target.get('before',installed)!=installed or target.get('after',installed)!=after['files'][key]:
+                raise ValueError('The calculator update must match both Visualiser manifests')
+        if old==dict(mode=after['mode'],files={k:after['files'][k] for k in names}):
+            return
+        with self.queue._connection() as c:
+            c.execute('SET TRANSACTION READ ONLY')
+            row=c.execute("""SELECT count(*) AS sources
+                FROM visualiser_sources s WHERE s.pool_id=%s AND s.summary_expires_at>clock_timestamp()
+                AND s.summary_backend->'calculation'=%s::jsonb
+                AND NOT EXISTS (SELECT 1 FROM output_deletions d WHERE d.pool_id=s.pool_id
+                    AND d.attempt_id=s.attempt_id AND d.reason NOT IN ('raw_only','expiry'))""",
+                (self.queue.pool_id,json.dumps(old))).fetchone()
+            legacy=c.execute("""SELECT count(*) AS sources FROM output_deletions d
+                JOIN visualiser_sources s ON s.pool_id=d.pool_id AND s.attempt_id=d.attempt_id
+                WHERE d.pool_id=%s AND d.reason IN ('expiry','raw_only') AND d.summary_expires_at>clock_timestamp()
+                  AND s.summary_backend IS NULL""",(self.queue.pool_id,)).fetchone()
+        if row['sources'] or legacy['sources']:
+            raise IncompatibleVisualiserUpdate(f"Visualiser calculator upgrade would affect {row['sources']} protected sources "
+                f"and {legacy['sources']} legacy sources. Keep the current calculator available or migrate "
+                "its summaries before replacing it.")
+
     def install(self):
         self.backup_idle()
+        self.check_visualiser_calculation()
         for unit in (PRIVATE,PUBLIC):
             if command('systemctl','show',unit,'--property=ActiveState','--value').strip()!='active':
                 raise ValueError('Preserve a service already requiring operator attention')
@@ -336,6 +385,8 @@ raise SystemExit(main(['preflight','--config','/etc/simpaths-online/public.toml'
         self.public_stopped=True;self.save_progress();command('systemctl','stop',PUBLIC)
         self.private_stopped=True;self.save_progress();command('systemctl','stop',PRIVATE,seconds=240)
         self.backup_idle()
+        # An in-flight preparation may have committed a promise since preflight.
+        self.check_visualiser_calculation()
         self.snapshot=self.metadata()
         if self.plan['mode']=='live':
             with self.queue._connection() as c:

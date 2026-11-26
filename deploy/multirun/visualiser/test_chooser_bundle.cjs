@@ -12,16 +12,19 @@ const experiment='00000000-0000-4000-8000-000000000001',scope='d'.repeat(64);
 const id=n=>'configuration-'+n,job=n=>'00000000-0000-4000-8000-'+String(n+2).padStart(12,'0');
 async function wait(check){const until=Date.now()+8000;while(!check()){
   if(Date.now()>until)throw Error('Compiled chooser did not reach expected state');await new Promise(r=>setTimeout(r,5));}}
-async function fixture({query='',saved=null,offline=false,total=1024,missing=false,chartsReady=false,pairsReady=false}={}){
+async function fixture({query='',saved=null,offline=false,total=1024,missing=false,chartsReady=false,pairsReady=false,fastPolling=false}={}){
   const errors=[],requests=[],posts=[],console=new VirtualConsole();console.on('jsdomError',e=>errors.push(e.message));
   const dom=new JSDOM(fs.readFileSync(path.join(build,'index.html'),'utf8'),{
     url:'https://localhost/visualiser/experiment/'+experiment+query,runScripts:'outside-only',pretendToBeVisual:true,virtualConsole:console});
   const w=dom.window,doc=w.document;let denied=false,down=offline,preparation=null;
+  if(fastPolling){const schedule=w.setTimeout.bind(w);w.setTimeout=(fn,ms,...args)=>schedule(fn,ms===15000?100:ms,...args);}
   w.ResizeObserver=class{observe(){}disconnect(){}};w.TextEncoder=TextEncoder;w.TextDecoder=TextDecoder;
   w.URLSearchParams=URLSearchParams;w.Blob=Blob;
   if(saved!==null)w.localStorage.setItem('simpaths-visualiser-choice:'+experiment,saved);
   const row=n=>({configuration:id(n),ordinal:n+1,name:'Policy '+(n+1),state:'succeeded',selectable:true,
-    ready:true,summaries_ready:true,settings:{'model.flag':String(!!(n%2)),'model.rate':String(n)}});
+    ready:true,summaries_ready:n!==8,charts_ready:n===7||n<5&&chartsReady,
+    comparison_baselines:n===7?(pairsReady?[1,2,601]:[1,601]):n>0&&n<5&&pairsReady?[1]:[],
+    settings:{'model.flag':String(!!(n%2)),'model.rate':String(n)}});
   const response=(value,status=200)=>new Response(JSON.stringify(value),{status,headers:{'x-visualiser-cache-scope':scope}});
   w.fetch=async(url,options={})=>{
     requests.push({url:String(url),options});const parsed=new URL(url,'https://localhost'),q=parsed.searchParams;
@@ -39,12 +42,17 @@ async function fixture({query='',saved=null,offline=false,total=1024,missing=fal
       return response({format:'simpaths.visualiser.choices.v1',experiment,name:'Large fictional sweep',total,
         matching:rows.length,offset,page_size:50,automatic_limit:9,selection_limit:9,baseline:id(0),
         defaults:Array.from({length:Math.min(9,total)},(_,n)=>id(n)),picked,configurations:rows.slice(offset,offset+50),
+        comparison_baseline_names:{1:'Policy 1',2:'Policy 2',601:'Policy 601'},
         parameters:[{key:'model.flag',values:['false','true'],truncated:false}]});
     }
     if(options.method==='POST'){
       const value=JSON.parse(options.body);posts.push(value);assert.equal(options.headers['X-CSRF-Token'],'private-fixture');
-      if(preparation){const result=await preparation();return response(result.body,result.status);}
-      return response({});
+      if(preparation){
+        const result=await preparation();
+        return result.raw?new Response(result.raw,{status:result.status}):response(result.body,result.status);
+      }
+      assert.ok(parsed.pathname.endsWith('/preparations'));
+      return response({request:'fixture-request',email_enabled:true},202);
     }
     const chosen=q.getAll('chosen'),ids=chosen.length?chosen:Array.from({length:total},(_,n)=>id(n));
     return response({format:'simpaths.visualiser.experiment.v1',experiment,url:'/visualiser/experiment/'+experiment,
@@ -56,7 +64,7 @@ async function fixture({query='',saved=null,offline=false,total=1024,missing=fal
   const button=text=>Array.from(doc.querySelectorAll('button')).find(b=>(b.getAttribute('aria-label')||b.textContent.trim())===text);
   const idle=()=>!!button('Open Visualiser')&&!button('Open Visualiser').disabled;
   return {w,doc,dom,errors,requests,posts,button,idle,deny:()=>denied=true,connect:()=>down=false,
-    prepare:handler=>preparation=handler};
+    prepare:handler=>preparation=handler,ready:(charts,pairs)=>{chartsReady=charts;pairsReady=pairs;}};
 }
 
 test('all 21 pages preserve chosen members and enforce nine including the baseline',async()=>{
@@ -167,7 +175,7 @@ test('opening progress and errors stay below the button, with a single message a
       const messages=f.doc.querySelectorAll('[role="status"]');assert.equal(messages.length,1);
       assert.equal(f.button('Open Visualiser').nextElementSibling,messages[0]);return messages[0];
     };
-    assert.equal(feedback().textContent,'Checking access and preparing the selected charts…');
+    assert.equal(feedback().textContent,'Sending your chart preparation request…');
     assert.equal(f.button('Open Visualiser').disabled,true);
     release({body:{error:'Preparation is temporarily unavailable. Please try again.'},status:503});
     await wait(f.idle);
@@ -196,4 +204,61 @@ test('selection readiness counts only the chosen charts and baseline comparisons
       assert.ok(!f.requests.some(r=>r.url==='/api/session'));
     }finally{f.dom.window.close();}
   }
+});
+
+test('Prepare saves the selection in place and Open follows it without a second request',async()=>{
+  const f=await fixture();
+  try{
+    await wait(f.idle);
+    const prepare=f.button('Prepare charts and comparisons');
+    assert.ok(prepare.compareDocumentPosition(f.button('Open Visualiser')) & f.w.Node.DOCUMENT_POSITION_FOLLOWING);
+    const unchecked=f.doc.querySelectorAll('tbody tr')[7].cells[2];
+    const entries=()=>Array.from(unchecked.children,line=>line.textContent);
+    const available=['Summaries ready','Charts ready','Comparison with baseline #1 (Policy 1)','Comparison with baseline #601 (Policy 601)'];
+    const pageReads=()=>f.requests.filter(r=>r.url.includes('/choices?')).length;
+    const reads=pageReads();
+    assert.equal(f.doc.querySelectorAll('thead th')[2].textContent,'Available results');
+    assert.deepEqual(entries(),available);
+    assert.equal(f.doc.querySelectorAll('tbody tr')[8].cells[2].textContent,'');
+    const base=f.doc.querySelector('section select');
+    base.value=id(1);base.dispatchEvent(new f.w.Event('change',{bubbles:true}));
+    await wait(()=>f.requests.some(r=>r.url.includes('baseline='+id(1))));
+    assert.deepEqual(entries(),available);
+    base.value='';base.dispatchEvent(new f.w.Event('change',{bubbles:true}));
+    await wait(()=>f.button('Prepare charts'));
+    assert.deepEqual(entries(),available);
+    assert.equal(pageReads(),reads);assert.equal(f.posts.length,0);
+    f.button('Prepare charts').click();
+    await wait(()=>f.doc.body.textContent.includes('We’ll email you when your selection is ready.'));
+    assert.ok(f.doc.querySelector('table'));assert.equal(f.posts.length,1);
+    f.button('Open Visualiser').click();await wait(()=>f.button('Change configurations'));
+    assert.equal(f.posts.length,1);assert.deepEqual(f.errors,[]);
+  }finally{f.dom.window.close();}
+});
+
+test('a gateway error can be retried in place and progress changes as the worker finishes',async()=>{
+  const f=await fixture({fastPolling:true});
+  try{
+    await wait(f.idle);
+    f.prepare(()=>({raw:'<html>Gateway timeout</html>',status:504}));
+    f.button('Prepare charts and comparisons').click();
+    await wait(()=>f.button('Retry connection'));
+    assert.match(f.doc.body.textContent,/Please retry/);
+    assert.doesNotMatch(f.doc.body.textContent,/JSON.parse|Gateway timeout|request is saved/);
+    f.prepare(null);f.button('Retry connection').click();
+    await wait(()=>f.doc.body.textContent.includes('request is saved'));
+    const cell=f.doc.querySelectorAll('tbody tr')[1].cells[2];
+    const selected=f.doc.querySelector('section[aria-label="Selected configurations"] li:nth-child(2)');
+    f.ready(true,false);
+    await wait(()=>cell.textContent.includes('Charts ready')&&selected.textContent.includes('Comparison queued'));
+    assert.ok(!cell.textContent.includes('Comparison'));
+    f.ready(true,true);
+    await wait(()=>cell.textContent.includes('Comparison with baseline #1 (Policy 1)'));
+    const accumulated=f.doc.querySelectorAll('tbody tr')[7].cells[2];
+    assert.deepEqual(Array.from(accumulated.children,e=>e.textContent).slice(2),[
+      'Comparison with baseline #1 (Policy 1)','Comparison with baseline #2 (Policy 2)','Comparison with baseline #601 (Policy 601)']);
+    await wait(()=>f.doc.body.textContent.includes('Ready to open · 5 selected'));
+    assert.equal(f.posts.length,2);
+    assert.ok(f.doc.querySelector('table'));
+  }finally{f.dom.window.close();}
 });

@@ -61,6 +61,21 @@ passed the functional and native browser acceptance described below.
 
 ## Build provenance
 
+### Updates with retained summaries
+
+The application installer checks whether changing the calculator would prevent
+MultiRun from using unexpired summaries. It compares the calculation mode and
+the hashes of `runner.cjs` and `calculation.cjs` before activation. A
+presentation-only update can proceed with the existing calculator. The guard
+runs again after the private service stops to include any newly protected summaries.
+
+If an upgrade reports `IncompatibleVisualiserUpdate`, keep the serving release
+in place while deciding which results the new definitions can reproduce. When
+raw output is available, validate recalculation before replacing an existing
+retention promise. When it has been deleted, a calculation requiring finer
+detail can only be offered for a new simulation. Any historical results must
+identify their calculation version and meet the current disclosure rules.
+
 `build.cjs` loads its tools from the supplied installed directory. Before
 compiling it checks direct installed packages against their manifest and lock.
 An exact manifest pin cannot be overridden by a matching but different installed

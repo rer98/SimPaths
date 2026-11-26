@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 from . import test_visualiser_raw_retirement as raw_retirement
 from .visualiser_summary_holds import SummaryCapacityError, STATE
+from jasmine_web.batch.visualiser_sources import SummaryCalculationMismatch
 
 
 class FixedSourceRetentionTests(unittest.TestCase):
@@ -81,7 +82,7 @@ class FixedSourceRetentionTests(unittest.TestCase):
             plan['source']['configuration']['completed_at']=self.iso(self.started-40*86400)
         with self.guard() as protected:self.assertEqual(protected['expires_at'],self.deadline)
         self.plans[0]['source']['configuration']['summary_retention']['backend']['node']='incompatible'
-        with self.assertRaisesRegex(ValueError,'calculation is incompatible'):
+        with self.assertRaises(SummaryCalculationMismatch):
             with self.guard():self.fail('Calculation provenance must match')
 
     def test_incomplete_or_corrupt_set_never_admits_even_one_new_promise(self):
@@ -104,7 +105,7 @@ class FixedSourceRetentionTests(unittest.TestCase):
         cache=self.backend.summary_cache;before=(cache.root/STATE).read_bytes()
         records=[r for r in cache.holds.load().values() if r['comparison'].startswith('source-retained:')]
         plans=[{k:deepcopy(r[k]) for k in ('comparison','created_at','expires_at','configurations')} for r in records]
-        with self.assertRaises(SummaryCapacityError):
+        with self.assertRaises(SummaryCalculationMismatch):
             cache.holds.replace('alice','experiment',plans,calculation='different-calculation',owner_entries=4)
         self.assertEqual((cache.root/STATE).read_bytes(),before)
         plans[0]['expires_at']+=86400

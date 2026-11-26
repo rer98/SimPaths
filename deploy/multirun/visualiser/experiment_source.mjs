@@ -27,6 +27,29 @@ export function validateExperiment(value,experiment){
   return value;
 }
 
+export function preparationLabel(row,comparison=false,requested=false){
+  const state=comparison?row.comparison:row.charts;
+  const title=comparison?'Comparison':'Charts';
+  if(state==='not_applicable')return '';
+  if(state==='ready')return title+' ready';
+  if(state==='incompatible')return title+' unavailable · retained summaries require a different Visualiser calculation version';
+  if(state==='failed')return title+' preparation failed';
+  if(['expired','evicted'].includes(state))return title+' '+state;
+  if(['review','cancelled','expired','blocked'].includes(row.state))return title+' unavailable';
+  if(['queued','waiting','active'].includes(row.state))return title+' waiting for simulation';
+  if(state==='waiting_baseline')return 'Comparison waiting for baseline';
+  if(state==='processing'){
+    const counts=comparison?row.comparison_progress:row.chart_progress;
+    const detail=counts&&counts.total>0?' ('+counts.processed+'/'+counts.total+' repetitions processed)':'';
+    return (comparison?'Preparing comparison':'Preparing charts')+detail;
+  }
+  if(state==='queued'&&!requested&&row[comparison?'comparison_pending':'charts_pending']===false)
+    return title+' not yet prepared';
+  if(state==='queued'||requested&&row.selectable!==false)return title+' queued';
+  if(state==='unavailable'&&row.selectable)return title+' not yet prepared';
+  return title+' unavailable';
+}
+
 export class ExperimentSource extends SectionSource{
   constructor(experiment,{onUpdated=()=>{},onStatus=()=>{},onChooseRequired,selection=null,...options}={}){
     if(!uuid(experiment))throw Error('Invalid experiment.');

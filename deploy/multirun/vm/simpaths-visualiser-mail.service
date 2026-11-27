@@ -1,0 +1,19 @@
+# (C) Copyright 2026, by Ross Richardson
+# Deliver administrator notices independently of the MultiRun executor.
+# @author ross richardson
+[Unit]
+Description=Deliver SimPaths Visualiser update notifications
+
+[Service]
+Type=oneshot
+User=simpaths-online
+Group=simpaths-online
+WorkingDirectory=/opt/simpaths-online/SimPaths
+EnvironmentFile=-/etc/simpaths-online/smtp.env
+ExecStart=/opt/simpaths-online/venv/bin/python -I -B -c "import sys;sys.path.insert(0,'/opt/simpaths-online/SimPaths');from deploy.multirun.visualiser.update_mail import main;main()"
+UMask=0077
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

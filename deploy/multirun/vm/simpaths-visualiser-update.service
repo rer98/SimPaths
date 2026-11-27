@@ -1,0 +1,24 @@
+# (C) Copyright 2026, by Ross Richardson
+# Advance a qualified Visualiser transaction using the installed host coordinator.
+# @author ross richardson
+[Unit]
+Description=Apply reviewed SimPaths Visualiser updates
+After=network-online.target
+ConditionPathExists=/etc/simpaths-online/visualiser-updater.toml
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/simpaths-online/SimPaths
+ExecStart=/opt/simpaths-online/venv/bin/python -I -B -c "import sys;sys.path.insert(0,'/opt/simpaths-online/SimPaths');from deploy.multirun.visualiser.install_worker import main;main()"
+ExecStopPost=/usr/bin/systemctl --no-block start simpaths-visualiser-mail.service
+UMask=0077
+TimeoutStartSec=30min
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+ReadOnlyPaths=/opt/simpaths-online/SimPaths /opt/simpaths-online/JAS-mine-web /opt/simpaths-online/venv
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

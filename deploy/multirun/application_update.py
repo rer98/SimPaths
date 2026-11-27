@@ -156,6 +156,11 @@ def coordinate(queue, reference, candidate, *, install, verify, rollback=None, r
             return dict(reference=reference, state='draining', timed_out=True,
                         admissions_paused=True, waiting=waiting)
         sleep(min(poll_seconds, max(0, until-monotonic())))
+    return apply_started(queue,reference,candidate,install,verify,rollback,control,monotonic,sleep)
+
+
+def apply_started(queue,reference,candidate,install,verify,rollback,control,monotonic=time.monotonic,sleep=time.sleep):
+    """Run a claimed installation, preserving its admission fence until verified recovery."""
     reason = 'install_failed'
     try:
         install()

@@ -25,6 +25,13 @@ def gh_api(endpoint):
     return json.loads(subprocess.check_output(['gh', 'api', endpoint], timeout=45))
 
 
+def qualification_workflow(run, branch):
+    path = run['path']
+    return (path == WORKFLOW or path == WORKFLOW+'@'+branch or
+            path == WORKFLOW+'@refs/heads/'+branch or
+            bool(run.get('head_sha')) and path == WORKFLOW+'@'+run['head_sha'])
+
+
 def previous_run(repo, branch, name):
     """Only a successful run of this workflow on the same branch can supply the build."""
     base = f'repos/{repo}/actions'
@@ -35,7 +42,7 @@ def previous_run(repo, branch, name):
             continue
         run_id = int(origin['id'])
         run = gh_api(f'{base}/runs/{run_id}')
-        if (run['path'] == WORKFLOW and run['head_branch'] == branch and
+        if (qualification_workflow(run, branch) and run['head_branch'] == branch and
                 run['head_repository'] and run['head_repository']['full_name'] == repo and
                 run['event'] in ('schedule', 'workflow_dispatch') and run['conclusion'] == 'success'):
             return run_id

@@ -202,6 +202,8 @@ def atomic(path, body):
 
 
 class Installation:
+    health_urls = ('https://13.140.163.1:443/healthz','https://13.140.163.1:8443/health')
+
     def __init__(self, options, queue, source, plan):
         self.options,self.queue,self.source,self.plan=options,queue,Path(source),plan
         self.previous={};self.snapshot=None;self.single=None;self.containers={};self.changed=[]
@@ -296,12 +298,12 @@ raise SystemExit(main(['preflight','--config','/etc/simpaths-online/public.toml'
                 if time.monotonic()>=until:raise
                 time.sleep(1)
         if start_public:command('systemctl','start',PUBLIC)
-        for port,path,expected in ((443,'/healthz',dict(ready=True)),(8443,'/health',dict(status='ok',python='ok'))):
+        for url,expected in zip(self.health_urls,(dict(ready=True),dict(status='ok',python='ok'))):
             until=time.monotonic()+120
             while True:
                 try:
                     body=command('curl','--disable','--silent','--show-error','--fail','--noproxy','*',
-                        '--max-time','10','--max-filesize','65536',f'https://13.140.163.1:{port}{path}',seconds=15)
+                        '--max-time','10','--max-filesize','65536',url,seconds=15)
                     if json.loads(body)!=expected:raise RuntimeError('Unexpected application health response')
                     break
                 except (RuntimeError,ValueError):
@@ -349,9 +351,8 @@ raise SystemExit(main(['preflight','--config','/etc/simpaths-online/public.toml'
             if digest(body)!=targets[affected['build.json']]['after']:
                 raise ValueError('The candidate Visualiser manifest changed')
             after=json.loads(body)
-        old=dict(mode=before['mode'],files={k:before['files'][k] for k in names})
         for key in names:
-            installed=old['files'][key]
+            installed=before['files'][key]
             target=targets.get(affected.get(key),{})
             if target.get('before',installed)!=installed or target.get('after',installed)!=after['files'][key]:
                 raise ValueError('The calculator update must match both Visualiser manifests')
@@ -367,9 +368,13 @@ raise SystemExit(main(['preflight','--config','/etc/simpaths-online/public.toml'
                     raise ValueError('The archived calculator update must match both Visualiser manifests')
                 if replacement and replacement!=prior and not target:
                     raise ValueError('The update omits an archived calculator file')
+        self.check_retained_calculations(before, after, previous, available)
+
+    def check_retained_calculations(self, before, after, previous, available):
+        old = dict(mode=before['mode'], files={name: before['files'][name] for name in ('runner.cjs', 'calculation.cjs')})
         prior_node=before.get('toolchain',{}).get('node')
         next_node=after.get('toolchain',{}).get('node')
-        new_calculation={name:after['files'][name] for name in names}
+        new_calculation={name:after['files'][name] for name in old['files']}
         for edition,_ in previous:
             if any(registered==edition for registered,_ in available):continue
             with self.queue._connection() as c:
@@ -431,6 +436,11 @@ raise SystemExit(main(['preflight','--config','/etc/simpaths-online/public.toml'
                 key=row['execution_key']
                 self.containers[key]=command('docker','inspect','--format','{{.Id}}','jasmine-'+key).strip()
         self.save_progress()
+        self.publish_programs()
+        command('systemctl','start',PRIVATE)
+        self.service_ready()
+
+    def publish_programs(self):
         for name,row in self.plan['targets'].items():
             path=ROOT/name;before=trusted(path).read_bytes()
             if digest(before)!=row['before']:raise ValueError('The installed preimage changed during drain')
@@ -444,8 +454,10 @@ raise SystemExit(main(['preflight','--config','/etc/simpaths-online/public.toml'
             self.previous[name]=before;self.changed.append(name)
             self.save_progress()
             atomic(path,trusted(self.source/'programs'/name).read_bytes())
-        command('systemctl','start',PRIVATE)
-        self.service_ready()
+
+    def restore_programs(self):
+        for name in reversed(self.changed):
+            atomic(ROOT/name,self.previous[name])
 
     def verify(self):
         for name,row in self.plan['targets'].items():
@@ -492,7 +504,7 @@ raise SystemExit(main(['preflight','--config','/etc/simpaths-online/public.toml'
             self.release_fence()
             return digest(b'verified-pre-publication-recovery')
         command('systemctl','stop',PUBLIC);command('systemctl','stop',PRIVATE,seconds=240)
-        for name in reversed(self.changed):atomic(ROOT/name,self.previous[name])
+        self.restore_programs()
         command('systemctl','start',PRIVATE);self.service_ready()
         return self.verify_common()
 

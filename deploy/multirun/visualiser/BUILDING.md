@@ -246,13 +246,13 @@ For conflicting choices, the second administrator sees the first decision and
 can reconsider. Reopen a deferred review or withdraw an approval while it is
 still pending installation. Both actions record the reason and return the build
 to **Awaiting review**. The history identifies the administrator and time for
-each decision. Approval records the decision for the eventual installer.
+each decision. Approval makes the tested build eligible for the server installer.
 
 ### Connecting a project repository
 
 Install the matching JAS-mine-web and SimPaths changes together using the
 schema-changing maintenance procedure. Migration 051 creates the review,
-decision and notification tables. The application-only updater requires an
+decision and notification tables. Migration 052 adds installation tracking and per-decision notifications. The application-only updater requires an
 unchanged database schema. Provision the report publisher on the target
 environment before enabling daily checks.
 
@@ -276,11 +276,100 @@ environment before enabling daily checks.
    administrator on the configured administrator email list receives an email
    for a new review or a failed qualification. The link opens the review tab
    after administrator sign-in. SMTP failures retry with the same message ID.
-   Repeating a report preserves decisions and avoids new email.
+   Each recorded approval, deferral, reopening and withdrawal also emails the
+   currently authorised administrator team, including the administrator who
+   acted. The message identifies the administrator, decision time, Visualiser
+   revision and any reason. A cancelled form, duplicate choice or conflicting
+   click creates no notice. Each recipient receives decisions for a build in
+   order. Repeating a report preserves decisions and avoids new email.
 5. Confirm the review appears, test cancellation and a conflicting decision
    with two administrators, and inspect the recorded history. The delivery job
    fails visibly if the server cannot accept the report. Rerunning it is safe.
 
-Production rollout, installation failures and rollback belong to the installer
-stage. Until that stage is connected, an approved build remains in the review
-queue.
+### Installation rehearsal
+
+The server-side installer stages the bundle from a qualification ZIP in a
+private transaction directory. It checks the supplied GitHub archive digest,
+both integration revisions, the Visualiser revision, qualification and
+comparison evidence, and each asset against the reviewed manifest. The
+transaction identifies both the expected installed manifest and its replacement.
+
+Under the application update coordinator, installation uses drain mode. It
+checks retained summary dependencies before and after the MultiRun services
+stop. It exchanges the two complete build directories in one Linux filesystem
+operation and checks the bytes served for the Visualiser page, scripts,
+styles and images over HTTPS. The old directory remains available for
+rollback. An interrupted installer can recover using the durable host receipt
+and the two manifest digests.
+
+Run the local regression tests from the SimPaths repository root:
+
+```sh
+python3 -m unittest deploy.multirun.test_visualiser_bundle_installation deploy.multirun.test_update_package
+```
+
+### Connecting the deployment worker on a rehearsal server
+
+The host worker uses a project-owned, read-only GitHub credential when the
+SimPaths repository is private. The report-signing key stays separate. Grant
+the project credential Actions read access to that repository. The worker
+checks the workflow path, event, trusted branch, project revision, successful
+qualification job and artifact from the run attempt. The signed storage
+download receives no GitHub credential. [GitHub workflow run permissions](https://docs.github.com/en/rest/actions/workflow-runs)
+and [GitHub artifact downloads](https://docs.github.com/en/rest/actions/artifacts).
+
+1. Install the matching coordinator, admin code and database migrations using the
+   schema-changing maintenance procedure. Install the three units from
+   `deploy/multirun/vm/simpaths-visualiser-{update.service,update.timer,mail.service}`
+   in `/etc/systemd/system`. Create `/opt/simpaths-online/visualiser-updates`
+   on the Visualiser filesystem, owned by root with mode 0700.
+2. Set the trusted project and branch in root-owned
+   `/etc/simpaths-online/visualiser-updater.toml`. For the current fork use
+   the following values. At handover use the upstream repository and its
+   maintained deployment branch.
+
+   ```toml
+   repository = "rer98/SimPaths"
+   branch = "add-web-files"
+   ```
+
+3. If authentication is required, provision a root-readable project credential
+   and add `LoadCredential=github-token:/etc/credstore/simpaths-github-token`
+   to the update service's `[Service]` drop-in. The updater reads the systemd
+   credential. Keep SMTP settings in the existing MultiRun SMTP configuration.
+4. Reload systemd and enable the timer on the rehearsal host. It checks the
+   local queue about once a minute. The rehearsal deployment should serve MultiRun
+   at its configured HTTPS origin and SingleRun health on port 8443 of that host.
+   The independent mail unit uses MultiRun's
+   existing notification settings and can deliver a failure while the executor
+   is stopped, provided PostgreSQL and SMTP are available.
+5. Manually qualify one known upstream revision. Check the decision email and
+   the **Visualiser Update** tab. Withdraw an approval during drain and check
+   that admissions resume. Approve it again, verify the served charts and
+   retained results, then test a verification failure and verified rollback on
+   the rehearsal host before enabling the timer in production.
+
+A routine build or approved exception must still follow the installed upstream
+revision. If the calculator changes, its qualification must cover the installed
+calculation and an administrator must have approved it. A differing scientific
+reference requires registering the installed calculator and selecting it as the
+qualification reference before testing the next scientific change. After a failed download or expired
+artifact, run the qualification workflow again for the same commit. A matching
+build can reuse its prior review decision. The worker records an installation
+failure in the tab and queues mail for each authorised administrator.
+
+If automatic rollback fails, admissions stay paused. The failure notice and
+the review tab contain the update reference. After correcting the reported
+host problem, the operator can retry rollback for that exact reference using
+the installed Python and the coordinator's usual trusted import path:
+
+```sh
+sudo /opt/simpaths-online/venv/bin/python -I -B -c \
+  "import sys;sys.path.insert(0,'/opt/simpaths-online/SimPaths');from deploy.multirun.visualiser.install_worker import main;main()" \
+  --retry-rollback UPDATE_ID
+```
+
+Recovery rechecks the previous build and service health before resuming
+admissions. Keep the root-staged transaction directory for any outstanding
+installation or recovery. Completed transaction directories retain the other
+build for operator inspection.

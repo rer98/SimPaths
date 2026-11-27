@@ -1,0 +1,12 @@
+# (C) Copyright 2026, by Ross Richardson
+# Check the local review queue and resume incomplete Visualiser installations.
+# @author ross richardson
+[Unit]
+Description=Check for approved SimPaths Visualiser updates
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=1min
+
+[Install]
+WantedBy=timers.target

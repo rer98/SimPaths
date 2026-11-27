@@ -19,8 +19,6 @@ UPSTREAM = 'rjgreen1029/SimPaths-Policy-Impacts-Visualiser'
 SOURCE = f'https://github.com/{UPSTREAM}.git'
 # Version deployed when the reproducible qualification workflow was introduced.
 REFERENCE = 'e14ab818f065f145213f2f39f0c85f85b1475f1b'
-# Use an established lock for the DOM tests, independently of the candidate's dependencies.
-TEST_LOCK = 'c99f2533603e65f3f9666d5110b16628527b2975'
 PACKAGE_FILES = ('package.json', 'package-lock.json')
 SCIENTIFIC_SOURCES = {'src/parseCore.js', 'src/csvParse.js', 'src/localFolderParser.js',
                       'src/useAggregatedData.js', *PACKAGE_FILES}
@@ -45,7 +43,8 @@ def source_reference(repository):
     raise ValueError('The local checkout needs a remote pointing to ' + SOURCE)
 
 
-def dependencies(cache, directory, metadata, log):
+def dependencies(cache, directory, manifest_directory, log):
+    metadata = {name: (manifest_directory / name).read_bytes() for name in PACKAGE_FILES}
     if cache:
         root = cache.resolve(strict=True)
         if any((root.parent / name).read_bytes() != data for name, data in metadata.items()):
@@ -120,11 +119,16 @@ def examine(args, output, work, report):
                 if hashlib.sha256(data).hexdigest() != digest:
                     raise ValueError('Released reader source changed at ' + name)
                 (folder / name).write_bytes(data)
-    with (logdir / 'dependencies.log').open('wb') as log:
-        compiler = dependencies(args.dependencies, work / 'compiler',
-                                {k: (HERE / k).read_bytes() for k in PACKAGE_FILES}, log)
-        dom = dependencies(args.test_dependencies, work / 'dom',
-                           {k: git(source, 'show', TEST_LOCK + ':' + k) for k in PACKAGE_FILES}, log)
+    def install(name, cache, manifests):
+        stage = name + '-dependencies'
+        report['checks'][stage] = 'failed'
+        with (logdir / (stage + '.log')).open('wb') as log:
+            root = dependencies(cache, work / name, manifests, log)
+        report['checks'][stage] = 'passed'
+        return root
+
+    compiler = install('compiler', args.dependencies, HERE)
+    dom = install('dom', args.test_dependencies, HERE / 'dom-tests')
     build = output / 'build'
     if not check('build', ['node', HERE / 'build.cjs', '--source', source, '--dependencies', compiler,
                            '--reader-sources', readers, '--output', build]):

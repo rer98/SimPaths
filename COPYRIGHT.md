@@ -517,3 +517,7 @@ The prepared Quick Start donor lookup implementation and its generated packaging
 format and validation evidence are (C) Copyright 2026, by Ross Richardson;
 @author ross richardson. Bundled training data and upstream components retain
 their existing ownership and licences.
+
+The Visualiser browser-test package manifest and lock in
+`deploy/multirun/visualiser/dom-tests/` are (C) Copyright 2026, by Ross Richardson.
+@author ross richardson. The dependencies retain their original licences.

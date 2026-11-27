@@ -1,0 +1,8 @@
+{
+  "name": "simpaths-visualiser-dom-tests",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "jsdom": "16.7.0"
+  }
+}

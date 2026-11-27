@@ -41,7 +41,9 @@ const selected=['App.js','parseCore.js','useAggregatedData.js','DashboardSection
   'AggregateDataPanel.js','aggregateDataSource.js','useAggregateView.js','csvParse.js','tooltipContent.js'];
 const tabbed=fs.existsSync(path.join(args.source,'src/StaticPage.js'));
 if(tabbed)selected.push('StaticPage.js','ScenarioGraphic.js','InfoPages.js');
-if(fs.existsSync(path.join(args.source,'src/FolderStructureHelp.js')))selected.push('FolderStructureHelp.js');
+for(const name of ['FolderStructureHelp.js','datasetExport.js','variableInfo.js','xlsxWriter.js']){
+  if(fs.existsSync(path.join(args.source,'src',name)))selected.push(name);
+}
 fs.mkdirSync(args.output,{recursive:true,mode:0o700});
 const staging=path.join(args.output,'source');
 fs.mkdirSync(staging,{mode:0o700});

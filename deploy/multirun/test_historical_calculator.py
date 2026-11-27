@@ -41,7 +41,9 @@ class HistoricalCalculatorTests(unittest.TestCase):
             self.assertEqual(len(matching),1)
             now=datetime.now(timezone.utc)
             retained=dict(backend=version,protected_at=now.isoformat(),expires_at=(now+timedelta(days=1)).isoformat())
-            inputs=sources(root,people_count=48)
+            # Include a simulated year beyond the starting population so both
+            # editions can publish charts when rebuilding from these raw files.
+            inputs=sources(root,people_count=48,years=(2019,2020))
             jobs=[];plans=[];rows={}
             for number,source in enumerate(inputs):
                 config=source['configuration']

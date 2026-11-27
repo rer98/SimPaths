@@ -171,7 +171,9 @@ The checker fetches Reese’s repository into a temporary checkout. To use a
 previously fetched copy, pass `--repository /path/to/Visualiser`. It checks the
 identified upstream main ref and builds the exact requested commit. For an
 offline rehearsal, `--dependencies` and `--test-dependencies` accept installed
-`node_modules` directories with the pinned compiler and test package locks.
+`node_modules` directories installed from the package locks in this directory
+and in `dom-tests/`, respectively. The DOM tests use jsdom to exercise the
+bundled reader. Both dependency installations have their own qualification log.
 Use `--frontend` when JAS-mine-web is outside the usual checkout location.
 
 The output contains the candidate build, a per-check log, a JSON report and

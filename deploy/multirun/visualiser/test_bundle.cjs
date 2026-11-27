@@ -88,8 +88,8 @@ test('the '+(edition?edition.revision.slice(0,8):'current')+' reader draws the p
     const help=button('View folder structure'),guidance=help.closest('p');
     const tab=id=>doc.querySelector('[role="tab"][href="#/'+id+'"]');
     if(tab('interpreting-results')){
-      assert.match(guidance.textContent,/Baseline and Scenario subfolders.*View folder structure/);
-      assert.equal(guidance.parentElement.querySelector('h3').textContent.trim(),'Connect Data');
+      assert.match(guidance.textContent,/Baseline.*Scenario.*View folder structure/);
+      assert.match(guidance.parentElement.querySelector('h3').textContent.trim(),/^Connect data$/i);
     }else{
       assert.ok(guidance.textContent.includes('folders sit within.'));
       assert.ok(guidance.textContent.indexOf('runs from your model output.')<guidance.textContent.indexOf('View folder structure'));

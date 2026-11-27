@@ -14,6 +14,10 @@ function adaptApp(source) {
   if(source.includes('import FolderStructureHelp from "./FolderStructureHelp";')){
     if(source.split('<FolderStructureHelp />').length!==2)
       throw Error('Review changed shared folder guidance');
+    // The rebranded layout puts folder help in the local picker branch. The
+    // hosted panel also offers a local picker, so share that same paragraph.
+    const localHelp=/(\{hasDataSource \? <>\s*<AggregateDataPanel [^>]*\/>\s*<p\b[^>]*>[^<]*<\/p>\s*<\/> : <>)\s*(<p\b[^>]*>\s*Explore your own SimPaths output:[\s\S]*?<FolderStructureHelp \/>\s*<\/p>)/;
+    source=source.replace(localHelp,'$2\n              $1');
     return source.replaceAll('/interpreting-results.html','/Interpreting-results.html');
   }
   // Reuse the maintained folder tree in the common Getting Started guidance,
@@ -49,11 +53,14 @@ function adaptApp(source) {
 function adaptDashboard(source){
   // The hosted chooser admits at most nine configurations. Keep every
   // alternative distinguishable, including a view without a baseline.
+  const palette=source.match(/const NUMERIC_SCEN_COLOURS  = \["(#[0-9a-fA-F]{6})",/);
+  if(!palette)throw Error('Review changed scenario colours');
+  const first=palette[1];
   for(const [before,after] of [
     ['const SCENARIO_DASHES = ["2,2", "6,4", "8,3,2,3", "4,2,1,2"];',
      'const SCENARIO_DASHES = ["2,2", "6,4", "8,3,2,3", "4,2,1,2", "12,4", "2,5", "6,2,2,2,2,2", "10,2,2,2", "1,3,1,3,6,3"];'],
-    ['const NUMERIC_SCEN_COLOURS  = ["#0f93a1", "#0f93a1", "#0f93a1", "#0f93a1"];',
-     'const NUMERIC_SCEN_COLOURS  = ["#0f93a1", "#b85c00", "#7758a6", "#2366aa", "#b34455", "#687b22", "#815a36", "#a23e89", "#26735b"];']
+    [`const NUMERIC_SCEN_COLOURS  = ["${first}", "${first}", "${first}", "${first}"];`,
+     `const NUMERIC_SCEN_COLOURS  = ["${first}", "#b85c00", "#7758a6", "#2366aa", "#b34455", "#687b22", "#815a36", "#a23e89", "#26735b"];`]
   ]){
     if(source.includes(after))continue;
     if(source.split(before).length!==2)throw Error('Review changed scenario line styles');

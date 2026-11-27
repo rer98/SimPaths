@@ -66,6 +66,21 @@ class ProvenanceTests(unittest.TestCase):
         self.client.api = retried
         self.assertEqual(self.locate(),(21,'d'*64))
 
+    def test_push_artifact_must_match_fork_branch_and_visualiser_named_at_its_tip(self):
+        head = dict(id=self.evidence['project'], message='Rehearse Visualiser '+self.evidence['visualiser'])
+        self.run.update(event='push', head_commit=head)
+        self.assertEqual(self.locate(),(21,'d'*64))
+        for bad_head in (None, dict(head, id='e'*40), dict(head, message='An ordinary push'),
+                         dict(head, message='Rehearse Visualiser '+'e'*40)):
+            with self.subTest(head=bad_head), patch.dict(self.run,head_commit=bad_head), self.assertRaises(api.ArtifactError):
+                self.locate()
+        for repo, branch in (('simpaths/SimPaths','add-web-files'), ('rer98/SimPaths','main')):
+            client = api.GitHub(repo, branch, None)
+            client.api = self.client.api
+            with self.subTest(repo=repo, branch=branch), patch.dict(self.run,head_branch=branch,
+                    repository=dict(full_name=repo),head_repository=dict(full_name=repo)), self.assertRaises(api.ArtifactError):
+                client.locate(dict(self.evidence, repository=repo), 'a'*40)
+
     def test_download_uses_credential_only_with_github(self):
         first,second = MagicMock(),MagicMock()
         first.getresponse.return_value.status = 302

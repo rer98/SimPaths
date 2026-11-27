@@ -203,11 +203,30 @@ It checks the tip of Reese’s main branch once a day at 03:17 UTC when enabled.
 If several commits arrive between checks they are tested together at the newest
 commit. The source SHA stays fixed throughout that run.
 
-For a rehearsal, open **Actions → Check Visualiser updates → Run workflow** and
-enter a full Visualiser commit SHA. A manual run always performs the checks.
-GitHub requires the workflow file on the repository’s default branch for manual
-dispatch and scheduling. The current development branch is `add-web-files`.
-After the end-to-end trial, a repository administrator can enable the daily
+### Rehearsing from the development fork
+
+Enable Actions in `rer98/SimPaths` and push the workflow changes to
+`add-web-files`. To request a check, push an empty commit whose entire message
+is `Rehearse Visualiser ` followed by the full lowercase SHA from Reese’s
+main branch. Run these commands from the SimPaths checkout after setting
+`visualiser_revision` to the commit you intend to test.
+
+```sh
+test "$(git branch --show-current)" = add-web-files &&
+git commit --allow-empty --only -m "Rehearse Visualiser ${visualiser_revision:?Set the full Visualiser SHA first}" &&
+git push origin add-web-files
+```
+
+The request must be the tip of the push. Find the result under **Actions** in
+the fork. Ordinary pushes skip the jobs. Each requested rehearsal runs the full
+qualification even if that revision was tested earlier. With the repository
+variable `VISUALISER_REHEARSAL_ORIGIN` unset, the result and artifact are
+available in GitHub only. For an end-to-end trial, connect the rehearsal server
+as described under **Connecting a project repository** before pushing the request.
+
+Once the workflow reaches the maintained repository’s default branch, a maintainer
+can also open **Actions → Check Visualiser updates → Run workflow** and enter an
+exact Visualiser SHA. After the end-to-end trial, a repository administrator can enable the daily
 check in **Settings → Secrets and variables → Actions → Variables** by setting
 `VISUALISER_SCHEDULE_ENABLED` to `true`. [GitHub workflow triggers](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)
 
@@ -261,13 +280,14 @@ environment before enabling daily checks.
    `visualiser-report-key`, owned by the executor service user with mode 0600.
    The private executor reads it at startup. Provision it again when restoring
    to a new server. Rotate both copies together.
-2. In the SimPaths repository create a GitHub Actions environment named
-   `visualiser-reporting`. Restrict its deployment branches to the trusted
-   integration branch during rehearsal and the maintained release branch at
-   handover. Put the matching key in the environment secret
-   `VISUALISER_REPORT_KEY`. Set the repository variable
-   `VISUALISER_REPORT_ORIGIN` to the target MultiRun HTTPS origin, without a
-   trailing slash. Use the rehearsal server for the first trial.
+2. For the fork rehearsal, create a GitHub Actions environment named
+   `visualiser-rehearsal` in `rer98/SimPaths`, restrict its deployment branches
+   to `add-web-files`, and put the rehearsal server’s key in the environment
+   secret `VISUALISER_REPORT_KEY`. Set the **repository variable**
+   `VISUALISER_REHEARSAL_ORIGIN` to the rehearsal server’s HTTPS origin without
+   a trailing slash. For manual dispatch and scheduled checks at handover, use
+   the `visualiser-reporting` environment restricted to the maintained release
+   branch, its own signing key, and the repository variable `VISUALISER_REPORT_ORIGIN`.
 3. Run **Check Visualiser updates** for a known commit. A separate GitHub job
    signs and posts the small qualification report after the checker finishes.
    The candidate code runs on a different runner. The publisher can register a
@@ -343,7 +363,10 @@ and [GitHub artifact downloads](https://docs.github.com/en/rest/actions/artifact
    The independent mail unit uses MultiRun's
    existing notification settings and can deliver a failure while the executor
    is stopped, provided PostgreSQL and SMTP are available.
-5. Manually qualify one known upstream revision. Check the decision email and
+5. Push a rehearsal request for one known upstream revision from the fork as
+   described above. The worker matches the request in GitHub’s record of the
+   pushed commit to the Visualiser SHA in the signed report.
+   Check the decision email and
    the **Visualiser Update** tab. Withdraw an approval during drain and check
    that admissions resume. Approve it again, verify the served charts and
    retained results, then test a verification failure and verified rollback on

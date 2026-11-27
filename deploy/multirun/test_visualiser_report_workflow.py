@@ -8,6 +8,7 @@ import hmac
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -20,6 +21,37 @@ FRONTEND = 'c' * 40
 
 
 class VisualiserReportWorkflowTests(unittest.TestCase):
+    def test_push_rehearsal_selects_only_the_revision_named_by_the_fork_branch_tip(self):
+        repo, branch, project = 'rer98/SimPaths', 'add-web-files', 'b'*40
+        head = dict(id=project, message='Rehearse Visualiser '+REV+'\n')
+        push = dict(ref='refs/heads/'+branch, deleted=False, head_commit=head)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            event_path, output = root/'event', root/'output'
+            env = dict(GITHUB_REPOSITORY=repo, GITHUB_EVENT_NAME='push', GITHUB_REF_NAME=branch,
+                       GITHUB_SHA=project, GITHUB_EVENT_PATH=str(event_path), GITHUB_OUTPUT=str(output),
+                       GITHUB_STEP_SUMMARY=str(root/'summary'), VISUALISER_SCHEDULE_ENABLED='true')
+            with patch.dict(os.environ,env), patch.object(sys,'argv',['workflow','select']), \
+                 patch.object(workflow,'select',return_value=(REV,'artifact',None)) as select:
+                event_path.write_text(json.dumps(push))
+                workflow.main()
+                select.assert_called_once_with(REV, repo, branch)
+                self.assertIn('check=true',output.read_text().splitlines())
+                for environment, payload in [
+                        ({}, dict(head_commit=dict(head, message='Ordinary code change'))),
+                        ({}, dict(head_commit=dict(head, message='Rehearse Visualiser main'))),
+                        ({}, dict(head_commit=dict(head, message=head['message']+'extra text'))),
+                        ({}, dict(head_commit=dict(head, id='c'*40))),
+                        ({}, dict(deleted=True)), ({}, dict(head_commit=None)),
+                        ({}, dict(ref='refs/tags/'+branch)),
+                        (dict(GITHUB_REPOSITORY='simpaths/SimPaths'), {}),
+                        (dict(GITHUB_REF_NAME='main'), dict(ref='refs/heads/main'))]:
+                    with self.subTest(env=environment, payload=payload), patch.dict(os.environ,environment):
+                        event_path.write_text(json.dumps(dict(push, **payload)))
+                        with self.assertRaisesRegex(ValueError,'rehearsal commit'):
+                            workflow.main()
+                select.assert_called_once()
+
     def test_scheduled_checks_reuse_only_retained_success_on_the_same_workflow_and_branch(self):
         repo, branch, name = 'project/SimPaths', 'main', 'visualiser-fixture'
         origin = dict(head_branch=branch, id=1)
@@ -29,7 +61,8 @@ class VisualiserReportWorkflowTests(unittest.TestCase):
         for changed_artifact, changed_run in (
                 (dict(expired=True), {}), (dict(name=name+'-diagnostics'), {}),
                 (dict(workflow_run=None), {}), (dict(workflow_run=dict(origin, head_branch='rehearsal')), {}),
-                ({}, dict(head_branch='other')), ({}, dict(event='pull_request')), ({}, dict(path='different.yml')),
+                ({}, dict(head_branch='other')), ({}, dict(event='pull_request')), ({}, dict(event='push')),
+                ({}, dict(path='different.yml')),
                 ({}, dict(head_repository=dict(full_name='another/SimPaths'))), ({}, dict(conclusion='failure')),
                 ({}, dict(conclusion='cancelled')), ({}, dict(conclusion=None))):
             with self.subTest(artifact=changed_artifact, run=changed_run):

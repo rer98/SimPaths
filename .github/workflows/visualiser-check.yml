@@ -4,6 +4,8 @@
 name: Check Visualiser updates
 
 on:
+  push:
+    branches: [add-web-files]
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:
@@ -17,18 +19,27 @@ permissions:
   contents: read
 
 concurrency:
-  group: visualiser-check-${{ github.ref }}
+  # An ordinary push must not displace a queued rehearsal.
+  group: visualiser-check-${{ github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'Rehearse Visualiser ') && github.run_id || github.ref }}
   cancel-in-progress: false
 
 jobs:
   select:
-    if: github.event_name == 'workflow_dispatch' || vars.VISUALISER_SCHEDULE_ENABLED == 'true'
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' && vars.VISUALISER_SCHEDULE_ENABLED == 'true') ||
+      (github.event_name == 'push' && github.repository == 'rer98/SimPaths' &&
+       github.ref == 'refs/heads/add-web-files' && !github.event.deleted &&
+       startsWith(github.event.head_commit.message, 'Rehearse Visualiser '))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
       actions: read
+    env:
+      MULTIRUN_ORIGIN: ${{ vars[github.event_name == 'push' && 'VISUALISER_REHEARSAL_ORIGIN' || 'VISUALISER_REPORT_ORIGIN'] }}
     outputs:
+      report_origin: ${{ env.MULTIRUN_ORIGIN }}
       revision: ${{ steps.select.outputs.revision }}
       artifact: ${{ steps.select.outputs.artifact }}
       check: ${{ steps.select.outputs.check }}
@@ -41,7 +52,6 @@ jobs:
         name: Identify the revision and look for a previous report
         env:
           GH_TOKEN: ${{ github.token }}
-          MULTIRUN_ORIGIN: ${{ vars.VISUALISER_REPORT_ORIGIN }}
           REQUESTED_REVISION: ${{ inputs.revision }}
         run: python3 -m deploy.multirun.visualiser.report_workflow select --revision "$REQUESTED_REVISION"
 
@@ -123,11 +133,11 @@ jobs:
     needs: [select, qualify]
     if: >-
       !cancelled() && needs.select.outputs.check == 'true' &&
-      vars.VISUALISER_REPORT_ORIGIN != '' &&
+      needs.select.outputs.report_origin != '' &&
       (needs.qualify.result == 'success' || needs.qualify.result == 'failure')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    environment: visualiser-reporting
+    environment: ${{ github.event_name == 'push' && 'visualiser-rehearsal' || 'visualiser-reporting' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -136,7 +146,7 @@ jobs:
       - name: Deliver the qualification result to MultiRun
         env:
           REPORT_KEY: ${{ secrets.VISUALISER_REPORT_KEY }}
-          MULTIRUN_ORIGIN: ${{ vars.VISUALISER_REPORT_ORIGIN }}
+          MULTIRUN_ORIGIN: ${{ needs.select.outputs.report_origin }}
           VISUALISER_REVISION: ${{ needs.select.outputs.revision }}
           QUALIFICATION_RESULT: ${{ needs.qualify.result }}
           CHECKED_REPORT: ${{ needs.qualify.outputs.review }}

@@ -9,7 +9,7 @@ import re
 from urllib.parse import urlsplit
 
 from .check_candidate import UPSTREAM
-from .report_workflow import qualification_workflow
+from .report_workflow import qualification_workflow, rehearsal_revision
 
 
 class PendingRun(Exception):
@@ -55,9 +55,14 @@ class GitHub:
         if (record['id'] != run or record['run_attempt'] != attempt or not qualification_workflow(record,self.branch) or
                 record['head_branch'] != self.branch or record['head_sha'] != evidence['project'] or
                 record['head_repository']['full_name'] != self.repository or
-                record['repository']['full_name'] != self.repository or
-                record['event'] not in ('schedule','workflow_dispatch')):
+                record['repository']['full_name'] != self.repository):
             raise ArtifactError('The GitHub workflow, branch or project revision differs from the review.')
+        if record['event'] == 'push':
+            requested = rehearsal_revision(self.repository, self.branch, record['head_sha'], record.get('head_commit'))
+            if not requested or requested != evidence['visualiser']:
+                raise ArtifactError('The pushed commit does not request this Visualiser rehearsal.')
+        elif record['event'] not in ('schedule','workflow_dispatch'):
+            raise ArtifactError('Unexpected GitHub event for Visualiser qualification.')
         if record['status'] != 'completed':
             raise PendingRun()
         if record['conclusion'] != 'success':

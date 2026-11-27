@@ -21,6 +21,19 @@ def revision(value):
     return value
 
 
+def rehearsal_revision(repo, branch, project_sha, head_commit):
+    """Identify the exact Visualiser revision requested by the tip of a rehearsal push."""
+    if (repo != 'rer98/SimPaths' or branch != 'add-web-files' or
+            not isinstance(head_commit, dict) or head_commit.get('id') != project_sha):
+        return None
+    message = head_commit.get('message')
+    if isinstance(message, str):
+        match = re.fullmatch(r'Rehearse Visualiser ([0-9a-f]{40})\n?', message)
+        if match:
+            return match.group(1)
+    return None
+
+
 def gh_api(endpoint):
     return json.loads(subprocess.check_output(['gh', 'api', endpoint], timeout=45))
 
@@ -139,10 +152,19 @@ def main():
     if args.command == 'select':
         repo = os.environ['GITHUB_REPOSITORY']
         event = os.environ['GITHUB_EVENT_NAME']
-        if event not in ('schedule', 'workflow_dispatch'):
-            raise ValueError('Expected a scheduled or manually requested check')
-        requested = args.revision if event == 'workflow_dispatch' else None
-        selected, key, prior = select(requested, repo, os.environ['GITHUB_REF_NAME'])
+        branch = os.environ['GITHUB_REF_NAME']
+        if event == 'push':
+            push = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
+            requested = rehearsal_revision(repo, branch, os.environ['GITHUB_SHA'], push.get('head_commit'))
+            if not requested or push.get('ref') != 'refs/heads/'+branch or push.get('deleted') is not False:
+                raise ValueError('Expected a rehearsal commit naming one full Visualiser SHA on the fork testing branch')
+        elif event == 'workflow_dispatch':
+            requested = args.revision
+        elif event == 'schedule':
+            requested = None
+        else:
+            raise ValueError('Unexpected Visualiser check event')
+        selected, key, prior = select(requested, repo, branch)
         with Path(os.environ['GITHUB_OUTPUT']).open('a') as stream:
             print(f'revision={selected}\nartifact={key}\ncheck={str(prior is None).lower()}', file=stream)
         if prior is None:

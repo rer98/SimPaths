@@ -14,7 +14,7 @@ from zipfile import ZipFile
 
 from .. import update_package as package
 from .bundle_installation import FORMAT, MAX_ASSET, checked_bundle
-from .check_candidate import SOURCE
+from .check_candidate import SOURCE, row_changes
 
 
 def write_file(path, data, mode):
@@ -54,6 +54,7 @@ def copy_artifact(archive, evidence, directory):
         raise ValueError('Artifact revisions differ from the MultiRun review')
     report = json.loads(read('report.json', 1024**2))
     comparison = report['comparison']
+    comparison_bytes = read('comparison.json', 32 * 1024**2)
     if (report['source'] != SOURCE or report['revision'] != evidence['visualiser'] or
             report['reference'] != evidence['reference'] or report['manifest_sha256'] != evidence['manifest'] or
             report['status'] != evidence['outcome'] or report['status'] not in
@@ -61,8 +62,12 @@ def copy_artifact(archive, evidence, directory):
             report['checks'].get('chromium') != 'passed' or set(report['checks'].values()) != {'passed'} or
             comparison['rows'] != evidence['rows'] or comparison['differences_from_release'] != evidence['changed'] or
             comparison['local_folder_differences'] != 0 or
-            comparison['sha256'] != package.digest(read('comparison.json', 32 * 1024**2))):
+            comparison['sha256'] != package.digest(comparison_bytes)):
         raise ValueError('Qualification evidence differs from the MultiRun review')
+    if 'row_changes' in evidence or 'row_changes' in comparison:
+        counts = row_changes(json.loads(comparison_bytes)['release_differences'])
+        if counts != evidence.get('row_changes') or counts != comparison.get('row_changes', counts):
+            raise ValueError('Chart row changes differ from the MultiRun review')
     manifest = read('build/build.json', 1024**2)
     if package.digest(manifest) != evidence['manifest']:
         raise ValueError('Visualiser artifact manifest differs from the reviewed digest')

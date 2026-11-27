@@ -130,6 +130,11 @@ def summary(directory, selected, project_commit, frontend_commit):
         lines += ['', f"Fixture rows **{int(comparison['rows'])}**",
                   '', f"Rows differing from Reese’s local-folder reader **{int(comparison['local_folder_differences'])}**",
                   '', f"Rows differing from the released calculator **{int(comparison['differences_from_release'])}**"]
+        if 'row_changes' in comparison:
+            counts = comparison['row_changes']
+            details = [f"{name.capitalize()} **{counts[name]}**" for name in ('added', 'removed', 'modified') if counts[name]]
+            if details:
+                lines.extend(['', ', '.join(details)])
     if report.get('calculator_bytes_changed'):
         lines += ['', 'The compiled calculator differs from the reference release.']
     failed = [k for k, v in report['checks'].items() if v != 'passed']
@@ -180,6 +185,8 @@ def main():
             compact = dict(outcome=report['status'], manifest=report['manifest_sha256'], frontend=frontend,
                            reference=report['reference'], rows=report['comparison']['rows'],
                            changed=report['comparison']['differences_from_release'])
+            if 'row_changes' in report['comparison']:
+                compact['row_changes'] = report['comparison']['row_changes']
             with Path(os.environ['GITHUB_OUTPUT']).open('a') as stream:
                 print('review='+json.dumps(compact,separators=(',',':')),file=stream)
     with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as stream:

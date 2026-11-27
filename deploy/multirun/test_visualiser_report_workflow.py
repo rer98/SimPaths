@@ -14,6 +14,7 @@ import unittest
 from unittest.mock import patch
 
 from .visualiser import report_delivery, report_workflow as workflow
+from .visualiser.check_candidate import row_changes
 
 
 REV = 'a' * 40
@@ -21,6 +22,14 @@ FRONTEND = 'c' * 40
 
 
 class VisualiserReportWorkflowTests(unittest.TestCase):
+    def test_release_differences_count_both_sides_of_each_row_key(self):
+        old, new = {'mean':1}, {'mean':2}
+        differences = [dict(before=old,after=new),dict(before=None,after=new),
+                       dict(before=old,after=None),dict(before=old,after=None)]
+        self.assertEqual(row_changes(differences),dict(added=1,removed=2,modified=1))
+        self.assertEqual(row_changes([]),dict(added=0,removed=0,modified=0))
+        with self.assertRaises(ValueError):row_changes([dict(before=None,after=None)])
+
     def test_push_rehearsal_selects_only_the_revision_named_by_the_fork_branch_tip(self):
         repo, branch, project = 'rer98/SimPaths', 'add-web-files', 'b'*40
         head = dict(id=project, message='Rehearse Visualiser '+REV+'\n')
@@ -129,9 +138,11 @@ class VisualiserReportWorkflowTests(unittest.TestCase):
                 return hashlib.sha256(data).hexdigest()
             chart = build/'chart.json'
             manifest = write(build/'build.json', dict(files={chart.name:write(chart, [1, 2])}))
-            comparison = write(root/'comparison.json', dict(differences=[]))
+            differences = [dict(before={'year':2019},after=None)]
+            comparison = write(root/'comparison.json', dict(release_differences=differences))
             report = dict(source=workflow.SOURCE, revision=REV, reference='d'*40, manifest_sha256=manifest, checks=dict(chromium='passed'),
-                          comparison=dict(sha256=comparison, rows=4, local_folder_differences=0, differences_from_release=1))
+                          comparison=dict(sha256=comparison, rows=4, local_folder_differences=0, differences_from_release=1,
+                                          row_changes=row_changes(differences)))
             def summarise(status):
                 write(root/'report.json', dict(report, status=status))
                 return workflow.summary(root, REV, 'b'*40, FRONTEND)
@@ -139,7 +150,16 @@ class VisualiserReportWorkflowTests(unittest.TestCase):
                 text = summarise(status)
                 self.assertIn(status, text)
                 self.assertIn('released calculator **1**', text)
+                self.assertIn('Removed **1**', text)
                 self.assertEqual(json.loads((root/'workflow.json').read_text())['frontend'], FRONTEND)
+            outputs = root/'github-output'
+            env = dict(GITHUB_OUTPUT=str(outputs), GITHUB_SHA='b'*40, GITHUB_STEP_SUMMARY=str(root/'step-summary'))
+            argv = ['report_workflow', 'summary', str(root), '--revision', REV, '--frontend', str(root)]
+            with patch.dict(os.environ, env), patch.object(sys, 'argv', argv), \
+                 patch.object(subprocess, 'check_output', return_value=FRONTEND+'\n'):
+                workflow.main()
+            compact = json.loads(outputs.read_text().removeprefix('review='))
+            self.assertEqual(compact['row_changes'], dict(added=0, removed=1, modified=0))
             with self.assertRaises(ValueError):workflow.summary(root, 'd'*40, 'b'*40, FRONTEND)
             extra = build/'unexpected.txt'
             extra.touch()
@@ -154,7 +174,7 @@ class VisualiserReportWorkflowTests(unittest.TestCase):
     def test_publisher_signs_only_the_report_and_records_failed_runs_without_a_build(self):
         key = '12' * 32
         built = dict(outcome='scientific review',manifest='a'*64,frontend=FRONTEND,
-                     reference='d'*40,rows=576,changed=13)
+                     reference='d'*40,rows=576,changed=13,row_changes=dict(added=2,removed=8,modified=3))
         env = dict(QUALIFICATION_RESULT='success',CHECKED_REPORT=json.dumps(built),GITHUB_SHA='b'*40,
                    VISUALISER_REVISION=REV,GITHUB_REPOSITORY='simpaths/SimPaths',GITHUB_RUN_ID='1234',
                    GITHUB_RUN_ATTEMPT='1',REPORT_KEY=key,MULTIRUN_ORIGIN='https://review.example.org')
@@ -171,6 +191,7 @@ class VisualiserReportWorkflowTests(unittest.TestCase):
                 report = data['report']
                 self.assertEqual(report['manifest'],built['manifest'] if result=='success' else None)
                 self.assertEqual(report['outcome'],'scientific review' if result=='success' else 'failed')
+                self.assertEqual(report.get('row_changes'), built['row_changes'] if result=='success' else None)
                 self.assertEqual((report['run'],report['visualiser']),(1234,REV))
                 signed = json.dumps(report,sort_keys=True,separators=(',',':')).encode()
                 self.assertEqual(data['signature'],hmac.digest(bytes.fromhex(key),signed,'sha256').hex())

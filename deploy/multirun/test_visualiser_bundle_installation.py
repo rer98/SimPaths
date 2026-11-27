@@ -147,19 +147,23 @@ class BundleTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'plan differs'):
             self.installation()
 
-    def artifact(self, *, outcome='checks passed', extra=False, corrupt=False):
+    def artifact(self, *, outcome='checks passed', extra=False, corrupt=False, differences=None):
         archive = self.live.parent / 'download.zip'
         evidence = dict(project='a'*40, visualiser='b'*40, frontend='c'*40, reference='d'*40,
                         outcome=outcome, rows=10, changed=0, manifest=self.after)
         workflow = dict(format='simpaths.visualiser.workflow.v1', simpaths=evidence['project'],
                         frontend=evidence['frontend'], visualiser=evidence['visualiser'],
                         manifest_sha256=evidence['manifest'])
+        detail = {} if differences is None else dict(release_differences=differences)
         report = dict(source=stage_bundle.SOURCE, revision=evidence['visualiser'], reference=evidence['reference'],
                       status=outcome, manifest_sha256=self.after, checks={'chromium': 'passed'},
                       comparison=dict(rows=10, differences_from_release=0, local_folder_differences=0,
-                                      sha256=package.digest(b'{}')))
+                                      sha256=package.digest(json.dumps(detail).encode())))
+        if differences is not None:
+            evidence.update(changed=len(differences),row_changes=stage_bundle.row_changes(differences))
+            report['comparison'].update(differences_from_release=evidence['changed'],row_changes=evidence['row_changes'])
         with ZipFile(archive, 'w') as output:
-            for name, body in [('workflow.json', workflow), ('report.json', report), ('comparison.json', {})]:
+            for name, body in [('workflow.json', workflow), ('report.json', report), ('comparison.json', detail)]:
                 output.writestr(name, json.dumps(body))
             for path in self.slot.iterdir():
                 body = b'wrong asset' if corrupt and path.name == 'visualiser.js' else path.read_bytes()
@@ -195,3 +199,12 @@ class BundleTests(unittest.TestCase):
                     stage_bundle.stage(archive, digest, evidence, self.before, reference)
                 self.assertFalse((self.source.parent / reference).exists())
                 self.assert_active(self.before, '1.visualiser.js')
+
+    def test_staged_row_counts_must_match_the_actual_comparison(self):
+        archive,digest,evidence = self.artifact(outcome='scientific review',differences=[
+            dict(before={'year':2019},after=None)])
+        reference = str(uuid4())
+        wrong = dict(evidence,row_changes=dict(added=1,removed=0,modified=0))
+        with self.assertRaisesRegex(ValueError,'Chart row changes'):
+            stage_bundle.stage(archive,digest,wrong,self.before,reference)
+        stage_bundle.stage(archive,digest,evidence,self.before,reference)

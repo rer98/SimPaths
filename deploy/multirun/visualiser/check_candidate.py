@@ -28,6 +28,22 @@ def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def row_changes(differences):
+    """Count unmatched row keys and changed values for keys in both calculators."""
+    counts = dict(added=0, removed=0, modified=0)
+    for entry in differences:
+        before, after = entry['before'], entry['after']
+        if before is None and after is None:
+            raise ValueError('A chart difference must identify a row')
+        if before is None:
+            counts['added'] += 1
+        elif after is None:
+            counts['removed'] += 1
+        else:
+            counts['modified'] += 1
+    return counts
+
+
 def git(directory, *args):
     return subprocess.check_output(['git', '-C', directory, *args])
 
@@ -150,8 +166,10 @@ def examine(args, output, work, report):
                       HERE / 'historical' / REFERENCE[:8], work, science])
     if science.is_file():
         values = json.loads(science.read_bytes())
+        differences = values['release_differences']
         report['comparison'] = dict(rows=values['hosted_rows'], local_folder_differences=len(values['upstream_differences']),
-                                    differences_from_release=len(values['release_differences']), sha256=sha(science))
+                                    differences_from_release=len(differences), row_changes=row_changes(differences),
+                                    sha256=sha(science))
     report['calculator_bytes_changed'] = any(manifest['files'][k] != v for k, v in reference['files'].items())
     for name in ('test_runner.cjs', 'test_bundle.cjs', 'test_portable_source.mjs', 'test_section_source.mjs'):
         check(Path(name).stem, ['node', HERE / name], env)

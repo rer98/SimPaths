@@ -8,13 +8,73 @@ import {createRoot} from 'react-dom/client';
 import App from './App';
 import HistoricalApp from './historical-reader';
 import {parseLocalFolder} from './localFolderParser';
-import {SectionSource} from './section_source.mjs';
+import {boundedJSON,SectionSource} from './section_source.mjs';
 import {ExperimentSource,preparationLabel} from './experiment_source.mjs';
 import {PortableSource} from './portable_source.mjs';
 import {ExperimentChooser} from './experiment_chooser';
 
 const experimentComplete=status=>status?.total>0&&status.ready===status.total&&
   status.configurations.every(config=>config.charts==='ready'&&['ready','not_applicable'].includes(config.comparison));
+
+function CalculationNotice({info,directKey,onInvalidated}){
+  const [direct,setDirect]=useState(null),[sending,setSending]=useState(false),[feedback,setFeedback]=useState('');
+  const action=useRef(null),invalidated=useRef(onInvalidated);
+  invalidated.current=onInvalidated;
+  useEffect(()=>()=>action.current?.abort(),[]);
+  useEffect(()=>{
+    if(!directKey)return;
+    let timer;
+    const controller=new AbortController();
+    async function observe(){
+      try{
+        const response=await window.fetch('/api/visualiser/'+directKey,{credentials:'same-origin',cache:'no-store',signal:controller.signal});
+        const {value}=await boundedJSON(response,65536,controller.signal);
+        setDirect(value.recalculation);
+      }catch(error){
+        if(controller.signal.aborted)return;
+        setDirect(null);
+        if([401,403,404].includes(error.status)){invalidated.current();return;}
+      }
+      timer=setTimeout(observe,document.hidden?60000:15000);
+    }
+    observe();
+    return ()=>{controller.abort();clearTimeout(timer);};
+  },[directKey]);
+  const data=directKey?direct:info;
+  async function recalculate(){
+    if(action.current||!data?.available)return;
+    const controller=new AbortController();action.current=controller;
+    const signal=controller.signal;
+    setSending(true);setFeedback('');
+    try{
+      const session=await boundedJSON(await window.fetch('/api/session',{credentials:'same-origin',cache:'no-store',signal}),65536,signal);
+      if(!session.value.signed_in)throw Object.assign(Error('Sign in again from My Jobs.'),{status:403});
+      const endpoint=directKey?'/api/visualiser/'+directKey:'/api/visualiser-experiments/'+data.experiment;
+      const response=await window.fetch(endpoint+'/recalculate',{
+        method:'POST',credentials:'same-origin',cache:'no-store',signal,
+        headers:{'Content-Type':'application/json','X-CSRF-Token':session.value.csrf},
+        body:JSON.stringify(directKey?{}:{configurations:data.configurations,baseline:data.baseline})});
+      await boundedJSON(response,65536,signal);
+      setFeedback('Recalculation requested. You can leave this page while your charts are prepared.');
+    }catch(error){
+      if(signal.aborted)return;
+      if([401,403,404].includes(error.status)){invalidated.current();return;}
+      setFeedback(error.message);
+    }finally{if(!signal.aborted)setSending(false);action.current=null;}
+  }
+  return <aside className="vm-calculation-notice" aria-label="Calculation method">
+    <strong>These charts use an earlier calculation method.</strong>{' '}
+    This experiment’s summaries were prepared with that method. Results calculated with the current method may differ.
+    {data?.deleted>0&&(data.deleted===data.configurations.length
+      ?' The raw simulation outputs have been deleted, so these summaries can no longer be recalculated.'
+      :' Raw simulation outputs have been deleted for some selected configurations, so the full selection cannot be recalculated.')}
+    {data?.state==='ready'&&directKey&&/^\/visualiser\/[a-f0-9]{64}$/.test(data.url)&&<p><a href={data.url}>Open recalculated charts</a></p>}
+    {data?.available&&!['pending','ready'].includes(data.state)&&<p><button className="vm-source-button" disabled={sending}
+      onClick={recalculate}>Recalculate with the latest method</button></p>}
+    {data?.state==='retry'&&<p role="status">Recalculation is incomplete. You can retry while the raw outputs are available.</p>}
+    <div role="status">{data?.state==='pending'?'Recalculation is in progress. You can leave this page.':feedback}</div>
+  </aside>;
+}
 
 function Page({selection=null,receipt=null,onChoose=()=>{}}){
   const key=location.pathname.split('/').pop();
@@ -183,11 +243,13 @@ function Page({selection=null,receipt=null,onChoose=()=>{}}){
     return <main><p>This saved comparison needs a reader that matches its calculator.</p>
       <a href="/">Return to SimPaths Online</a></main>;
   const Reader=historical?HistoricalApp:App;
-  return <Reader dataSource={{rows:local||[],viewSource,controls,key:local?'local':key,
+  return <>{historical&&<CalculationNotice info={mode==='online'?experimentStatus?.recalculation:null}
+    directKey={mode==='online'&&!experiment?key:null} onInvalidated={()=>{cancel();setCatalogue(null);setExperimentStatus(null);setMessage('Return to My Jobs and sign in again to open these results.');}}/>}
+    <Reader dataSource={{rows:local||[],viewSource,controls,key:local?'local':key,
     label:mode==='saved'?'saved comparison':local?'locally saved data':'Online results',names:local?undefined:names,
     description:mode==='saved'?'Saved comparison sections are read on this device and are never uploaded.':'Online results are produced on the remote server. Locally saved files are processed entirely in your browser and are not uploaded.',
     navigation:<a className="vm-return" href="/">Return to SimPaths Online</a>,
-    showDelta:local!=null||catalogue?.comparison_available===true,notice:catalogue?.notice}}/>;
+    showDelta:local!=null||catalogue?.comparison_available===true,notice:catalogue?.notice}}/></>;
 }
 function ExperimentPage(){
   const [choice,setChoice]=useState(null),[receipt,setReceipt]=useState(null);

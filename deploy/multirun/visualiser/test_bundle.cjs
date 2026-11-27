@@ -21,8 +21,8 @@ async function waitFor(check){
   }
 }
 const manifest=JSON.parse(fs.readFileSync(path.join(build,'build.json'),'utf8'));
-for(const historical of (manifest.historical?[false,true]:[false])){
-test('the '+(historical?'historical':'current')+' reader draws the prepared paired charts',async()=>{
+for(const [historical,deleted] of (manifest.historical?[[false,0],[true,0],[true,1],[true,3]]:[[false,0]])){
+test('the '+(historical?'historical':'current')+' reader draws the prepared paired charts with '+deleted+' raw outputs deleted',async()=>{
   const errors=[],requests=[],key='a'.repeat(64);
   const console=new VirtualConsole();console.on('jsdomError',error=>errors.push(error.message));
   console.on('error',error=>errors.push(String(error)));
@@ -46,7 +46,7 @@ test('the '+(historical?'historical':'current')+' reader draws the prepared pair
       variables:[{name:row('baseline',40).variable,module:'Health',years:[2019],
         views:[{stratifier:'Overall',kind:'levels',bytes:2000,rows:3}]}]};
     if(historical)metadata.calculator_revision=manifest.historical.revision;
-    w.fetch=async function(url){
+    w.fetch=async function(url,options={}){
       requests.push(url);
       if(url.startsWith('/visualiser-assets/')){
         const pages={'interpreting-results.html':'Interpreting-results.html','citation.html':'citation.html','funders.html':'funders.html'};
@@ -54,6 +54,12 @@ test('the '+(historical?'historical':'current')+' reader draws the prepared pair
         assert.ok(file);return new Response(fs.readFileSync(path.join(build,file),'utf8'));
       }
       if(this?.document!==doc)throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
+      if(url==='/api/visualiser/'+key) return Response.json({recalculation:{available:deleted===0,deleted,state:'available',configurations:['base','a','b']}});
+      if(url==='/api/session')return Response.json({signed_in:true,csrf:'test'});
+      if(url.endsWith('/recalculate')){
+        assert.equal(options.method,'POST');assert.equal(options.headers['X-CSRF-Token'],'test');
+        assert.equal(options.body,'{}');return Response.json({state:'pending'});
+      }
       assert.ok(url.startsWith('/api/visualiser/'+key+'/'));
       if(denied)return new Response(JSON.stringify({error:'Sign in with an approved email'}),{status:403});
       if(url.endsWith('/catalogue'))return new Response(JSON.stringify(metadata));
@@ -66,6 +72,17 @@ test('the '+(historical?'historical':'current')+' reader draws the prepared pair
     new vm.Script(fs.readFileSync(path.join(build,'visualiser.js'),'utf8')).runInContext(dom.getInternalVMContext());
     await waitFor(()=>doc.body.textContent.includes('Policy B'));
     const button=text=>Array.from(doc.querySelectorAll('button')).find(b=>b.textContent.trim()===text);
+    assert.equal(Boolean(doc.querySelector('.vm-calculation-notice')),historical);
+    if(historical&&deleted){
+      const message=deleted===3?'these summaries can no longer be recalculated':'deleted for some selected configurations';
+      await waitFor(()=>doc.querySelector('.vm-calculation-notice')?.textContent.includes(message));
+      assert.equal(button('Recalculate with the latest method'),undefined);
+    }else if(historical){
+      await waitFor(()=>button('Recalculate with the latest method'));
+      button('Recalculate with the latest method').click();
+      await waitFor(()=>doc.body.textContent.includes('Recalculation requested.'));
+      assert.equal(requests.filter(url=>url.endsWith('/recalculate')).length,1);
+    }
     const help=button('View folder structure'),guidance=help.closest('p');
     const tab=id=>doc.querySelector('[role="tab"][href="#/'+id+'"]');
     if(manifest.historical)assert.equal(Boolean(tab('interpreting-results')),!historical);

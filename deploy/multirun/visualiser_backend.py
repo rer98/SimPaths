@@ -288,7 +288,10 @@ class VisualiserBackend:
                     or [str(run['seed']) for run in runs]!=[str(run['seed']) for run in identity['repetitions']]):
                 raise ValueError('Retained summary source seeds changed')
             identities.extend(self._summary_identity(source,run,self._summary_inputs(source,run)) for run in runs)
-            comparisons.append(dict(comparison='source-retained:'+hashlib.sha256(canonical(['retained',identity['job'],identity['attempt']])).hexdigest(),
+            hold_key=['retained',identity['job'],identity['attempt']]
+            if plan.get('additional_calculation'):
+                hold_key.append(scope(identities[-1]))
+            comparisons.append(dict(comparison='source-retained:'+hashlib.sha256(canonical(hold_key)).hexdigest(),
                 created_at=protected_at,expires_at=expires_at,configurations=[dict(configuration=configuration['id'],
                     job=identity['job'],attempt=identity['attempt'],seeds=[str(run['seed']) for run in runs])]))
             deadlines.append(expires_at)

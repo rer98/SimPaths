@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import unittest
 import zipfile
 from threading import BoundedSemaphore
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from .test_visualiser_backend import sources
 from .visualiser_backend import VisualiserBackend
@@ -24,7 +24,7 @@ from .visualiser_backend import VisualiserBackend
                      'Requires both reviewed calculator releases')
 class HistoricalCalculatorTests(unittest.TestCase):
     def test_protected_pair_survives_upgrade_without_raw_files(self):
-        from jasmine_web.batch.policy import NotFound, Resources
+        from jasmine_web.batch.policy import Conflict, NotFound, Resources
         from jasmine_web.batch.visualiser import Visualiser
         from jasmine_web.batch.visualiser_export import archive
         from jasmine_web.batch.visualiser_sources import SummaryCalculationMismatch
@@ -45,7 +45,7 @@ class HistoricalCalculatorTests(unittest.TestCase):
             for number,source in enumerate(inputs):
                 config=source['configuration']
                 job=str(number)
-                identity=dict(job=job,attempt='attempt-'+job,configuration=config['id'],model='fixture-model',prepared='fixture-inputs',origins=[['user','alice']],
+                identity=dict(job=job,attempt='attempt-'+job,name=config['name'],configuration=config['id'],model='fixture-model',prepared='fixture-inputs',origins=[['user','alice']],
                     repetitions=[dict(seed=run['seed']) for run in config['runs']])
                 jobs.append(identity)
                 config.update(completed_at=now.isoformat(),summary_retention=retained)
@@ -59,7 +59,8 @@ class HistoricalCalculatorTests(unittest.TestCase):
                 subprocess.run(argv,check=True,pass_fds=pass_fds,capture_output=True,timeout=30)
             expected=original.process(inputs,work,command,lambda count:None,comparison_set=True)
             with original.preserve_summary_sources('alice','exp',plans,owner_entries=10):pass
-            for path in root.rglob('*.csv'):path.unlink()
+            raw_files={path:path.read_bytes() for path in root.rglob('*.csv')}
+            for path in raw_files:path.unlink()
             for source in inputs:source['retained_only']=True
 
             def selection(token,job=None,*,baseline=None,scenarios=None,**options):
@@ -124,5 +125,71 @@ class HistoricalCalculatorTests(unittest.TestCase):
             recovered=json.loads(service.catalogue_bytes('alice',old_key))
             self.assertEqual(recovered['calculator_revision'],catalogue['calculator_revision'])
             self.assertEqual(index.read_bytes(),stored)
+            # Restore just the fictional raw files for a second selection workflow.
+            for path,data in raw_files.items():path.write_bytes(data)
+            configurations=[item['configuration'] for item in jobs]
+            context=dict(configurations=configurations,baseline=configurations[0])
+            exp=dict(id='exp',owner_id='alice',specification=dict(run_sets=[dict(id=c) for c in configurations]))
+            for j,source in zip(jobs,inputs):
+                source.pop('retained_only')
+                rows[j['job']].update(id=j['job'],configuration_id=j['configuration'],attempt={'id':j['attempt']},
+                    state='succeeded',processable=True,aggregate_available=True,output_state='retained',
+                    source_summary_retention=retained)
+            results.visualiser_snapshot=lambda token,experiment,configs:(exp,list(rows.values()))
+            results._snapshot=lambda token,**context:(exp,list(rows.values()))
+            access=Mock()
+            results.service=SimpleNamespace(access=access)
+            def status():
+                return service.experiment_status('alice','exp',**context)
+            def recalculate():
+                return service.recalculate('alice','csrf','exp',**context)
+            former=status()['publication']
+            self.assertTrue(former)
+            rows['0'].update(processable=False,output_state='deleted')
+            self.assertEqual(status()['recalculation']['deleted'],1)
+            self.assertFalse(service.status('alice',key)['recalculation']['available'])
+            with self.assertRaises(Conflict):service.recalculate_key('alice','csrf',key)
+            with self.assertRaises(Conflict):recalculate()
+            rows['0'].update(processable=True,output_state='retained')
+            self.assertTrue(service.status('alice',old_key)['recalculation']['available'])
+            self.assertEqual(service.recalculate_key('alice','csrf',old_key)['state'],'pending')
+            self.assertEqual(service.recalculate_key('alice','csrf',key)['state'],'pending')
+            self.assertEqual(recalculate()['state'],'pending')
+            access.authenticate.assert_called_with('alice',csrf='csrf',mutation=True)
+            self.assertEqual(recalculate()['state'],'pending')
+            tasks=[(k,r) for k,r in service._entries() if r['selection'].get('recalculate')]
+            self.assertEqual(len(tasks),3)
+            with patch.object(service,'_sync_summary_retention'), (root/'worker.lock').open('wb') as guard:
+                for k,r in tasks:
+                    self.assertEqual(status()['publication'],former)
+                    service._build(k,r,guard.fileno())
+                    built=service._record(k)
+                    self.assertEqual(built['state'],'ready',built.get('message'))
+                    self.assertEqual(built['expires_at'],ready['expires_at'])
+            self.assertEqual(status()['recalculation']['state'],'ready')
+            self.assertNotEqual(status()['publication'],former)
+            new_url=service.status('alice',key)['recalculation']['url']
+            self.assertNotIn('calculator_revision',json.loads(service.catalogue_bytes('alice',new_url.split('/')[-1])))
+            current=json.loads(service.experiment_catalogue('alice','exp',**context))
+            self.assertNotIn('calculator_revision',current)
+            self.assertTrue(current['comparison_available'])
+            self.assertEqual(json.loads(service.catalogue_bytes('alice',key)),catalogue)
+            for row in rows.values():
+                self.assertEqual(row['source_summary_retention'],retained)
+            self.assertEqual(len(active.summary_cache.holds.load()),4)
+            # The additional current edition remains reproducible if the publication
+            # is evicted after the raw files have been retired.
+            for path in raw_files:path.unlink()
+            for source in inputs:source['retained_only']=True
+            latest_key=new_url.split('/')[-1]
+            latest=service._record(latest_key)
+            (service._path(latest_key)/'published.json').unlink()
+            with patch.object(service,'_sync_summary_retention'), \
+                 patch.object(VisualiserBackend,'_verified_source',side_effect=AssertionError('Unexpected raw read')), \
+                 (root/'worker.lock').open('wb') as guard:
+                service._build(latest_key,latest,guard.fileno())
+            restored=service._record(latest_key)
+            self.assertEqual(restored['state'],'ready',restored.get('message'))
+            self.assertEqual(restored['expires_at'],latest['publication_expires_at'])
             with self.assertRaises(NotFound):
                 with patch.object(active,'allowed',return_value=False):service.catalogue_bytes('alice',key)

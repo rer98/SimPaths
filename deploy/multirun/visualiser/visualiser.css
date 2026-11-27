@@ -86,3 +86,10 @@
 .vm-chooser nav { display:flex; flex-wrap:wrap; gap:6px; margin:16px 0; }
 .vm-chooser .vm-configuration-page-button { display:inline-flex; align-items:center; justify-content:center; flex:0 0 44px; box-sizing:border-box; width:44px; height:44px; min-height:44px; padding:10px; }
 @media(max-width:600px){.vm-chooser { padding:16px; }.vm-choice-table table { min-width:520px; }}
+
+.vm-calculation-notice { padding:.8rem 1rem; border-inline-start:.3rem solid #93702c; background:#fff6dc; color:#302714; line-height:1.45; }
+.vm-calculation-notice p { margin:.45rem 0 0; }
+.vm-calculation-notice a { color:inherit; }
+@media (prefers-color-scheme:dark) {
+  .vm-calculation-notice { background:#372f20; color:#fff1cf; border-color:#d8af62; }
+}

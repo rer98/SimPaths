@@ -375,7 +375,11 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
                         expiry=service.retention.deliver_one()
                         completion=service.completions.deliver_one()
                         renewal=service.account_reminders.deliver_one()
-                        if not problems and not expiry and not completion and not renewal:
+                        review_notice = False
+                        if getattr(service,'administration',None) is not None:
+                            from jasmine_web.batch.visualiser_updates import deliver_one
+                            review_notice = deliver_one(service.administration,service.notifications.sender,origin)
+                        if not any((problems,expiry,completion,renewal,review_notice)):
                             break
                 except Exception as error:
                     print('Notification checks waiting for recovery: '+type(error).__name__,flush=True)
@@ -433,6 +437,12 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
         from .vm_web import administrator_verification_mail
         service.administration = Administration(access, administration['emails'],
             read_credential(state/'administrator-password.json'), administrator_verification_mail, sign_in_origin=origin)
+        # Project-managed report signing key, provisioned separately from admin sign-in.
+        from .vm_web import private_text
+        key_path = state/'visualiser-report-key'
+        if key_path.exists():
+            from .visualiser.report_delivery import signing_key
+            service.administration.visualiser_report_key = signing_key(private_text(key_path))
     print('Automatic resource recovery: '+('enabled for new reviews; frozen ceilings and original retry/time budgets apply'
                                           if recovery else 'disabled'),flush=True)
     from jasmine_web.batch.performance_review import PerformanceReview

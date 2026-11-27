@@ -41,6 +41,7 @@ jobs:
         name: Identify the revision and look for a previous report
         env:
           GH_TOKEN: ${{ github.token }}
+          MULTIRUN_ORIGIN: ${{ vars.VISUALISER_REPORT_ORIGIN }}
           REQUESTED_REVISION: ${{ inputs.revision }}
         run: python3 -m deploy.multirun.visualiser.report_workflow select --revision "$REQUESTED_REVISION"
 
@@ -49,6 +50,8 @@ jobs:
     if: needs.select.outputs.check == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    outputs:
+      review: ${{ steps.summary.outputs.review }}
     env:
       REVISION: ${{ needs.select.outputs.revision }}
     steps:
@@ -82,7 +85,8 @@ jobs:
         run: |
           python -m deploy.multirun.visualiser.check_candidate \
             --revision "$REVISION" --frontend frontend --output "$RUNNER_TEMP/visualiser-result"
-      - name: Summarise the result and record the integration revisions
+      - id: summary
+        name: Summarise the result and record the integration revisions
         if: "!cancelled() && (steps.qualify.outcome == 'success' || steps.qualify.outcome == 'failure')"
         run: |
           python -m deploy.multirun.visualiser.report_workflow summary \
@@ -114,3 +118,26 @@ jobs:
             ${{ runner.temp }}/visualiser-result/COPYRIGHT.md
           retention-days: 30
           overwrite: true
+
+  publish:
+    needs: [select, qualify]
+    if: >-
+      !cancelled() && needs.select.outputs.check == 'true' &&
+      vars.VISUALISER_REPORT_ORIGIN != '' &&
+      (needs.qualify.result == 'success' || needs.qualify.result == 'failure')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: visualiser-reporting
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: deploy/multirun/visualiser
+      - name: Deliver the qualification result to MultiRun
+        env:
+          REPORT_KEY: ${{ secrets.VISUALISER_REPORT_KEY }}
+          MULTIRUN_ORIGIN: ${{ vars.VISUALISER_REPORT_ORIGIN }}
+          VISUALISER_REVISION: ${{ needs.select.outputs.revision }}
+          QUALIFICATION_RESULT: ${{ needs.qualify.result }}
+          CHECKED_REPORT: ${{ needs.qualify.outputs.review }}
+        run: python3 -m deploy.multirun.visualiser.report_delivery

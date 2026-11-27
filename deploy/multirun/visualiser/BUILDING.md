@@ -229,4 +229,58 @@ the same deployment inputs on the same branch reuses that run. Its summary
 links back to the original report. Changing the integration pin, deployment
 code or workflow triggers a fresh check. Scientific and technical review
 outcomes mean the checks completed and a decision is still needed. This
-workflow has no production deployment step.
+workflow records the result for a separate installation stage.
+
+## MultiRun administrator review
+
+Open **MultiRun administration → Visualiser Update**. Each report links to the
+GitHub run and the upstream diff, identifies the build by its SHA-256 and gives
+the fixture row counts. Open the comparison artifact in the run to inspect the
+changed values. A failed qualification is visible for diagnosis. Routine checks
+are recorded automatically. A scientific or technical exception opens a review.
+
+Any signed-in MultiRun administrator can confirm approval or defer a review.
+Deferral requires a reason visible to the other administrators. Cancel closes
+the form. Two concurrent confirmations of the same choice record one decision.
+For conflicting choices, the second administrator sees the first decision and
+can reconsider. Reopen a deferred review or withdraw an approval while it is
+still pending installation. Both actions record the reason and return the build
+to **Awaiting review**. The history identifies the administrator and time for
+each decision. Approval records the decision for the eventual installer.
+
+### Connecting a project repository
+
+Install the matching JAS-mine-web and SimPaths changes together using the
+schema-changing maintenance procedure. Migration 051 creates the review,
+decision and notification tables. The application-only updater requires an
+unchanged database schema. Provision the report publisher on the target
+environment before enabling daily checks.
+
+1. Generate a random 32-byte key and represent it as 64 lowercase hexadecimal
+   characters. Store it privately in the executor's state directory as
+   `visualiser-report-key`, owned by the executor service user with mode 0600.
+   The private executor reads it at startup. Provision it again when restoring
+   to a new server. Rotate both copies together.
+2. In the SimPaths repository create a GitHub Actions environment named
+   `visualiser-reporting`. Restrict its deployment branches to the trusted
+   integration branch during rehearsal and the maintained release branch at
+   handover. Put the matching key in the environment secret
+   `VISUALISER_REPORT_KEY`. Set the repository variable
+   `VISUALISER_REPORT_ORIGIN` to the target MultiRun HTTPS origin, without a
+   trailing slash. Use the rehearsal server for the first trial.
+3. Run **Check Visualiser updates** for a known commit. A separate GitHub job
+   signs and posts the small qualification report after the checker finishes.
+   The candidate code runs on a different runner. The publisher can register a
+   report. Administrator sessions and installation credentials are separate.
+4. With notification delivery enabled in MultiRun, each currently approved
+   administrator on the configured administrator email list receives an email
+   for a new review or a failed qualification. The link opens the review tab
+   after administrator sign-in. SMTP failures retry with the same message ID.
+   Repeating a report preserves decisions and avoids new email.
+5. Confirm the review appears, test cancellation and a conflicting decision
+   with two administrators, and inspect the recorded history. The delivery job
+   fails visibly if the server cannot accept the report. Rerunning it is safe.
+
+Production rollout, installation failures and rollback belong to the installer
+stage. Until that stage is connected, an approved build remains in the review
+queue.

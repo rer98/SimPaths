@@ -56,7 +56,8 @@ def select(requested, repo, branch):
     inputs = subprocess.check_output(['git', '-C', MODEL, 'ls-tree', 'HEAD', '--', 'deploy', WORKFLOW])
     if len(inputs.splitlines()) != 2:
         raise ValueError('The workflow and deployment code must both be committed')
-    key = 'visualiser-' + selected + '-' + hashlib.sha256(inputs).hexdigest()
+    destination = os.environ.get('MULTIRUN_ORIGIN','').encode()
+    key = 'visualiser-' + selected + '-' + hashlib.sha256(inputs + destination).hexdigest()
     prior = previous_run(repo, branch, key) if requested is None else None
     return selected, key, prior
 
@@ -145,6 +146,13 @@ def main():
     else:
         frontend = subprocess.check_output(['git', '-C', args.frontend, 'rev-parse', 'HEAD'], text=True).strip()
         message = summary(args.directory, args.revision, os.environ['GITHUB_SHA'], frontend)
+        report = json.loads((args.directory/'report.json').read_text())
+        if report['status'] not in ('failed','incomplete'):
+            compact = dict(outcome=report['status'], manifest=report['manifest_sha256'], frontend=frontend,
+                           reference=report['reference'], rows=report['comparison']['rows'],
+                           changed=report['comparison']['differences_from_release'])
+            with Path(os.environ['GITHUB_OUTPUT']).open('a') as stream:
+                print('review='+json.dumps(compact,separators=(',',':')),file=stream)
     with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as stream:
         stream.write(message)
 

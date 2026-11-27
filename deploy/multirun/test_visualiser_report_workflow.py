@@ -4,13 +4,15 @@ Exercise Visualiser candidate selection, repeat checks and the evidence passed t
 """
 import hashlib
 import json
+import hmac
+import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from .visualiser import report_workflow as workflow
+from .visualiser import report_delivery, report_workflow as workflow
 
 
 REV = 'a' * 40
@@ -115,6 +117,35 @@ class VisualiserReportWorkflowTests(unittest.TestCase):
             write(chart, [1, 2])
             (root/'comparison.json').write_text('different')
             with self.assertRaisesRegex(ValueError, 'Comparison evidence changed'):summarise('checks passed')
+
+    def test_publisher_signs_only_the_report_and_records_failed_runs_without_a_build(self):
+        key = '12' * 32
+        built = dict(outcome='scientific review',manifest='a'*64,frontend=FRONTEND,
+                     reference='d'*40,rows=576,changed=13)
+        env = dict(QUALIFICATION_RESULT='success',CHECKED_REPORT=json.dumps(built),GITHUB_SHA='b'*40,
+                   VISUALISER_REVISION=REV,GITHUB_REPOSITORY='simpaths/SimPaths',GITHUB_RUN_ID='1234',
+                   GITHUB_RUN_ATTEMPT='1',REPORT_KEY=key,MULTIRUN_ORIGIN='https://review.example.org')
+        with patch.dict(os.environ,env), patch('http.client.HTTPSConnection') as connect:
+            conn = connect.return_value
+            conn.getresponse.return_value.status = 200
+            conn.getresponse.return_value.read.return_value = json.dumps(dict(candidate='e'*64))
+            for result in ('success','failure'):
+                os.environ['QUALIFICATION_RESULT'] = result
+                report_delivery.main()
+                method,path,body,headers = conn.request.call_args.args
+                self.assertEqual((method,path,headers['Origin']),('POST','/admin/api/visualiser_report',env['MULTIRUN_ORIGIN']))
+                data = json.loads(body)
+                report = data['report']
+                self.assertEqual(report['manifest'],built['manifest'] if result=='success' else None)
+                self.assertEqual(report['outcome'],'scientific review' if result=='success' else 'failed')
+                self.assertEqual((report['run'],report['visualiser']),(1234,REV))
+                signed = json.dumps(report,sort_keys=True,separators=(',',':')).encode()
+                self.assertEqual(data['signature'],hmac.digest(bytes.fromhex(key),signed,'sha256').hex())
+            conn.getresponse.return_value.status = 302
+            with self.assertRaisesRegex(RuntimeError,'HTTP 302'):
+                report_delivery.main()
+            with self.assertRaises(ValueError):
+                report_delivery.send_report('http://review.example.org',bytes.fromhex(key),built)
 
     def test_failed_setup_can_report_without_a_build_or_a_comparison(self):
         with tempfile.TemporaryDirectory() as temp:

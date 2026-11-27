@@ -1,0 +1,260 @@
+{
+  "format": "simpaths.visualiser.build.v1",
+  "revision": "e14ab818f065f145213f2f39f0c85f85b1475f1b",
+  "historical": {
+    "revision": "f6384fa6ea856802dadd7a115aca02c719142bdc",
+    "node": "v22.23.1",
+    "files": {
+      "runner.cjs": "2efdc92bc9f96f8cce07c9fbe885a7ec26fb129d2bcf1e095b2b6a45cdcc6b32",
+      "calculation.cjs": "20bf2115262bf16cdd2aee537eaf4d25ddbdc5a02bd6ec803f5152499ba734f5"
+    }
+  },
+  "mode": "development-paired",
+  "transport": "simpaths.visualiser.catalogue.v1",
+  "source_hashes": {
+    "App.js": "9b2d3cd51f4c4fbfe063d64a505ab3c997bda1c5d2af2888f73a966851bd3409",
+    "parseCore.js": "f68ef84dae92700eac8c423ec78fee9c306b90f00c5aece867b3a3ba34187994",
+    "useAggregatedData.js": "fad4022f1f094fc03858fbe7251c8efe7c6ab35b5946e53419d45fd2debe76e7",
+    "DashboardSection.js": "10b4c263a7abc2b65e5f63118219a49db45766168ff60ff0327b7e90dda6d207",
+    "localFolderParser.js": "a14eceb66dae5fe36a4741ff98f554e43b993499771e79d95299d97556e61949",
+    "AggregateDataPanel.js": "5498131eafd4863b4a979d41bcb94d0a2d6068b230f6901c7b9a7e54196ae51b",
+    "aggregateDataSource.js": "5d27ca2c84278dcb077f41da1497677f287ae0e7c415f8924bea49e8f8ad86bd",
+    "useAggregateView.js": "5e8d1761e7c757d7d260f4c60eb1a2a1efd14dedd96f8165f6bc0d7a75e5b0c3",
+    "csvParse.js": "3a08281b7dbd5b823f0262766bfd78ea7a20076d60f247dfea936eec4fa11961",
+    "tooltipContent.js": "ec4288f0cc49de524241006fe6493275c88017aa922dfd1d914e4ef120f3f189",
+    "StaticPage.js": "cbd106baa02e930d5ea716aa5cbcc5b14ae21d9c936e15e9fdfa284ab77be1a9",
+    "ScenarioGraphic.js": "9c8e471e664a244c62420602236fbc52e19d13845e3766e82fa19e9c747393d3",
+    "InfoPages.js": "61c51cf052f21de6ca4a1421ed6f753c88672e33c7e0ac0be277921d2b6035ad",
+    "FolderStructureHelp.js": "3f60696e84e16fa0ec549e9bffb81c54732894e15748663f058c9876ca61d2c5",
+    "index.css": "daf22c296c801d3d533083361cc59fbdc22e5bfe528aa4bad1973b54cc5448a4",
+    "public/pmh_logo.png": "f9d02cdf93bdf750f5f89da788bedc612c4ff00d22d682a8c390c7b4afc34e2b",
+    "public/UKRILogo.png": "0aae57f914287d26994fde8ca0e285c1d5daae41f6a391184d2f4576a9892605",
+    "public/SimPaths-logo-transparent.png": "af173b41ac0aa1d468aa4c6c3b83231f91732ab8ace53e8570638095f4c9c8d8",
+    "public/interpreting-results.html": "5ff2f43ebd654dd56ad51f06e247fd12b92fb96701e813c4f921f27e25cd2bec",
+    "public/citation.html": "e4581d1bee9fd8ca9ea5796de819656b4f85e0e558637a1f12042c28a6943eb7",
+    "public/funders.html": "e46235a80c32c3a64fc711ebeb38624ad8f104dd1d51335bc158896c17cbd437",
+    "LICENSE": "57fb42fbcd0b037ce528ed8f72f1ec095d67bc6825ecf1448ff39be1fe68a4b4"
+  },
+  "dependencies": {
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "d3": "7.9.0"
+  },
+  "toolchain": {
+    "node": "v22.23.1",
+    "webpack": "5.107.2",
+    "babel": "7.29.7"
+  },
+  "dependency_lock": {
+    "package_json_sha256": "146c635c60d09c8c44a77810d798f16f34ec4709cc38349f1f4d82fafbcf672a",
+    "package_lock_sha256": "fa0fa9aaad42ab8a63776b5a66497d04c73d2b0716065e982de8a8a64330c280",
+    "lockfile_version": 3,
+    "locked_packages": 1360
+  },
+  "emitted_packages": {
+    "visualiser.js": [
+      {
+        "name": "d3",
+        "version": "7.9.0",
+        "path": "d3"
+      },
+      {
+        "name": "d3-array",
+        "version": "3.2.4",
+        "path": "d3-array"
+      },
+      {
+        "name": "d3-axis",
+        "version": "3.0.0",
+        "path": "d3-axis"
+      },
+      {
+        "name": "d3-brush",
+        "version": "3.0.0",
+        "path": "d3-brush"
+      },
+      {
+        "name": "d3-color",
+        "version": "3.1.0",
+        "path": "d3-color"
+      },
+      {
+        "name": "d3-dispatch",
+        "version": "3.0.1",
+        "path": "d3-dispatch"
+      },
+      {
+        "name": "d3-drag",
+        "version": "3.0.0",
+        "path": "d3-drag"
+      },
+      {
+        "name": "d3-dsv",
+        "version": "3.0.1",
+        "path": "d3-dsv"
+      },
+      {
+        "name": "d3-ease",
+        "version": "3.0.1",
+        "path": "d3-ease"
+      },
+      {
+        "name": "d3-fetch",
+        "version": "3.0.1",
+        "path": "d3-fetch"
+      },
+      {
+        "name": "d3-format",
+        "version": "3.1.2",
+        "path": "d3-format"
+      },
+      {
+        "name": "d3-interpolate",
+        "version": "3.0.1",
+        "path": "d3-interpolate"
+      },
+      {
+        "name": "d3-path",
+        "version": "3.1.0",
+        "path": "d3-path"
+      },
+      {
+        "name": "d3-scale",
+        "version": "4.0.2",
+        "path": "d3-scale"
+      },
+      {
+        "name": "d3-selection",
+        "version": "3.0.0",
+        "path": "d3-selection"
+      },
+      {
+        "name": "d3-shape",
+        "version": "3.2.0",
+        "path": "d3-shape"
+      },
+      {
+        "name": "d3-timer",
+        "version": "3.0.1",
+        "path": "d3-timer"
+      },
+      {
+        "name": "d3-transition",
+        "version": "3.0.1",
+        "path": "d3-transition"
+      },
+      {
+        "name": "d3-zoom",
+        "version": "3.0.0",
+        "path": "d3-zoom"
+      },
+      {
+        "name": "internmap",
+        "version": "2.0.3",
+        "path": "internmap"
+      },
+      {
+        "name": "react",
+        "version": "19.2.7",
+        "path": "react"
+      },
+      {
+        "name": "react-dom",
+        "version": "19.2.7",
+        "path": "react-dom"
+      },
+      {
+        "name": "scheduler",
+        "version": "0.27.0",
+        "path": "scheduler"
+      }
+    ],
+    "calculation.cjs": [
+      {
+        "name": "d3",
+        "version": "7.9.0",
+        "path": "d3"
+      },
+      {
+        "name": "d3-brush",
+        "version": "3.0.0",
+        "path": "d3-brush"
+      },
+      {
+        "name": "d3-color",
+        "version": "3.1.0",
+        "path": "d3-color"
+      },
+      {
+        "name": "d3-dispatch",
+        "version": "3.0.1",
+        "path": "d3-dispatch"
+      },
+      {
+        "name": "d3-dsv",
+        "version": "3.0.1",
+        "path": "d3-dsv"
+      },
+      {
+        "name": "d3-ease",
+        "version": "3.0.1",
+        "path": "d3-ease"
+      },
+      {
+        "name": "d3-interpolate",
+        "version": "3.0.1",
+        "path": "d3-interpolate"
+      },
+      {
+        "name": "d3-selection",
+        "version": "3.0.0",
+        "path": "d3-selection"
+      },
+      {
+        "name": "d3-timer",
+        "version": "3.0.1",
+        "path": "d3-timer"
+      },
+      {
+        "name": "d3-transition",
+        "version": "3.0.1",
+        "path": "d3-transition"
+      },
+      {
+        "name": "d3-zoom",
+        "version": "3.0.0",
+        "path": "d3-zoom"
+      },
+      {
+        "name": "react",
+        "version": "19.2.7",
+        "path": "react"
+      }
+    ]
+  },
+  "files": {
+    "COPYRIGHT.md": "11ba22f2e9040f0b7f88eb438bf70a006f67508433c2da01724da288698a9ae6",
+    "Interpreting-results.css": "3cd17d5d31fa3187d9a44a623ca6ab1a0ade4ad754e34d950e956449866a9481",
+    "Interpreting-results.html": "20d4cfbd6725ac187ec09c217794349b03a01cb082005ce2c96d3df90a608c7e",
+    "SimPaths-logo-transparent.png": "af173b41ac0aa1d468aa4c6c3b83231f91732ab8ace53e8570638095f4c9c8d8",
+    "UKRILogo.png": "0aae57f914287d26994fde8ca0e285c1d5daae41f6a391184d2f4576a9892605",
+    "calculation.cjs": "5a5b23c4dca61ff5dc4f3b4af02e6592245939844cc666ce9b78c7493ae73748",
+    "calculation.cjs.LICENSE.txt": "70f7f55f070e7c146dfccf95f9b1cb184c7c7cb8ae59580073f783715d0bd2de",
+    "citation.css": "d727f361ff7afb07fe89bd1f7aada2fd30d9171571c2ce18e4a1b5170aaf7be1",
+    "citation.html": "b720a891a19c61916e0eb92acea347f4b9f0011165d8fe0c6448e53febf59c79",
+    "dependencies.LICENSE.txt": "a20f7893925db6a22e51ef07faa59946c6af04b9d922f7b41be2ba0c5dfe198d",
+    "funders.css": "2d70571224c72461236fb528bfa2e9b71359c91daef32347c95a165052d2c5f4",
+    "funders.html": "1da1a293827cd52b45e319e563a6c58f3d51b71a3da10ce5c9cdc27e86e22327",
+    "historical-calculation.cjs": "20bf2115262bf16cdd2aee537eaf4d25ddbdc5a02bd6ec803f5152499ba734f5",
+    "historical-calculation.cjs.LICENSE.txt": "70f7f55f070e7c146dfccf95f9b1cb184c7c7cb8ae59580073f783715d0bd2de",
+    "historical-dependencies.LICENSE.txt": "a20f7893925db6a22e51ef07faa59946c6af04b9d922f7b41be2ba0c5dfe198d",
+    "historical-runner.cjs": "2efdc92bc9f96f8cce07c9fbe885a7ec26fb129d2bcf1e095b2b6a45cdcc6b32",
+    "index.html": "305c91c48b857efcb58fac41e37a1b30e501c5d5391d4ec70993b342c9cdd428",
+    "pmh_logo.png": "f9d02cdf93bdf750f5f89da788bedc612c4ff00d22d682a8c390c7b4afc34e2b",
+    "runner.cjs": "7092eb2963c0effe429f13feef272ba5ef13285e065d7ab4b39d26ad30be22c6",
+    "visualiser.LICENSE.txt": "57fb42fbcd0b037ce528ed8f72f1ec095d67bc6825ecf1448ff39be1fe68a4b4",
+    "visualiser.css": "48aece2d8e3ffb733721ec71247db761bb422154dce3c0cb4489c3adb0aa524a",
+    "visualiser.js": "beb38a5c23b41c151bf7d83a7fac185d6ed11e7bec3961ae0d8e65fc1a44ab55",
+    "visualiser.js.LICENSE.txt": "fcd44eaa24992e4f238a50dc8ab77d8b2052e6c8006c8aef3187f764cf55406d"
+  }
+}

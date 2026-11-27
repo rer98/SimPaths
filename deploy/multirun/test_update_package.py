@@ -362,9 +362,12 @@ class ApplicationPackageTests(unittest.TestCase):
         build=self.root/'visualiser';build.mkdir()
         installer.options.visualiser_build=build
         science={'runner.cjs':'a'*64,'calculation.cjs':'b'*64}
-        archive={'runner.cjs':'c'*64,'calculation.cjs':'d'*64}
+        from .visualiser_editions import REGISTRY
+        row=json.loads(REGISTRY.read_text())[0]
+        edition={k:row[k] for k in ('revision','node','files')}
+        archive=edition['files']
         files=science|{'historical-'+name:digest for name,digest in archive.items()}
-        old=dict(mode='development-paired',files=files,historical=dict(files=archive))
+        old=dict(mode='development-paired',files=files,historical=edition)
         (build/'build.json').write_text(json.dumps(old))
         candidate=self.source/'programs/visualiser/build.json'
         candidate.parent.mkdir()
@@ -377,6 +380,44 @@ class ApplicationPackageTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'historical Visualiser calculator'):
                 installer.check_visualiser_calculation()
             self.assertEqual(json.loads(query.execute.call_args.args[1][1]),archive)
+            query.execute.return_value.fetchone.return_value={'sources':0}
+            installer.check_visualiser_calculation()
+
+    def test_retiring_one_of_two_editions_checks_just_its_protected_sources(self):
+        from .visualiser_editions import REGISTRY, historical_editions
+        editions=[{k:item[k] for k in ('revision','node','files')}
+                  for item in json.loads(REGISTRY.read_text())[:2]]
+        installer=self.installation()
+        directory=self.root/'visualiser'
+        directory.mkdir()
+        installer.options.visualiser_build=directory
+        active={'runner.cjs':'a'*64,'calculation.cjs':'b'*64}
+        def manifest(items):
+            files=dict(active)
+            for item in items:
+                prefix='historical-'+item['revision']+'-'
+                files.update({prefix+name:digest for name,digest in item['files'].items()})
+            return dict(mode='development-paired',files=files,historical_editions=items,
+                        toolchain=dict(node=editions[0]['node']))
+        before=manifest(editions)
+        self.assertEqual(len(historical_editions(before)),2)
+        with self.assertRaises(ValueError):
+            historical_editions(dict(before,historical_editions=[editions[0],editions[0]]))
+        corrupted=manifest(editions)
+        corrupted['files']['historical-'+editions[1]['revision']+'-runner.cjs']='f'*64
+        with self.assertRaises(ValueError):historical_editions(corrupted)
+        (directory/'build.json').write_text(json.dumps(before))
+        candidate=self.source/'programs/visualiser/build.json'
+        candidate.parent.mkdir()
+        body=json.dumps(manifest(editions[1:])).encode()
+        candidate.write_bytes(body)
+        installer.plan={'targets':{'visualiser/build.json':dict(after=package.digest(body))}}
+        with patch.object(self.q,'_connection') as connection:
+            query=connection.return_value.__enter__.return_value
+            query.execute.return_value.fetchone.return_value={'sources':1}
+            with self.assertRaisesRegex(ValueError,'1 protected source'):
+                installer.check_visualiser_calculation()
+            self.assertEqual(json.loads(query.execute.call_args.args[1][1]),editions[0]['files'])
             query.execute.return_value.fetchone.return_value={'sources':0}
             installer.check_visualiser_calculation()
 

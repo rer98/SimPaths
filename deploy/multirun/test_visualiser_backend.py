@@ -46,7 +46,7 @@ def csv_text(rows):
     return output.getvalue()
 
 
-def native_texts(value=10, *, category='White', regions=('UKI',)):
+def native_texts(value=10, *, category='White', regions=('UKI',), people_count=12):
     """Fictional values, including IDs above JavaScript's exact integer limit."""
     unit_count=max(2,len(regions))
     people=[dict(run='1',time='2019.0',id_Person=str(70000000000000001+i),
@@ -56,14 +56,14 @@ def native_texts(value=10, *, category='White', regions=('UKI',)):
         labC4='EmployedOrSelfEmployed',labHrsWorkWeek='30',yBenUCReceivedFlag='true',
         healthPsyDstrss0to12='2',healthMentalMcs=str(value),healthPhysicalPcs='50',
         healthSelfRated='Good',demLifeSatScore0to10='7',healthWbScore0to36='12',
-        careNeedFlag='False',private_note='PRIVATE_ROW_SENTINEL') for i in range(12)]
+        careNeedFlag='False',private_note='PRIVATE_ROW_SENTINEL') for i in range(people_count)]
     benefits=[dict(run='1',time='2019.0',id_BenefitUnit=str(9007199254740993+i),
         yDispEquivYear='24000',yBenAmountMonth='120',yHhQuintilesMonthC5='Q3',
         region=regions[i%len(regions)],yBenUCReceivedFlag='0') for i in range(unit_count)]
     return csv_text(people),csv_text(benefits)
 
 
-def sources(root, *, category='White', regions=('UKI',), alternatives=1):
+def sources(root, *, category='White', regions=('UKI',), alternatives=1, people_count=12):
     result=[]
     groups=[('Baseline',0,'Baseline'),*[('Scenario',5*i,'Scenario' if alternatives==1 else 'Scenario_'+str(i))
                                       for i in range(1,alternatives+1)]]
@@ -72,7 +72,7 @@ def sources(root, *, category='White', regions=('UKI',), alternatives=1):
         for number,value in enumerate((10,20,30),1):
             folder=f'{prefix}/run_{number}'
             runs.append(dict(folder=folder,seed=str(605+number)))
-            for name,text in zip(('Person.csv','BenefitUnit.csv'),native_texts(value+offset,category=category,regions=regions)):
+            for name,text in zip(('Person.csv','BenefitUnit.csv'),native_texts(value+offset,category=category,regions=regions,people_count=people_count)):
                 relative=f'{folder}/csv/{name}'
                 path=root/relative;path.parent.mkdir(parents=True,exist_ok=True);path.write_text(text)
                 files.append(dict(name=relative,path=relative,bytes=path.stat().st_size,

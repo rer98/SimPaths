@@ -155,3 +155,78 @@ definitions. An unrecognised calculation needs a separately qualified reader
 and calculator. Preserve their build artifacts while protected summaries refer
 to them. An application update checks database references before retiring a
 registered historical calculator.
+
+## Checking an update from Reese’s main branch
+
+Run the checker in the SimPaths checkout with Node v22.23.1 and the project’s
+Python test environment, including JAS-mine-web and Playwright Chromium.
+Specify a full commit SHA from Reese’s main branch and a new output directory.
+
+```sh
+python -m deploy.multirun.visualiser.check_candidate \
+  --revision "$visualiser_commit" --output "$qualification_directory"
+```
+
+The checker fetches Reese’s repository into a temporary checkout. To use a
+previously fetched copy, pass `--repository /path/to/Visualiser`. It checks the
+identified upstream main ref and builds the exact requested commit. For an
+offline rehearsal, `--dependencies` and `--test-dependencies` accept installed
+`node_modules` directories with the pinned compiler and test package locks.
+Use `--frontend` when JAS-mine-web is outside the usual checkout location.
+
+The output contains the candidate build, a per-check log, a JSON report and
+the row-by-row differences from a released experiment fixture. The fixture
+uses fictional baseline and scenario data, two matching seeds, four years
+and groups above and below the suppression threshold. The checker compares
+MultiRun with the candidate’s own local-folder parser and the reference
+calculator. It also exercises retained results after raw deletion, exports
+them, and opens the downloaded charts offline with the matching reader.
+
+`historical/approved.json` identifies each supported calculation by its
+archived manifest, Node version and both calculator file hashes. Each entry
+pins the exact Git commit for the browser reader. Add the reviewed original
+files and notices under `historical/` when registering another edition.
+A change to the required Node runtime needs separate compatibility work.
+
+A successful run still calls for scientific review when calculation sources or
+fixture values change. An unrecognised source edit or a change only to the
+compiled calculator bytes calls for technical review. Inspect `report.json`,
+`comparison.json` and the logs. The manifest checksum identifies the exact
+bundle under review. A failed check or skipped Chromium run gives a nonzero
+exit status. The scheduled workflow uses the same command.
+
+
+## Scheduled checking and maintainer reports
+
+The **Check Visualiser updates** workflow lives in the SimPaths repository.
+It checks the tip of Reese’s main branch once a day at 03:17 UTC when enabled.
+If several commits arrive between checks they are tested together at the newest
+commit. The source SHA stays fixed throughout that run.
+
+For a rehearsal, open **Actions → Check Visualiser updates → Run workflow** and
+enter a full Visualiser commit SHA. A manual run always performs the checks.
+GitHub requires the workflow file on the repository’s default branch for manual
+dispatch and scheduling. The current development branch is `add-web-files`.
+After the end-to-end trial, a repository administrator can enable the daily
+check in **Settings → Secrets and variables → Actions → Variables** by setting
+`VISUALISER_SCHEDULE_ENABLED` to `true`. [GitHub workflow triggers](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)
+
+The workflow pins the JAS-mine-web revision used for the compatibility tests.
+Update that pin when adopting a new integration version. If that repository
+is private, configure the Actions secret `VISUALISER_FRONTEND_READ_TOKEN`
+with project-managed, read-only contents access to it. The checkout retrieves
+the Python package used by the tests and discards its Git credentials.
+
+Open the workflow run in **Actions** to see the outcome, changed-row counts,
+source revisions and build-manifest checksum. A completed check saves the
+exact bundle, JSON reports and logs as a run artifact for 30 days, subject
+to the repository’s retention settings. A failed check saves available
+diagnostics and the next scheduled run tries again. The run log also covers
+failures before the checker starts.
+
+An unchanged candidate with a retained artifact from a successful check of
+the same deployment inputs on the same branch reuses that run. Its summary
+links back to the original report. Changing the integration pin, deployment
+code or workflow triggers a fresh check. Scientific and technical review
+outcomes mean the checks completed and a decision is still needed. This
+workflow has no production deployment step.

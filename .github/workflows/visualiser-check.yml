@@ -1,0 +1,116 @@
+# (C) Copyright 2026, by Ross Richardson
+# Check updates from Reese's Visualiser and retain the exact build and evidence for review.
+# @author ross richardson
+name: Check Visualiser updates
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Full commit SHA from the Visualiser main branch
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: visualiser-check-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  select:
+    if: github.event_name == 'workflow_dispatch' || vars.VISUALISER_SCHEDULE_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      revision: ${{ steps.select.outputs.revision }}
+      artifact: ${{ steps.select.outputs.artifact }}
+      check: ${{ steps.select.outputs.check }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: deploy
+      - id: select
+        name: Identify the revision and look for a previous report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_REVISION: ${{ inputs.revision }}
+        run: python3 -m deploy.multirun.visualiser.report_workflow select --revision "$REQUESTED_REVISION"
+
+  qualify:
+    needs: select
+    if: needs.select.outputs.check == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      REVISION: ${{ needs.select.outputs.revision }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: deploy
+      - name: Check out the tested MultiRun reader and worker
+        uses: actions/checkout@v6
+        with:
+          repository: rer98/JAS-mine-web
+          ref: 021e1f2ea39dc06a8e3696114e5994b1087c3dbb
+          token: ${{ secrets.VISUALISER_FRONTEND_READ_TOKEN || github.token }}
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: /jasmine_web/
+          path: frontend
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22.23.1'
+          package-manager-cache: false
+      - name: Install browser test dependencies
+        run: |
+          python -m pip install -r deploy/acceptance/requirements.txt
+          python -m playwright install --with-deps chromium
+      - id: qualify
+        name: Check the candidate against the released and historical calculators
+        run: |
+          python -m deploy.multirun.visualiser.check_candidate \
+            --revision "$REVISION" --frontend frontend --output "$RUNNER_TEMP/visualiser-result"
+      - name: Summarise the result and record the integration revisions
+        if: "!cancelled() && (steps.qualify.outcome == 'success' || steps.qualify.outcome == 'failure')"
+        run: |
+          python -m deploy.multirun.visualiser.report_workflow summary \
+            "$RUNNER_TEMP/visualiser-result" --revision "$REVISION" --frontend frontend
+      - name: Save the checked build and evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ needs.select.outputs.artifact }}
+          path: |
+            ${{ runner.temp }}/visualiser-result/build/
+            ${{ runner.temp }}/visualiser-result/report.json
+            ${{ runner.temp }}/visualiser-result/workflow.json
+            ${{ runner.temp }}/visualiser-result/comparison.json
+            ${{ runner.temp }}/visualiser-result/logs/
+            ${{ runner.temp }}/visualiser-result/COPYRIGHT.md
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: true
+      - name: Save diagnostics for an unsuccessful check
+        if: failure() && (steps.qualify.outcome == 'failure' || steps.qualify.outcome == 'success')
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ needs.select.outputs.artifact }}-diagnostics
+          path: |
+            ${{ runner.temp }}/visualiser-result/report.json
+            ${{ runner.temp }}/visualiser-result/workflow.json
+            ${{ runner.temp }}/visualiser-result/comparison.json
+            ${{ runner.temp }}/visualiser-result/logs/
+            ${{ runner.temp }}/visualiser-result/COPYRIGHT.md
+          retention-days: 30
+          overwrite: true

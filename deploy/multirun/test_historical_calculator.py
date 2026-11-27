@@ -35,12 +35,13 @@ class HistoricalCalculatorTests(unittest.TestCase):
             cache=root/'summaries'
             original=VisualiserBackend(os.environ['SIMPATHS_HISTORICAL_BUILD'],root,summary_cache_root=cache)
             active=VisualiserBackend(os.environ['SIMPATHS_VISUALISER_TEST_BUILD'],root,summary_cache_root=cache)
-            self.assertEqual(len(active.historical_calculators),1)
             self.assertNotIn('historical-runner.cjs',active.assets)
             version=original.calculation_identity(original.identity)
+            matching=[c for c in active.historical_calculators if c.calculation_identity(c.identity)==version]
+            self.assertEqual(len(matching),1)
             now=datetime.now(timezone.utc)
             retained=dict(backend=version,protected_at=now.isoformat(),expires_at=(now+timedelta(days=1)).isoformat())
-            inputs=sources(root)
+            inputs=sources(root,people_count=48)
             jobs=[];plans=[];rows={}
             for number,source in enumerate(inputs):
                 config=source['configuration']
@@ -100,11 +101,15 @@ class HistoricalCalculatorTests(unittest.TestCase):
             self.assertTrue(published['data']['comparison_available'])
             self.assertIn('Historical Visualiser',published['data']['notice'])
             catalogue=json.loads(service.catalogue_bytes('alice',key))
-            self.assertEqual(catalogue['calculator_revision'],active.historical_calculators[0].historical_revision)
+            self.assertEqual(catalogue['calculator_revision'],matching[0].historical_revision)
             stream=archive(service,'alice',key)
             try:
                 with zipfile.ZipFile(io.BytesIO(b''.join(stream.iterator))) as saved:
-                    manifest=json.loads(saved.read(next(n for n in saved.namelist() if n.endswith('/manifest.json'))))
+                    manifest_file=next(n for n in saved.namelist() if n.endswith('/manifest.json'))
+                    manifest=json.loads(saved.read(manifest_file))
+                    if os.environ.get('SIMPATHS_FIXTURE_EXPORT'):
+                        # This ZIP was just generated above using only the fictional experiment.
+                        saved.extractall(os.environ['SIMPATHS_FIXTURE_EXPORT'])
             finally:
                 stream.close()
             self.assertEqual(manifest['catalogue']['calculator_revision'],catalogue['calculator_revision'])

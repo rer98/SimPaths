@@ -8,7 +8,7 @@ const {adaptApp,adaptDashboard}=require('./adapt_app.cjs');
 const {dependencyReceipt,emittedPackages}=require('./build_metadata.cjs');
 const args={};
 for(let i=2;i<process.argv.length;i+=2){
-  if(!['--source','--dependencies','--output','--historical-source','--historical-build','--current-build'].includes(process.argv[i])||!process.argv[i+1])throw Error('Invalid build arguments');
+  if(!['--source','--dependencies','--output','--historical-source','--historical-build','--current-build','--reader-sources'].includes(process.argv[i])||!process.argv[i+1])throw Error('Invalid build arguments');
   args[process.argv[i].slice(2)]=path.resolve(process.argv[i+1]);
 }
 if(!args.source||!args.dependencies||!args.output) throw Error('Use --source CHECKOUT --dependencies NODE_MODULES --output NEW_DIRECTORY');
@@ -45,9 +45,7 @@ if(fs.existsSync(path.join(args.source,'src/FolderStructureHelp.js')))selected.p
 fs.mkdirSync(args.output,{recursive:true,mode:0o700});
 const staging=path.join(args.output,'source');
 fs.mkdirSync(staging,{mode:0o700});
-for(const name of selected){
-  let text=fs.readFileSync(path.join(args.source,'src',name),'utf8');
-  hashes[name]=sha(text);
+function readerSource(text,name){
   if(name==='App.js')text=adaptApp(text);
   if(name==='StaticPage.js'){
     const wrapper='<div className="sp-page"';
@@ -55,42 +53,16 @@ for(const name of selected){
     text=text.replace(wrapper,wrapper+' data-page={file}');
   }
   if(name==='DashboardSection.js')text=adaptDashboard(text);
-  const transformed=babel.transformSync(text,{
+  return babel.transformSync(text,{
     filename:name,presets:[[reactPreset,{runtime:'automatic'}]],
     babelrc:false,configFile:false,comments:true}).code;
-  fs.writeFileSync(path.join(staging,name),transformed,{mode:0o600});
 }
-// The original reader labels pyramid bins and denominators differently. Build it
-// from the same reviewed sources as the archived calculator.
-let historical=null;
-if(args['historical-build']||args['historical-source']){
-  if(!args['historical-source'])throw Error('Supply the matching historical reader sources');
-  const archive=args['historical-build']||path.join(__dirname,'historical','f6384fa6');
-  const original=fs.readFileSync(path.join(archive,'build.json'));
-  if(sha(original)!=='b4fff0679de68fd2acd64a081c2348cdb9735289385530504f41ccdc9d35aace')
-    throw Error('Unqualified historical Visualiser build');
-  const old=JSON.parse(original);
-  historical={revision:old.revision,node:old.toolchain.node,files:{}};
-  const folder=path.join(staging,'historical');
-  fs.mkdirSync(folder);
-  for(const [name,digest] of Object.entries(old.source_hashes).filter(([n])=>n.endsWith('.js'))){
-    let source=fs.readFileSync(path.join(args['historical-source'],'src',name),'utf8');
-    if(sha(source)!==digest)throw Error('Historical reader differs at '+name);
-    if(name==='App.js')source=adaptApp(source);
-    if(name==='DashboardSection.js')source=adaptDashboard(source);
-    const code=babel.transformSync(source,{filename:name,presets:[[reactPreset,{runtime:'automatic'}]],
-      babelrc:false,configFile:false}).code;
-    fs.writeFileSync(path.join(folder,name),code);
-  }
-  for(const name of ['runner.cjs','calculation.cjs','calculation.cjs.LICENSE.txt','dependencies.LICENSE.txt']){
-    const bytes=fs.readFileSync(path.join(archive,name));
-    if(sha(bytes)!==old.files[name])throw Error('Historical calculator differs at '+name);
-    fs.writeFileSync(path.join(args.output,'historical-'+name),bytes);
-    if(name.endsWith('.cjs'))historical.files[name]=old.files[name];
-  }
+
+for(const name of selected){
+  const text=fs.readFileSync(path.join(args.source,'src',name),'utf8');
+  hashes[name]=sha(text);
+  fs.writeFileSync(path.join(staging,name),readerSource(text,name),{mode:0o600});
 }
-fs.writeFileSync(path.join(staging,'historical-reader.js'),
-  historical?'export {default} from "./historical/App";' :'export default null;');
 fs.copyFileSync(path.join(__dirname,'entry.jsx'),path.join(staging,'entry.jsx'));
 fs.copyFileSync(path.join(__dirname,'comparison_data.mjs'),path.join(staging,'comparison_data.mjs'));
 fs.copyFileSync(path.join(__dirname,'section_source.mjs'),path.join(staging,'section_source.mjs'));
@@ -110,6 +82,7 @@ fs.writeFileSync(path.join(staging,'server.js'),
   'export * from "./parseCore.js";export {getVariableDef,getStratifierDef} from "./useAggregatedData.js";');
 const compile=(entry,filename,target)=>new Promise((resolve,reject)=>{
   webpack({mode:'production',target,entry,devtool:false,
+    ...(args['reader-sources']?{context:staging}:{}),
     output:{path:args.output,filename,...(target==='node'?{library:{type:'commonjs2'}}:{})},
     resolve:{modules:[args.dependencies,'node_modules'],extensions:['.js','.jsx']},
     optimization:{minimize:true},
@@ -136,7 +109,6 @@ const compile=(entry,filename,target)=>new Promise((resolve,reject)=>{
   });
 });
 (async()=>{
-  await compile(path.join(staging,'entry.js'),'visualiser.js','web');
   await compile(path.join(staging,'server.js'),'calculation.cjs','node');
   fs.copyFileSync(path.join(__dirname,'runner.cjs'),path.join(args.output,'runner.cjs'));
   // Recompiling Webpack under a different path can change module IDs. Keep
@@ -153,6 +125,11 @@ const compile=(entry,filename,target)=>new Promise((resolve,reject)=>{
     if(sha(calc)!==previous.files['calculation.cjs'])throw Error('Current scientific bundle failed its checksum');
     fs.writeFileSync(path.join(args.output,'calculation.cjs'),calc);
   }
+  if(args['reader-sources'] && args['historical-source'])throw Error('Choose a single source for historical readers');
+  const filesForReader=Object.fromEntries(['runner.cjs','calculation.cjs'].map(name=>
+    [name,sha(fs.readFileSync(path.join(args.output,name)))]));
+  const history=require('./build_readers.cjs').buildReaders(args,staging,readerSource,filesForReader);
+  await compile(path.join(staging,'entry.js'),'visualiser.js','web');
   const baseCss=fs.readFileSync(path.join(args.source,'src/index.css'),'utf8');
   hashes['index.css']=sha(baseCss);
   fs.writeFileSync(path.join(args.output,'visualiser.css'),baseCss+'\n'+fs.readFileSync(path.join(__dirname,'visualiser.css'),'utf8'));
@@ -213,7 +190,7 @@ const compile=(entry,filename,target)=>new Promise((resolve,reject)=>{
     dependencies[name]=pkg.version;
   }
   const identity={format:'simpaths.visualiser.build.v1',
-    revision:revision(),...(historical?{historical}:{}),
+    revision:revision(),...history,
     mode:'development-paired',transport:'simpaths.visualiser.catalogue.v1',source_hashes:hashes,dependencies,
     toolchain:{node:process.version,webpack:webpack.version,babel:babel.version},
     dependency_lock:dependencyState.record,emitted_packages:emitted,files};

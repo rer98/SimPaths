@@ -1,0 +1,22 @@
+[
+  {
+    "revision": "f6384fa6ea856802dadd7a115aca02c719142bdc",
+    "reader_commit": "c99f2533603e65f3f9666d5110b16628527b2975",
+    "manifest_sha256": "b4fff0679de68fd2acd64a081c2348cdb9735289385530504f41ccdc9d35aace",
+    "node": "v22.23.1",
+    "files": {
+      "runner.cjs": "2efdc92bc9f96f8cce07c9fbe885a7ec26fb129d2bcf1e095b2b6a45cdcc6b32",
+      "calculation.cjs": "20bf2115262bf16cdd2aee537eaf4d25ddbdc5a02bd6ec803f5152499ba734f5"
+    }
+  },
+  {
+    "revision": "e14ab818f065f145213f2f39f0c85f85b1475f1b",
+    "reader_commit": "e14ab818f065f145213f2f39f0c85f85b1475f1b",
+    "manifest_sha256": "7f9039f0b155975dc4d7ea7a2c7d67f201124767f7d9ae77d2d4eb0d6e003d31",
+    "node": "v22.23.1",
+    "files": {
+      "runner.cjs": "7092eb2963c0effe429f13feef272ba5ef13285e065d7ab4b39d26ad30be22c6",
+      "calculation.cjs": "5a5b23c4dca61ff5dc4f3b4af02e6592245939844cc666ce9b78c7493ae73748"
+    }
+  }
+]

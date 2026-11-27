@@ -6,7 +6,7 @@
 import React,{useEffect,useState,useRef,useMemo} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App';
-import HistoricalApp from './historical-reader';
+import {editions,currentFiles,currentRevisions} from './historical-reader';
 import {parseLocalFolder} from './localFolderParser';
 import {boundedJSON,SectionSource} from './section_source.mjs';
 import {ExperimentSource,preparationLabel} from './experiment_source.mjs';
@@ -234,15 +234,17 @@ function Page({selection=null,receipt=null,onChoose=()=>{}}){
   </>;
   if(experiment&&!selection&&mode==='online'&&!experimentStatus&&message==='Loading online results…'&&!connectionIssue)
     return <main className="vm-chooser"><p role="status">{message}</p></main>;
-  const archivedRevision='f6384fa6ea856802dadd7a115aca02c719142bdc';
-  const savedFiles=mode==='saved'?client.current?.manifest?.provenance?.calculation_files:null;
-  const archivedRunner=savedFiles?.['runner.cjs']==='2efdc92bc9f96f8cce07c9fbe885a7ec26fb129d2bcf1e095b2b6a45cdcc6b32';
-  const archivedCalculation=savedFiles?.['calculation.cjs']==='20bf2115262bf16cdd2aee537eaf4d25ddbdc5a02bd6ec803f5152499ba734f5';
-  const historical=catalogue?.calculator_revision===archivedRevision || archivedRunner&&archivedCalculation;
-  if(historical&&!HistoricalApp || savedFiles&&(historical||archivedCalculation)&&!(archivedRunner&&archivedCalculation))
+  const revision=catalogue?.calculator_revision;
+  const saved=mode==='saved'?client.current?.manifest?.provenance?.calculation_files:null;
+  const hasFiles=saved&&Object.keys(saved).length>0;
+  const matches=files=>['runner.cjs','calculation.cjs'].every(name=>saved?.[name]===files[name]);
+  const edition=revision?editions.find(item=>item.revision===revision):
+    hasFiles&&editions.find(item=>matches(item.files));
+  const historical=Boolean(edition);
+  if((revision&&!edition&&!currentRevisions.includes(revision))||(hasFiles&&!matches(edition?edition.files:currentFiles)))
     return <main><p>This saved comparison needs a reader that matches its calculator.</p>
       <a href="/">Return to SimPaths Online</a></main>;
-  const Reader=historical?HistoricalApp:App;
+  const Reader=edition?edition.App:App;
   return <>{historical&&<CalculationNotice info={mode==='online'?experimentStatus?.recalculation:null}
     directKey={mode==='online'&&!experiment?key:null} onInvalidated={()=>{cancel();setCatalogue(null);setExperimentStatus(null);setMessage('Return to My Jobs and sign in again to open these results.');}}/>}
     <Reader dataSource={{rows:local||[],viewSource,controls,key:local?'local':key,

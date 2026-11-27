@@ -101,21 +101,18 @@ class VisualiserBackend:
         self.identity=dict(build=manifest,publication='own-and-public-preview-v1',
                            public_datasets=sorted(self.public_datasets),node=version,memory_mib=memory_mib)
 
-        self.historical_calculators=()
-        history=manifest.get('historical')
-        if history:
-            expected={'runner.cjs':'2efdc92bc9f96f8cce07c9fbe885a7ec26fb129d2bcf1e095b2b6a45cdcc6b32',
-                      'calculation.cjs':'20bf2115262bf16cdd2aee537eaf4d25ddbdc5a02bd6ec803f5152499ba734f5'}
-            revision='f6384fa6ea856802dadd7a115aca02c719142bdc'
-            if history!=dict(revision=revision,node='v22.23.1',files=expected) or any(
-                    manifest['files'].get('historical-'+name)!=digest for name,digest in expected.items()):
-                raise ValueError('Unrecognised historical Visualiser calculator')
-            if self.summary_cache and version==history['node']:
+        from .visualiser_editions import historical_editions
+        calculators=[]
+        for edition,prefix in historical_editions(manifest):
+            if self.summary_cache and version==edition['node']:
                 archived=copy(self)
-                archived.manifest=dict(format=manifest['format'],mode='development-paired',files=expected,revision=revision)
+                archived.manifest=dict(format=manifest['format'],mode='development-paired',
+                    files=edition['files'],revision=edition['revision'])
                 archived.identity=dict(self.identity,build=archived.manifest)
-                archived.historical_revision=revision
-                self.historical_calculators=(archived,)
+                archived.historical_revision=edition['revision']
+                archived.archive_prefix=prefix
+                calculators.append(archived)
+        self.historical_calculators=tuple(calculators)
 
     def in_workspace(self,work):
         """Give this worker an isolated copy of the matched historical Node modules."""
@@ -125,7 +122,7 @@ class VisualiserBackend:
         archived.build=Path(work)/'calculator'
         archived.build.mkdir(mode=0o700)
         for name,digest in self.manifest['files'].items():
-            with open_output(self.build,'historical-'+name) as source:
+            with open_output(self.build,self.archive_prefix+name) as source:
                 content=source.read(8*1024**2+1)
             if hashlib.sha256(content).hexdigest()!=digest:
                 raise ValueError('Historical calculator failed verification')

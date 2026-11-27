@@ -338,8 +338,9 @@ raise SystemExit(main(['preflight','--config','/etc/simpaths-online/public.toml'
         # Some installations use an immutable build outside the application tree.
         if not directory.is_relative_to(ROOT):return
         prefix=directory.relative_to(ROOT)
-        archived_names=tuple('historical-'+name for name in names)
-        affected={name:str(prefix/name) for name in (*names,*archived_names,'build.json') if str(prefix/name) in targets}
+        from .visualiser_editions import historical_editions
+        affected={Path(item).name:item for item in targets if Path(item).parent==prefix and
+                  (Path(item).name in (*names,'build.json') or Path(item).name.startswith('historical-'))}
         if not affected:return
         before=json.loads(trusted(directory/'build.json').read_bytes())
         after=before
@@ -354,34 +355,47 @@ raise SystemExit(main(['preflight','--config','/etc/simpaths-online/public.toml'
             target=targets.get(affected.get(key),{})
             if target.get('before',installed)!=installed or target.get('after',installed)!=after['files'][key]:
                 raise ValueError('The calculator update must match both Visualiser manifests')
-        history=before.get('historical')
-        if history:
-            for key in archived_names:
-                target=targets.get(affected.get(key),{})
-                prior=before['files'][key]
-                if target.get('before',prior)!=prior or target.get('after',prior)!=after['files'].get(key,prior):
+        previous=historical_editions(before)
+        available=historical_editions(after)
+        for edition,prefix_name in previous+available:
+            for name in names:
+                filename=prefix_name+name
+                target=targets.get(affected.get(filename))
+                prior=before['files'].get(filename)
+                replacement=after['files'].get(filename)
+                if target and (target.get('before',prior)!=prior or target['after']!=replacement):
                     raise ValueError('The archived calculator update must match both Visualiser manifests')
-            registered=after.get('historical')
-            if registered!=history or any(after['files'].get(k)!=before['files'][k] for k in archived_names):
-                with self.queue._connection() as c:
-                    retained=c.execute("""SELECT count(*) AS sources FROM visualiser_sources s
-                        WHERE s.pool_id=%s AND s.summary_expires_at>clock_timestamp()
-                        AND s.summary_backend->'calculation'->'files'=%s::jsonb
-                        AND NOT EXISTS (SELECT 1 FROM output_deletions d WHERE d.pool_id=s.pool_id
-                            AND d.attempt_id=s.attempt_id AND d.reason NOT IN ('raw_only','expiry'))""",
-                        (self.queue.pool_id,json.dumps(history['files']))).fetchone()
-                if retained['sources']:
-                    raise IncompatibleVisualiserUpdate(f"The historical Visualiser calculator still supports {retained['sources']} protected sources.")
-        if old==dict(mode=after['mode'],files={k:after['files'][k] for k in names}):
+                if replacement and replacement!=prior and not target:
+                    raise ValueError('The update omits an archived calculator file')
+        prior_node=before.get('toolchain',{}).get('node')
+        next_node=after.get('toolchain',{}).get('node')
+        new_calculation={name:after['files'][name] for name in names}
+        for edition,_ in previous:
+            if any(registered==edition for registered,_ in available):continue
+            with self.queue._connection() as c:
+                retained=c.execute("""SELECT count(*) AS sources FROM visualiser_sources s
+                    WHERE s.pool_id=%s AND s.summary_expires_at>clock_timestamp()
+                    AND s.summary_backend->'calculation'->'files'=%s::jsonb
+                    AND NOT EXISTS (SELECT 1 FROM output_deletions d WHERE d.pool_id=s.pool_id
+                        AND d.attempt_id=s.attempt_id AND d.reason NOT IN ('raw_only','expiry'))""",
+                    (self.queue.pool_id,json.dumps(edition['files']))).fetchone()
+            if retained['sources']:
+                raise IncompatibleVisualiserUpdate(f"The historical Visualiser calculator still supports {retained['sources']} protected sources.")
+        if prior_node!=next_node and previous:
+            raise IncompatibleVisualiserUpdate('Qualify the Node runtime change for retained historical editions')
+        if prior_node==next_node and old==dict(mode=after['mode'],files=new_calculation):
             return
+        preserved=any(edition['files']==old['files'] and old['mode']=='development-paired' and
+                      edition['node']==prior_node==next_node for edition,_ in available)
         with self.queue._connection() as c:
             c.execute('SET TRANSACTION READ ONLY')
             row=c.execute("""SELECT count(*) AS sources
                 FROM visualiser_sources s WHERE s.pool_id=%s AND s.summary_expires_at>clock_timestamp()
                 AND s.summary_backend->'calculation'=%s::jsonb
+                AND (%s::text IS NULL OR s.summary_backend->>'node' IS DISTINCT FROM %s::text)
                 AND NOT EXISTS (SELECT 1 FROM output_deletions d WHERE d.pool_id=s.pool_id
                     AND d.attempt_id=s.attempt_id AND d.reason NOT IN ('raw_only','expiry'))""",
-                (self.queue.pool_id,json.dumps(old))).fetchone()
+                (self.queue.pool_id,json.dumps(old),prior_node if preserved else None,prior_node)).fetchone()
             legacy=c.execute("""SELECT count(*) AS sources FROM output_deletions d
                 JOIN visualiser_sources s ON s.pool_id=d.pool_id AND s.attempt_id=d.attempt_id
                 WHERE d.pool_id=%s AND d.reason IN ('expiry','raw_only') AND d.summary_expires_at>clock_timestamp()

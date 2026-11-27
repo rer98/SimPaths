@@ -21,8 +21,10 @@ async function waitFor(check){
   }
 }
 const manifest=JSON.parse(fs.readFileSync(path.join(build,'build.json'),'utf8'));
-for(const [historical,deleted] of (manifest.historical?[[false,0],[true,0],[true,1],[true,3]]:[[false,0]])){
-test('the '+(historical?'historical':'current')+' reader draws the prepared paired charts with '+deleted+' raw outputs deleted',async()=>{
+const editions=manifest.historical_editions ?? (manifest.historical?[manifest.historical]:[]);
+for(const [edition,deleted] of [[null,0],...editions.flatMap(e=>[0,1,3].map(n=>[e,n]))]){
+const historical=Boolean(edition);
+test('the '+(edition?edition.revision.slice(0,8):'current')+' reader draws the prepared paired charts with '+deleted+' raw outputs deleted',async()=>{
   const errors=[],requests=[],key='a'.repeat(64);
   const console=new VirtualConsole();console.on('jsdomError',error=>errors.push(error.message));
   console.on('error',error=>errors.push(String(error)));
@@ -45,7 +47,7 @@ test('the '+(historical?'historical':'current')+' reader draws the prepared pair
       comparison_available:true,notice:'Fictional paired results',limits:{response_bytes:8*1024**2,response_rows:20000},
       variables:[{name:row('baseline',40).variable,module:'Health',years:[2019],
         views:[{stratifier:'Overall',kind:'levels',bytes:2000,rows:3}]}]};
-    if(historical)metadata.calculator_revision=manifest.historical.revision;
+    if(historical)metadata.calculator_revision=edition.revision;
     w.fetch=async function(url,options={}){
       requests.push(url);
       if(url.startsWith('/visualiser-assets/')){
@@ -85,7 +87,6 @@ test('the '+(historical?'historical':'current')+' reader draws the prepared pair
     }
     const help=button('View folder structure'),guidance=help.closest('p');
     const tab=id=>doc.querySelector('[role="tab"][href="#/'+id+'"]');
-    if(manifest.historical)assert.equal(Boolean(tab('interpreting-results')),!historical);
     if(tab('interpreting-results')){
       assert.match(guidance.textContent,/Baseline and Scenario subfolders.*View folder structure/);
       assert.equal(guidance.parentElement.querySelector('h3').textContent.trim(),'Connect Data');

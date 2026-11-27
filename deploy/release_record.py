@@ -265,12 +265,22 @@ def visualiser_build(root, source, source_commit, reader):
     root = ordinary(root); value, fp = reader.json(root/'build.json')
     fields = {'format', 'revision', 'mode', 'transport', 'source_hashes', 'dependencies', 'toolchain', 'files'}
     compiler_fields={'dependency_lock','emitted_packages'}
-    if (type(value) is not dict or set(value) not in (fields,fields|compiler_fields)
+    history_fields={'historical','historical_editions'}
+    if (type(value) is not dict or (set(value)-history_fields) not in (fields,fields|compiler_fields)
             or value.get('format') != 'simpaths.visualiser.build.v1'
             or not re.fullmatch('[a-f0-9]{40}', str(value.get('revision')))
             or type(value.get('files')) is not dict or not 1 <= len(value['files']) <= 100
             or type(value.get('source_hashes')) is not dict or not 1 <= len(value['source_hashes']) <= 100):
         raise RecordError('Invalid Visualiser build identity')
+    if history_fields.intersection(value):
+        if __package__:
+            from .multirun.visualiser_editions import historical_editions
+        else:
+            from multirun.visualiser_editions import historical_editions
+        try:
+            historical_editions(value)
+        except ValueError as exc:
+            raise RecordError(str(exc)) from exc
     for key in ('mode', 'transport'):
         if type(value[key]) is not str or not re.fullmatch('[a-zA-Z0-9._-]{1,100}', value[key]):
             raise RecordError('Invalid Visualiser build metadata')
@@ -316,7 +326,7 @@ def visualiser_build(root, source, source_commit, reader):
     current = {}
     for name, expected in value['source_hashes'].items():
         relative(name);sha(expected)
-        path = Path(source)/name if name.startswith('public/') else Path(source)/'src'/name
+        path = Path(source)/name if name.startswith('public/') or name=='LICENSE' else Path(source)/'src'/name
         current[name] = reader.file(path)['sha256'] if path.exists() or path.is_symlink() else None
     return {'manifest':fp, 'identity':value, 'verified_files':actual,
             'declared_source_hashes_match_checkout':current == value['source_hashes'],
@@ -456,6 +466,10 @@ def collect(selection):
     schemas = declared_migrations(frontend, reader)
     adapters = {n:reader.file(Path(selection['repositories']['simpaths'])/'deploy/multirun/visualiser'/n)
                 for n in ADAPTERS}
+    visualiser_dir=Path(selection['repositories']['simpaths'])/'deploy/multirun/visualiser'
+    for name in ('build_readers.cjs','historical/approved.json'):
+        if (visualiser_dir/name).exists():
+            adapters[name]=reader.file(visualiser_dir/name)
     retained = catalogue(selection['catalogue'], model, selection['image'], reader) if selection['catalogue'] else None
     reports = [evidence(p, reader) for p in selection['evidence']]
     reader.finish()

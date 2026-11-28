@@ -164,7 +164,8 @@ Specify a full commit SHA from Reese’s main branch and a new output directory.
 
 ```sh
 python -m deploy.multirun.visualiser.check_candidate \
-  --revision "$visualiser_commit" --output "$qualification_directory"
+  --revision "$visualiser_commit" --reference-build "$verified_build_directory" \
+  --output "$qualification_directory"
 ```
 
 The checker fetches Reese’s repository into a temporary checkout. To use a
@@ -175,6 +176,14 @@ offline rehearsal, `--dependencies` and `--test-dependencies` accept installed
 and in `dom-tests/`, respectively. The DOM tests use jsdom to exercise the
 bundled reader. Both dependency installations have their own qualification log.
 Use `--frontend` when JAS-mine-web is outside the usual checkout location.
+
+For a connected run the workflow retrieves the served manifest, runner and
+calculator from MultiRun using the reporting environment's existing key. The
+server checks the manifest against a verified installation receipt. The same
+snapshot supplies the Git revision for the source diff and the calculator for
+the fixture comparison. The candidate runs in a separate job. A failed lookup
+stops selection. A disconnected rehearsal uses the last listed approved archive
+as its local comparison fixture.
 
 The output contains the candidate build, a per-check log, a JSON report and
 the row-by-row differences from a released experiment fixture. The fixture
@@ -245,11 +254,13 @@ to the repository’s retention settings. A failed check saves available
 diagnostics and the next scheduled run tries again. The run log also covers
 failures before the checker starts.
 
-An unchanged candidate with a retained artifact from a successful check of
-the same deployment inputs on the same branch reuses that run. Its summary
-links back to the original report. Changing the integration pin, deployment
-code or workflow triggers a fresh check. Scientific and technical review
-outcomes mean the checks completed and a decision is still needed. This
+An unchanged candidate with a retained artifact from a successful scheduled
+or manual check can reuse that run on the same branch. The installation
+being compared, the target site and the deployment inputs must all match.
+The summary links back to the original report. Changing the installed
+reference, integration pin, deployment code or workflow triggers a fresh
+check. Scientific and technical review outcomes mean the checks completed
+and a decision is still needed. This
 workflow records the result for a separate installation stage.
 
 ## MultiRun administrator review
@@ -268,6 +279,13 @@ can reconsider. Reopen a deferred review or withdraw an approval while it is
 still pending installation. Both actions record the reason and return the build
 to **Awaiting review**. The history identifies the administrator and time for
 each decision. Approval makes the tested build eligible for the server installer.
+
+The **Calculator usage** table shows protected summary sources for the current
+and historical calculators in the installed build. It counts source records,
+including retained summaries after raw outputs have been deleted. Refresh the
+tab to update the counts. Sources without a matching calculator are shown
+separately. A zero count helps identify a historical version to consider for
+retirement. The installer rechecks dependencies before publishing an update.
 
 ### Connecting a project repository
 
@@ -375,10 +393,12 @@ and [GitHub artifact downloads](https://docs.github.com/en/rest/actions/artifact
    the rehearsal host before enabling the timer in production.
 
 A routine build or approved exception must still follow the installed upstream
-revision. If the calculator changes, its qualification must cover the installed
-calculation and an administrator must have approved it. A differing scientific
-reference requires registering the installed calculator and selecting it as the
-qualification reference before testing the next scientific change. After a failed download or expired
+revision. Before replacing the build, the worker checks the qualification's
+reference revision and manifest against the installed build. If a different
+build was installed during review, requalify the candidate. Each verified
+installation automatically becomes the next comparison reference, including
+presentation-only updates. Historical reader registration follows retained
+summary dependencies separately. After a failed download or expired
 artifact, run the qualification workflow again for the same commit. A matching
 build can reuse its prior review decision. The worker records an installation
 failure in the tab and queues mail for each authorised administrator.

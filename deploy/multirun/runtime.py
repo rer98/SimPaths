@@ -559,6 +559,12 @@ def create_application(args,q,state,access,datasets,preparations,keys,image,orig
             publication_limits=limits,storage_policy=storage_policy,
             compact_summaries=getattr(args,'visualiser_compact_summaries',False),pipeline_storage=pipeline)
         service.visualiser.performance=trace
+        if getattr(service,'administration',None) is not None:
+            from .visualiser_editions import calculator_usage, installed_reference
+            service.administration.visualiser_reference_reader = lambda name, expected: installed_reference(
+                q, backend.build, name, expected)
+            service.administration.visualiser_usage_reader = lambda connection: calculator_usage(
+                connection, q.pool_id, backend)
         if automatic:
             from jasmine_web.batch.preparation_scheduler import PreparationScheduler
             service.preparation_scheduler=PreparationScheduler(q,service.visualiser,

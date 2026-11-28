@@ -371,6 +371,7 @@ raise SystemExit(main(['preflight','--config','/etc/simpaths-online/public.toml'
         self.check_retained_calculations(before, after, previous, available)
 
     def check_retained_calculations(self, before, after, previous, available):
+        from .visualiser_editions import LEGACY_SOURCES, PROTECTED_SOURCE
         old = dict(mode=before['mode'], files={name: before['files'][name] for name in ('runner.cjs', 'calculation.cjs')})
         prior_node=before.get('toolchain',{}).get('node')
         next_node=after.get('toolchain',{}).get('node')
@@ -378,11 +379,9 @@ raise SystemExit(main(['preflight','--config','/etc/simpaths-online/public.toml'
         for edition,_ in previous:
             if any(registered==edition for registered,_ in available):continue
             with self.queue._connection() as c:
-                retained=c.execute("""SELECT count(*) AS sources FROM visualiser_sources s
-                    WHERE s.pool_id=%s AND s.summary_expires_at>clock_timestamp()
-                    AND s.summary_backend->'calculation'->'files'=%s::jsonb
-                    AND NOT EXISTS (SELECT 1 FROM output_deletions d WHERE d.pool_id=s.pool_id
-                        AND d.attempt_id=s.attempt_id AND d.reason NOT IN ('raw_only','expiry'))""",
+                retained=c.execute(f"""SELECT count(*) AS sources FROM visualiser_sources s
+                    WHERE s.pool_id=%s AND {PROTECTED_SOURCE}
+                    AND s.summary_backend->'calculation'->'files'=%s::jsonb""",
                     (self.queue.pool_id,json.dumps(edition['files']))).fetchone()
             if retained['sources']:
                 raise IncompatibleVisualiserUpdate(f"The historical Visualiser calculator still supports {retained['sources']} protected sources.")
@@ -394,17 +393,12 @@ raise SystemExit(main(['preflight','--config','/etc/simpaths-online/public.toml'
                       edition['node']==prior_node==next_node for edition,_ in available)
         with self.queue._connection() as c:
             c.execute('SET TRANSACTION READ ONLY')
-            row=c.execute("""SELECT count(*) AS sources
-                FROM visualiser_sources s WHERE s.pool_id=%s AND s.summary_expires_at>clock_timestamp()
+            row=c.execute(f"""SELECT count(*) AS sources
+                FROM visualiser_sources s WHERE s.pool_id=%s AND {PROTECTED_SOURCE}
                 AND s.summary_backend->'calculation'=%s::jsonb
-                AND (%s::text IS NULL OR s.summary_backend->>'node' IS DISTINCT FROM %s::text)
-                AND NOT EXISTS (SELECT 1 FROM output_deletions d WHERE d.pool_id=s.pool_id
-                    AND d.attempt_id=s.attempt_id AND d.reason NOT IN ('raw_only','expiry'))""",
+                AND (%s::text IS NULL OR s.summary_backend->>'node' IS DISTINCT FROM %s::text)""",
                 (self.queue.pool_id,json.dumps(old),prior_node if preserved else None,prior_node)).fetchone()
-            legacy=c.execute("""SELECT count(*) AS sources FROM output_deletions d
-                JOIN visualiser_sources s ON s.pool_id=d.pool_id AND s.attempt_id=d.attempt_id
-                WHERE d.pool_id=%s AND d.reason IN ('expiry','raw_only') AND d.summary_expires_at>clock_timestamp()
-                  AND s.summary_backend IS NULL""",(self.queue.pool_id,)).fetchone()
+            legacy=c.execute(f"SELECT count(*) AS sources {LEGACY_SOURCES}",(self.queue.pool_id,)).fetchone()
         if row['sources'] or legacy['sources']:
             raise IncompatibleVisualiserUpdate(f"Visualiser calculator upgrade would affect {row['sources']} protected sources "
                 f"and {legacy['sources']} legacy sources. Keep the current calculator available or migrate "

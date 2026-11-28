@@ -3,7 +3,6 @@ Advance one Visualiser installation or recovery under the host update lock.
 @author ross richardson
 """
 import argparse
-import json
 from pathlib import Path
 import os
 import tempfile
@@ -11,21 +10,21 @@ import tomllib
 from uuid import uuid4
 
 from .. import application_update as app, update_package as package
-from ..visualiser_editions import CALCULATOR_FILES, REGISTRY
+from ..visualiser_editions import CALCULATOR_FILES
 from .bundle_installation import BundleInstallation, checked_bundle, manifest_digest, verify_assets
 from .github_artifact import GitHub, ArtifactError, PendingRun
 from .stage_bundle import stage, unpack_download
 
 
-def check_reference(installed, candidate, evidence):
+def check_reference(installed, evidence, installed_digest):
+    if evidence.get('reference_manifest') != installed_digest or evidence['reference'] != installed['revision']:
+        raise ArtifactError('The comparison did not use the currently installed Visualiser build. Requalify against the installed release.')
+
+
+def check_calculator(installed, candidate, evidence):
     def calculation(build):
         return (build['mode'],build['toolchain']['node'],{k:build['files'][k] for k in CALCULATOR_FILES})
-    if calculation(installed) == calculation(candidate):
-        return
-    reference = next((e for e in json.loads(REGISTRY.read_text()) if e['revision']==evidence['reference']),None)
-    if not reference or calculation(installed) != ('development-paired',reference['node'],reference['files']):
-        raise ArtifactError('The scientific comparison used a different calculator from the installed release. Requalify against the installed calculation.')
-    if evidence['outcome'] == 'checks passed':
+    if calculation(installed) != calculation(candidate) and evidence['outcome'] == 'checks passed':
         raise ArtifactError('Changing the installed calculator requires a reviewed qualification.')
 
 
@@ -123,18 +122,20 @@ def tick(options,queue,github):
         previous = ledger.installed_evidence(queue,github.repository,before)
     plan = None
     try:
+        if before != evidence['manifest']:
+            check_reference(installed,evidence,before)
         identifier, digest = github.locate(evidence,installed['revision'])
         if previous:
             github.check_integration(previous['evidence'],evidence)
         with tempfile.TemporaryDirectory(dir=package.trusted(package.ROOT/'visualiser-updates',directory=True)) as tmp:
-            archive = Path(tmp)/'artifact.zip'
+            archive = Path(tmp)/'download.zip'
             github.download(identifier,archive)
             if before == evidence['manifest']:
                 unpack_download(archive,digest,evidence,Path(tmp),Path(tmp)/'verified')
                 verify_assets(options,installed)
             else:
                 source,plan = stage(archive,digest,evidence,before,bundle)
-                check_reference(installed,checked_bundle(source/'bundle',evidence['manifest']),evidence)
+                check_calculator(installed,checked_bundle(source/'bundle',evidence['manifest']),evidence)
     except PendingRun:
         return
     except Exception as error:

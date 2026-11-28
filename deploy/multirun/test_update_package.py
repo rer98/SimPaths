@@ -427,6 +427,34 @@ class ApplicationPackageTests(unittest.TestCase):
         (self.source/'qualification.json').write_text('{}')
         with self.assertRaises(ValueError):self.validate()
 
+    def test_calculator_usage_includes_unused_history_and_unmatched_sources(self):
+        from .visualiser_backend import VisualiserBackend
+        from .visualiser_editions import REGISTRY, calculator_usage
+
+        history = [{key: row[key] for key in ('revision', 'node', 'files')}
+                   for row in json.loads(REGISTRY.read_text())[:2]]
+        current = {'runner.cjs': 'a'*64, 'calculation.cjs': 'b'*64}
+        files = dict(current)
+        for edition in history:
+            files.update({f"historical-{edition['revision']}-{name}": digest
+                          for name, digest in edition['files'].items()})
+        manifest = dict(format='simpaths.visualiser.build.v1', revision='c'*40,
+                        mode='development-paired', files=files, historical_editions=history)
+        backend = SimpleNamespace(manifest=manifest, identity=dict(build=manifest, node='v22.23.1'),
+                                  calculation_identity=VisualiserBackend.calculation_identity)
+        connection = MagicMock()
+        connection.execute.return_value.fetchall.return_value = [
+            dict(files=current, mode=manifest['mode'], node='v22.23.1', sources=2),
+            dict(files=current, mode=manifest['mode'], node='v21.0.0', sources=3),
+            dict(files=history[0]['files'], mode=manifest['mode'], node=history[0]['node'], sources=5),
+            dict(files=None, mode=None, node=None, sources=7),
+        ]
+        self.assertEqual(calculator_usage(connection, 'fictional', backend), dict(editions=[
+            dict(revision=manifest['revision'], current=True, sources=2),
+            dict(revision=history[0]['revision'], current=False, sources=5),
+            dict(revision=history[1]['revision'], current=False, sources=0),
+        ], unmatched=10))
+
     def test_schema_changes_extra_commands_and_unqualified_live_targets_are_rejected(self):
         for changes in (dict(schema=[]),dict(command=['sh','-c','unsafe']),dict(mode='unknown')):
             self.write_plan(plan_changes=changes)

@@ -77,7 +77,10 @@ def select(requested, repo, branch):
     if len(inputs.splitlines()) != 2:
         raise ValueError('The workflow and deployment code must both be committed')
     destination = os.environ.get('MULTIRUN_ORIGIN','').encode()
-    key = 'visualiser-' + selected + '-' + hashlib.sha256(inputs + destination).hexdigest()
+    baseline = os.environ.get('REFERENCE_MANIFEST','')
+    if (destination or baseline) and not re.fullmatch('[0-9a-f]{64}', baseline):
+        raise ValueError('Select a verified reference manifest before checking for a reusable run')
+    key = 'visualiser-' + selected + '-' + hashlib.sha256(inputs + destination + baseline.encode()).hexdigest()
     prior = previous_run(repo, branch, key) if requested is None else None
     return selected, key, prior
 
@@ -100,6 +103,9 @@ def summary(directory, selected, project_commit, frontend_commit):
              f'Visualiser commit `{selected}`', '', f'SimPaths commit `{project_commit}`',
              '', f'JAS-mine-web commit `{frontend_commit}`']
     reference = revision(report['reference'])
+    if 'reference_manifest' in report:
+        lines += ['', f"Reference Visualiser commit `{reference}`",
+                  '', f"Reference build SHA-256 `{report['reference_manifest']}`"]
     lines += ['', f'[Compare changes in the Visualiser]({SOURCE.removesuffix(".git")}/compare/{reference}...{selected})']
     scientific_paths = sorted(SCIENTIFIC_SOURCES.intersection(report.get('changed_paths', [])))
     if scientific_paths:
@@ -185,6 +191,8 @@ def main():
             compact = dict(outcome=report['status'], manifest=report['manifest_sha256'], frontend=frontend,
                            reference=report['reference'], rows=report['comparison']['rows'],
                            changed=report['comparison']['differences_from_release'])
+            if 'reference_manifest' in report:
+                compact['reference_manifest'] = report['reference_manifest']
             if 'row_changes' in report['comparison']:
                 compact['row_changes'] = report['comparison']['row_changes']
             with Path(os.environ['GITHUB_OUTPUT']).open('a') as stream:

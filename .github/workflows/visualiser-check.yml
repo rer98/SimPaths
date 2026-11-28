@@ -33,6 +33,7 @@ jobs:
        startsWith(github.event.head_commit.message, 'Rehearse Visualiser '))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    environment: ${{ github.event_name == 'push' && 'visualiser-rehearsal' || 'visualiser-reporting' }}
     permissions:
       contents: read
       actions: read
@@ -43,17 +44,33 @@ jobs:
       revision: ${{ steps.select.outputs.revision }}
       artifact: ${{ steps.select.outputs.artifact }}
       check: ${{ steps.select.outputs.check }}
+      reference_revision: ${{ steps.reference.outputs.revision }}
+      reference_manifest: ${{ steps.reference.outputs.manifest }}
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
           sparse-checkout: deploy
+      - id: reference
+        name: Read the verified installation used for comparison
+        env:
+          REPORT_KEY: ${{ secrets.VISUALISER_REPORT_KEY }}
+        run: python3 -m deploy.multirun.visualiser.reference "$RUNNER_TEMP/reference"
       - id: select
         name: Identify the revision and look for a previous report
         env:
           GH_TOKEN: ${{ github.token }}
           REQUESTED_REVISION: ${{ inputs.revision }}
+          REFERENCE_MANIFEST: ${{ steps.reference.outputs.manifest }}
         run: python3 -m deploy.multirun.visualiser.report_workflow select --revision "$REQUESTED_REVISION"
+      - uses: actions/upload-artifact@v7
+        if: steps.select.outputs.check == 'true'
+        with:
+          name: calculator-reference
+          path: ${{ runner.temp }}/reference/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 30
 
   qualify:
     needs: select
@@ -64,6 +81,7 @@ jobs:
       review: ${{ steps.summary.outputs.review }}
     env:
       REVISION: ${{ needs.select.outputs.revision }}
+      REFERENCE_MANIFEST: ${{ needs.select.outputs.reference_manifest }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -90,10 +108,16 @@ jobs:
         run: |
           python -m pip install -r deploy/acceptance/requirements.txt
           python -m playwright install --with-deps chromium
+      - name: Retrieve the selected calculator
+        uses: actions/download-artifact@v8
+        with:
+          name: calculator-reference
+          path: ${{ runner.temp }}/reference
       - id: qualify
-        name: Check the candidate against the released and historical calculators
+        name: Check the candidate against the installed and historical calculators
         run: |
           python -m deploy.multirun.visualiser.check_candidate \
+            --reference-build "$RUNNER_TEMP/reference" --reference-manifest "$REFERENCE_MANIFEST" \
             --revision "$REVISION" --frontend frontend --output "$RUNNER_TEMP/visualiser-result"
       - id: summary
         name: Summarise the result and record the integration revisions
@@ -148,6 +172,8 @@ jobs:
           REPORT_KEY: ${{ secrets.VISUALISER_REPORT_KEY }}
           MULTIRUN_ORIGIN: ${{ needs.select.outputs.report_origin }}
           VISUALISER_REVISION: ${{ needs.select.outputs.revision }}
+          REFERENCE_REVISION: ${{ needs.select.outputs.reference_revision }}
+          REFERENCE_MANIFEST: ${{ needs.select.outputs.reference_manifest }}
           QUALIFICATION_RESULT: ${{ needs.qualify.result }}
           CHECKED_REPORT: ${{ needs.qualify.outputs.review }}
         run: python3 -m deploy.multirun.visualiser.report_delivery

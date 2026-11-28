@@ -3,7 +3,6 @@ Verify the Visualiser worker's GitHub provenance, download and scientific baseli
 @author ross richardson
 """
 from configparser import ConfigParser
-import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -11,7 +10,6 @@ from unittest.mock import MagicMock, patch
 
 from .visualiser import github_artifact as api, install_worker as worker
 from .visualiser.report_workflow import WORKFLOW
-from .visualiser_editions import REGISTRY
 
 
 class InstallerServiceTests(unittest.TestCase):
@@ -107,13 +105,17 @@ class ProvenanceTests(unittest.TestCase):
         second.request.assert_called_once_with('GET','/archive?sig=download')
 
     def test_scientific_comparison_must_apply_to_the_installed_method(self):
-        reference = json.loads(REGISTRY.read_text())[-1]
-        installed = dict(mode='development-paired',toolchain=dict(node=reference['node']),files=reference['files'])
-        evidence = dict(reference=reference['revision'],outcome='scientific review')
-        new = dict(installed,files={k:'c'*64 for k in reference['files']})
-        worker.check_reference(installed,new,evidence)
+        files = {'runner.cjs':'1'*64,'calculation.cjs':'2'*64}
+        installed = dict(revision='a'*40,mode='development-paired',toolchain=dict(node='v22.23.1'),files=files)
+        digest = 'd'*64
+        evidence = dict(reference=installed['revision'],reference_manifest=digest,outcome='scientific review')
+        new = dict(installed,files=files | {'calculation.cjs':'c'*64})
+        worker.check_reference(installed,evidence,digest)
+        worker.check_calculator(installed,new,evidence)
         with self.assertRaises(api.ArtifactError):
-            worker.check_reference(new,installed,evidence)
+            worker.check_reference(installed,evidence,'e'*64)
         with self.assertRaises(api.ArtifactError):
-            worker.check_reference(installed,new,dict(evidence,outcome='checks passed'))
-        worker.check_reference(new,new,evidence)
+            worker.check_reference(installed,dict(evidence,reference='c'*40),digest)
+        with self.assertRaises(api.ArtifactError):
+            worker.check_calculator(installed,new,dict(evidence,outcome='checks passed'))
+        worker.check_calculator(installed,installed,dict(evidence,outcome='checks passed'))

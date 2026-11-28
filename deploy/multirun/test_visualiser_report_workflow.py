@@ -11,9 +11,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from .visualiser import report_delivery, report_workflow as workflow
+from .visualiser import reference, report_delivery, report_workflow as workflow
 from .visualiser.check_candidate import row_changes
 
 
@@ -22,6 +22,46 @@ FRONTEND = 'c' * 40
 
 
 class VisualiserReportWorkflowTests(unittest.TestCase):
+    def test_reference_transfers_only_verified_calculator_files_and_detects_tampering(self):
+        from jasmine_web.batch.policy import Conflict
+        from .visualiser_editions import installed_reference
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        fixture = Path(folder.name)
+        calculator_files = {}
+        for name in ('runner.cjs', 'calculation.cjs'):
+            data = f'// fixture {name}\n'.encode()
+            (fixture/name).write_bytes(data)
+            calculator_files[name] = hashlib.sha256(data).hexdigest()
+        (fixture/'build.json').write_text(json.dumps(dict(format='simpaths.visualiser.build.v1',
+            revision=REV,files=calculator_files)))
+        manifest, digest, files = reference.read_reference(fixture)
+        queue = MagicMock(pool_id='test')
+        query = queue._connection.return_value.__enter__.return_value.execute
+        query.return_value.fetchone.return_value = dict(verified=False)
+        with self.assertRaises(Conflict):
+            installed_reference(queue,fixture,'build.json','')
+        query.return_value.fetchone.return_value = dict(verified=True)
+        responses = [installed_reference(queue,fixture,name,'' if name=='build.json' else digest)
+                     for name in reference.REFERENCE_FILES]
+        self.assertEqual(query.call_args.args[1],('test',digest,manifest['revision'],'test'))
+        with self.assertRaises(Conflict):
+            installed_reference(queue,fixture,'runner.cjs','0'*64)
+        with tempfile.TemporaryDirectory() as directory, patch('http.client.HTTPSConnection') as http:
+            reply = http.return_value.getresponse.return_value
+            reply.status = 200
+            reply.read.side_effect = [json.dumps(r).encode() for r in responses]
+            dest = Path(directory)/'released'
+            self.assertEqual(reference.fetch('https://test.invalid',b'x'*32,dest),(manifest['revision'],digest))
+            self.assertEqual({p.name:p.read_bytes() for p in dest.iterdir()},files)
+            responses[1]['data'] = 'YWJj'
+            reply.read.side_effect = [json.dumps(r).encode() for r in responses]
+            with self.assertRaisesRegex(ValueError,'differs'):
+                reference.fetch('https://test.invalid',b'x'*32,Path(directory)/'tampered')
+            reply.status = 409
+            with self.assertRaisesRegex(RuntimeError,'409'):
+                reference.fetch('https://test.invalid',b'x'*32,Path(directory)/'unsettled')
+
     def test_release_differences_count_both_sides_of_each_row_key(self):
         old, new = {'mean':1}, {'mean':2}
         differences = [dict(before=old,after=new),dict(before=None,after=new),
@@ -122,6 +162,8 @@ class VisualiserReportWorkflowTests(unittest.TestCase):
                 git(project, 'add', '.')
                 git(project, 'commit', '-qm', 'docs')
                 self.assertEqual(workflow.select(tip, 'project/SimPaths', 'main'), manual)
+                with patch.dict(os.environ,REFERENCE_MANIFEST='e'*64):
+                    self.assertNotEqual(workflow.select(tip, 'project/SimPaths', 'main')[1], manual[1])
                 checker.write_text('updated check')
                 git(project, 'add', '.')
                 git(project, 'commit', '-qm', 'update')
@@ -174,9 +216,10 @@ class VisualiserReportWorkflowTests(unittest.TestCase):
     def test_publisher_signs_only_the_report_and_records_failed_runs_without_a_build(self):
         key = '12' * 32
         built = dict(outcome='scientific review',manifest='a'*64,frontend=FRONTEND,
-                     reference='d'*40,rows=576,changed=13,row_changes=dict(added=2,removed=8,modified=3))
+                     reference='d'*40,reference_manifest='f'*64,rows=576,changed=13,row_changes=dict(added=2,removed=8,modified=3))
         env = dict(QUALIFICATION_RESULT='success',CHECKED_REPORT=json.dumps(built),GITHUB_SHA='b'*40,
-                   VISUALISER_REVISION=REV,GITHUB_REPOSITORY='simpaths/SimPaths',GITHUB_RUN_ID='1234',
+                   VISUALISER_REVISION=REV,REFERENCE_REVISION='d'*40,REFERENCE_MANIFEST='f'*64,
+                   GITHUB_REPOSITORY='simpaths/SimPaths',GITHUB_RUN_ID='1234',
                    GITHUB_RUN_ATTEMPT='1',REPORT_KEY=key,MULTIRUN_ORIGIN='https://review.example.org')
         with patch.dict(os.environ,env), patch('http.client.HTTPSConnection') as connect:
             conn = connect.return_value

@@ -15,7 +15,7 @@ from zipfile import ZipFile
 
 from . import update_package as package
 from .test_update_package import Host, Queue
-from .visualiser import bundle_installation as bundle, stage_bundle
+from .visualiser import bundle_installation as bundle, install_worker, stage_bundle
 
 
 class BundleTests(unittest.TestCase):
@@ -184,6 +184,24 @@ class BundleTests(unittest.TestCase):
         installer.verify()
         installer.rollback()
         self.assert_active(self.before, '1.visualiser.js')
+
+    def test_worker_rechecks_an_already_installed_build_without_staging(self):
+        from jasmine_web.batch import update_admission, visualiser_deployments
+        archive, digest, evidence = self.artifact()
+        installer = self.installation()
+        installer.install()
+        review = dict(evidence=evidence)
+        github = MagicMock()
+        github.locate.return_value = (123, digest)
+        github.download.side_effect = lambda _, destination: destination.write_bytes(archive.read_bytes())
+        self.options.administration = dict(enabled=True, emails=['admin@example.org'])
+        with patch.object(visualiser_deployments,'outstanding',return_value=None), \
+                patch.object(visualiser_deployments,'next_review',return_value=review), \
+                patch.object(update_admission,'status',return_value={'current':None}), \
+                patch.object(visualiser_deployments,'record') as record:
+            install_worker.tick(self.options,self.queue,github)
+            self.assertEqual(record.call_args.kwargs['state'],'installed')
+        self.assert_active(self.after, '2.visualiser.js')
 
     def test_artifact_rejections_leave_no_partial_transaction(self):
         reference = str(uuid4())

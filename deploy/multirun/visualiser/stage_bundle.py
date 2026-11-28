@@ -56,7 +56,8 @@ def copy_artifact(archive, evidence, directory):
     comparison = report['comparison']
     comparison_bytes = read('comparison.json', 32 * 1024**2)
     if (report['source'] != SOURCE or report['revision'] != evidence['visualiser'] or
-            report['reference'] != evidence['reference'] or report['manifest_sha256'] != evidence['manifest'] or
+            report['reference'] != evidence['reference'] or report.get('reference_manifest') != evidence.get('reference_manifest') or
+            report['manifest_sha256'] != evidence['manifest'] or
             report['status'] != evidence['outcome'] or report['status'] not in
             ('checks passed', 'technical review', 'scientific review') or
             report['checks'].get('chromium') != 'passed' or set(report['checks'].values()) != {'passed'} or

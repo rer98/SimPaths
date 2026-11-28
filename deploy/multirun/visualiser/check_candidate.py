@@ -12,13 +12,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from ..visualiser_editions import read_reference
 
 HERE = Path(__file__).resolve().parent
 MODEL = HERE.parents[2]
 UPSTREAM = 'rjgreen1029/SimPaths-Policy-Impacts-Visualiser'
 SOURCE = f'https://github.com/{UPSTREAM}.git'
-# Version deployed when the reproducible qualification workflow was introduced.
-REFERENCE = 'e14ab818f065f145213f2f39f0c85f85b1475f1b'
 PACKAGE_FILES = ('package.json', 'package-lock.json')
 SCIENTIFIC_SOURCES = {'src/parseCore.js', 'src/csvParse.js', 'src/localFolderParser.js',
                       'src/useAggregatedData.js', *PACKAGE_FILES}
@@ -95,6 +94,13 @@ def previous_service(directory, build, edition):
 
 
 def examine(args, output, work, report):
+    reference, checksum, files = read_reference(args.reference_build)
+    if checksum != report['reference_manifest'] or reference['revision'] != report['reference']:
+        raise ValueError('The selected reference changed before qualification')
+    released = work/'released'
+    released.mkdir()
+    for name, body in files.items():
+        (released/name).write_bytes(body)
     source = work / 'source'
     source.mkdir()
     logdir = output / 'logs'
@@ -112,14 +118,16 @@ def examine(args, output, work, report):
     git(source, 'fetch', '--quiet', '--no-tags', repository, ref + ':refs/heads/reese-main')
     report['observed_main'] = git(source, 'rev-parse', 'reese-main').decode().strip()
     git(source, 'merge-base', '--is-ancestor', args.revision, 'reese-main')
-    git(source, 'merge-base', '--is-ancestor', REFERENCE, args.revision)
+    git(source, 'merge-base', '--is-ancestor', report['reference'], args.revision)
     git(source, 'checkout', '--quiet', '--detach', args.revision)
-    changes = git(source, 'diff', '--no-renames', '--name-only', '-z', REFERENCE, args.revision).decode().split('\0')
+    changes = git(source, 'diff', '--no-renames', '--name-only', '-z', report['reference'], args.revision).decode().split('\0')
     report['changed_paths'] = sorted(filter(None, changes))
 
     registry = json.loads((HERE / 'historical/approved.json').read_text())
     readers = work / 'readers'
     node = subprocess.check_output(['node', '--version'], text=True).strip()
+    if node != reference['toolchain']['node']:
+        raise ValueError('Qualifying a different Node runtime requires a separate compatibility check')
     for row in registry:
         if row['node'] != node:
             raise ValueError(f'This build needs {row["node"]} to exercise retained summaries')
@@ -160,17 +168,17 @@ def examine(args, output, work, report):
     report['manifest_sha256'] = sha(build / 'build.json')
     env = dict(os.environ, SIMPATHS_VISUALISER_TEST_BUILD=str(build), SIMPATHS_VISUALISER_DEPENDENCIES=str(dom),
                PYTHONPATH=os.pathsep.join((str(MODEL), str(args.frontend.resolve()))))
-    reference = next(row for row in registry if row['revision'] == REFERENCE)
     science = output / 'comparison.json'
     check('compare', ['node', HERE / 'compare_candidate.cjs', source, compiler, build,
-                      HERE / 'historical' / REFERENCE[:8], work, science])
+                      released, work, science])
     if science.is_file():
         values = json.loads(science.read_bytes())
         differences = values['release_differences']
         report['comparison'] = dict(rows=values['hosted_rows'], local_folder_differences=len(values['upstream_differences']),
                                     differences_from_release=len(differences), row_changes=row_changes(differences),
                                     sha256=sha(science))
-    report['calculator_bytes_changed'] = any(manifest['files'][k] != v for k, v in reference['files'].items())
+    report['calculator_bytes_changed'] = (manifest['mode'] != reference['mode'] or any(
+        manifest['files'][k] != reference['files'][k] for k in ('runner.cjs', 'calculation.cjs')))
     for name in ('test_runner.cjs', 'test_bundle.cjs', 'test_portable_source.mjs', 'test_section_source.mjs'):
         check(Path(name).stem, ['node', HERE / name], env)
     for edition in manifest['historical_editions']:
@@ -193,6 +201,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--revision', required=True, help='Full upstream commit SHA')
     parser.add_argument('--output', required=True, type=Path, help='New directory for the bundle, report and logs')
+    parser.add_argument('--reference-build', required=True, type=Path, help='Verified installed build or its reference snapshot')
+    parser.add_argument('--reference-manifest', help='Expected SHA-256 from selection')
     parser.add_argument('--repository', type=Path, help='Use an already fetched local upstream/main')
     parser.add_argument('--dependencies', type=Path, help='Reuse an installation of the locked integration compiler')
     parser.add_argument('--test-dependencies', type=Path, help='Reuse the locked DOM test environment')
@@ -204,7 +214,11 @@ def main():
         parser.error('Supply an exact 40-character Git commit SHA')
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False, mode=0o700)
-    report = dict(source=SOURCE, revision=args.revision, reference=REFERENCE, checks={}, status='failed')
+    reference, digest, _ = read_reference(args.reference_build)
+    if args.reference_manifest is not None and digest != args.reference_manifest:
+        parser.error('Downloaded reference differs from the selected installation')
+    report = dict(source=SOURCE, revision=args.revision, reference=reference['revision'],
+                  reference_manifest=digest, checks={}, status='failed')
     (output / 'COPYRIGHT.md').write_text('<!-- (C) Copyright 2026, by Ross Richardson\n'
         'Attribution for generated candidate qualification evidence.\n@author ross richardson\n-->\n')
     try:

@@ -46,9 +46,12 @@ def main():
         report = json.loads(env['CHECKED_REPORT'])
         if report['outcome'] not in ('technical review','scientific review','checks passed'):
             raise ValueError('Expected a qualified build')
+        if (report.get('reference') != env['REFERENCE_REVISION']
+                or report.get('reference_manifest') != env['REFERENCE_MANIFEST']):
+            raise ValueError('Qualification used a different reference from the selected installation')
     else:
-        from .check_candidate import REFERENCE
-        report = dict(outcome='failed',manifest=None,frontend=None,rows=None,changed=None,reference=REFERENCE)
+        report = dict(outcome='failed',manifest=None,frontend=None,rows=None,changed=None,
+                      reference=env['REFERENCE_REVISION'],reference_manifest=env['REFERENCE_MANIFEST'])
     report.update(project=env['GITHUB_SHA'],visualiser=env['VISUALISER_REVISION'],
                   repository=env['GITHUB_REPOSITORY'],run=int(env['GITHUB_RUN_ID']),
                   attempt=int(env['GITHUB_RUN_ATTEMPT']))

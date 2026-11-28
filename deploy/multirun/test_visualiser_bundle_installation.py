@@ -15,7 +15,7 @@ from zipfile import ZipFile
 
 from . import update_package as package
 from .test_update_package import Host, Queue
-from .visualiser import bundle_installation as bundle, install_worker, stage_bundle
+from .visualiser import bundle_installation as bundle, install_worker, rollback_storage, stage_bundle
 
 
 class BundleTests(unittest.TestCase):
@@ -90,6 +90,47 @@ class BundleTests(unittest.TestCase):
         urls = {call.args[0][-1] for call in self.http.call_args_list}
         for chunk in ('1.visualiser.js', '2.visualiser.js'):
             self.assertIn('https://test.invalid/visualiser-assets/' + chunk, urls)
+
+    def test_expiry_validates_the_predecessor_and_resumes_after_partial_removal(self):
+        from jasmine_web.batch import visualiser_deployments as ledger
+        import shutil
+        self.installation().install()
+        keep=self.source.with_name(str(uuid4()))
+        shutil.copytree(self.source,keep)
+        row = dict(plan=self.plan,bundle=self.source.name,state='installed',live='c'*64,
+                   keep_bundle=keep.name,keep_plan=self.plan)
+        with patch.object(ledger,'expired_rollback',return_value=row), patch.object(self.queue,'_connection') as db:
+            rollback_storage.expire_one(self.queue,self.live)
+            self.assertTrue(self.slot.exists())
+            row['live']=self.after
+            kept=keep/'bundle'/'index.html'
+            body=kept.read_bytes()
+            kept.write_bytes(b'corrupt')
+            with self.assertRaisesRegex(ValueError,'asset differs'):
+                rollback_storage.expire_one(self.queue,self.live)
+            self.assertTrue(self.slot.exists())
+            kept.write_bytes(body)
+            plan = self.source/'plan.json'
+            original=plan.read_bytes()
+            plan.write_bytes(b'changed')
+            with self.assertRaisesRegex(ValueError,'different installation plan'):
+                rollback_storage.expire_one(self.queue,self.live)
+            plan.write_bytes(original)
+            with patch.object(rollback_storage.shutil,'rmtree',side_effect=OSError('interrupted')):
+                with self.assertRaises(OSError):
+                    rollback_storage.expire_one(self.queue,self.live)
+            db.assert_not_called()
+            self.assertFalse(self.slot.exists())
+            expired = self.source/'expired-bundle'
+            (expired/'index.html').unlink()
+            rollback_storage.expire_one(self.queue,self.live)
+            self.assertFalse(expired.exists())
+            self.assertEqual(plan.read_bytes(),original)
+            self.assertTrue((self.source/'install-progress.json').exists())
+            self.assert_active(self.after,'2.visualiser.js')
+            # A restart after deletion but before writing the database receipt is safe.
+            rollback_storage.expire_one(self.queue,self.live)
+            self.assertEqual(db.call_count,2)
 
     def test_serving_previous_javascript_fails_verification_and_recovery_restores_it(self):
         installer = self.installation()
@@ -186,7 +227,7 @@ class BundleTests(unittest.TestCase):
         self.assert_active(self.before, '1.visualiser.js')
 
     def test_worker_rechecks_an_already_installed_build_without_staging(self):
-        from jasmine_web.batch import update_admission, visualiser_deployments
+        from jasmine_web.batch import visualiser_deployments
         archive, digest, evidence = self.artifact()
         installer = self.installation()
         installer.install()
@@ -197,8 +238,9 @@ class BundleTests(unittest.TestCase):
         self.options.administration = dict(enabled=True, emails=['admin@example.org'])
         with patch.object(visualiser_deployments,'outstanding',return_value=None), \
                 patch.object(visualiser_deployments,'next_review',return_value=review), \
-                patch.object(update_admission,'status',return_value={'current':None}), \
+                patch.object(self.queue,'_connection') as connection, \
                 patch.object(visualiser_deployments,'record') as record:
+            connection.return_value.__enter__.return_value.execute.return_value.fetchone.return_value=None
             install_worker.tick(self.options,self.queue,github)
             self.assertEqual(record.call_args.kwargs['state'],'installed')
         self.assert_active(self.after, '2.visualiser.js')

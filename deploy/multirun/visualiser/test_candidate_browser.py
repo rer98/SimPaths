@@ -109,7 +109,9 @@ def check(build):
                 raise AssertionError(issues)
         finally:
             browser.close()
-    print('Chromium opened current and historical charts, paired comparison and guidance tabs.',flush=True)
+    count = len(manifest['historical_editions'])
+    print(f'Chromium opened the current charts, paired comparison and guidance tabs. '
+          f'Historical chart readers tested: {count}.',flush=True)
 
 
 if __name__=='__main__':

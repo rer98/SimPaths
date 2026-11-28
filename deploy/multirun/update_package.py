@@ -376,15 +376,25 @@ raise SystemExit(main(['preflight','--config','/etc/simpaths-online/public.toml'
         prior_node=before.get('toolchain',{}).get('node')
         next_node=after.get('toolchain',{}).get('node')
         new_calculation={name:after['files'][name] for name in old['files']}
-        for edition,_ in previous:
-            if any(registered==edition for registered,_ in available):continue
+        previous_revisions = {edition['revision'] for edition,_ in previous}
+        available_revisions = {edition['revision'] for edition,_ in available}
+        added = available_revisions - previous_revisions
+        if added:
             with self.queue._connection() as c:
-                retained=c.execute(f"""SELECT count(*) AS sources FROM visualiser_sources s
-                    WHERE s.pool_id=%s AND {PROTECTED_SOURCE}
-                    AND s.summary_backend->'calculation'->'files'=%s::jsonb""",
-                    (self.queue.pool_id,json.dumps(edition['files']))).fetchone()
-            if retained['sources']:
-                raise IncompatibleVisualiserUpdate(f"The historical Visualiser calculator still supports {retained['sources']} protected sources.")
+                retired = c.execute("""SELECT 1 FROM visualiser_retirements WHERE pool_id=%s
+                    AND edition=ANY(%s::text[]) AND state='retired' LIMIT 1""",
+                    (self.queue.pool_id,sorted(added))).fetchone()
+            if retired:
+                raise IncompatibleVisualiserUpdate('This candidate reintroduces a retired calculator. Rebuild from the current deployment branch.')
+        removed = previous_revisions - available_revisions
+        if removed:
+            from .visualiser_editions import manifest_usage
+            with self.queue._connection() as c:
+                usage = manifest_usage(c, self.queue.pool_id, before, prior_node)
+            protected = sum(item['sources'] for item in usage['editions'] if item['revision'] in removed)
+            if protected or usage['unmatched']:
+                raise IncompatibleVisualiserUpdate(f"Retiring this calculator would affect {protected} protected sources; "
+                                                   f"{usage['unmatched']} additional sources have an unknown calculation.")
         if prior_node!=next_node and previous:
             raise IncompatibleVisualiserUpdate('Qualify the Node runtime change for retained historical editions')
         if prior_node==next_node and old==dict(mode=after['mode'],files=new_calculation):

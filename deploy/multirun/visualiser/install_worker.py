@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from .. import application_update as app, update_package as package
 from ..visualiser_editions import CALCULATOR_FILES
+from . import retire_edition, rollback_storage
 from .bundle_installation import BundleInstallation, checked_bundle, manifest_digest, verify_assets
 from .github_artifact import GitHub, ArtifactError, PendingRun
 from .stage_bundle import stage, unpack_download
@@ -96,7 +97,7 @@ def advance(options,queue,emails,entry):
             settle(queue,emails,latest)
 
 
-def tick(options,queue,github):
+def tick(options,queue,github,retirement_token=None):
     from jasmine_web.batch import update_admission as control, visualiser_deployments as ledger
     emails = options.administration['emails'] if options.administration['enabled'] else []
     entry = ledger.outstanding(queue)
@@ -106,11 +107,17 @@ def tick(options,queue,github):
     if not emails:
         return
     review = ledger.next_review(queue,github.repository)
-    if not review or control.status(queue)['current']:
+    with queue._connection() as c:
+        if c.execute("SELECT 1 FROM deployment_updates WHERE pool_id=%s AND state=ANY(%s::text[])",
+                     (queue.pool_id,list(control.ACTIVE))).fetchone():
+            return
+    live = Path(options.visualiser_build)
+    retire_edition.advance(queue,live,github,retirement_token,allow_publish=not review)
+    if not review:
+        rollback_storage.expire_one(queue,live)
         return
     evidence = review['evidence']
     bundle = str(uuid4())
-    live = Path(options.visualiser_build)
     try:
         before = manifest_digest(live)
         installed = checked_bundle(live,before)
@@ -135,12 +142,14 @@ def tick(options,queue,github):
                 verify_assets(options,installed)
             else:
                 source,plan = stage(archive,digest,evidence,before,bundle)
-                check_calculator(installed,checked_bundle(source/'bundle',evidence['manifest']),evidence)
+                candidate = checked_bundle(source/'bundle',evidence['manifest'])
+                check_calculator(installed,candidate,evidence)
+                retire_edition.check_candidate(queue,evidence['project'],installed,candidate)
     except PendingRun:
         return
     except Exception as error:
         note = str(error) if isinstance(error,ArtifactError) else 'The worker could not verify the qualification artifact or served assets. Check the workflow evidence and rerun qualification.'
-        ledger.record(queue,emails,review,bundle,state='failed',note=note)
+        ledger.record(queue,emails,review,bundle,state='failed',note=note,plan=plan)
         return
     if plan is None:
         ledger.record(queue,emails,review,bundle,state='installed',note='The reviewed build was already installed and verified.')
@@ -174,8 +183,11 @@ def main():
                 return
             config = tomllib.loads(package.trusted(Path('/etc/simpaths-online/visualiser-updater.toml')).read_text())
             credentials = os.environ.get('CREDENTIALS_DIRECTORY')
-            token = (Path(credentials)/'github-token').read_text().strip() if credentials else ''
-            tick(options,queue,GitHub(config['repository'],config['branch'],token))
+            reader = Path(credentials)/'github-token' if credentials else None
+            token = reader.read_text().strip() if reader and reader.is_file() else ''
+            writer = Path(credentials)/'github-retirement-token' if credentials else None
+            tick(options,queue,GitHub(config['repository'],config['branch'],token),
+                 writer.read_text().strip() if writer and writer.is_file() else None)
     except BlockingIOError:
         # The timer will retry after the current coordinator or backup releases its lock.
         if args.retry_rollback:

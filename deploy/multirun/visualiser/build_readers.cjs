@@ -18,6 +18,7 @@ function buildReaders(args, staging, transform, currentFiles) {
   const legacy = Boolean(args['historical-source']);
   if (args['historical-build'] && !legacy) throw Error('Supply the matching historical reader sources');
   for (const edition of approved) {
+    if (edition.retired) continue;
     if (!args['reader-sources'] && !(legacy && edition.revision === 'f6384fa6ea856802dadd7a115aca02c719142bdc')) continue;
     if (Object.keys(currentFiles).every(name => currentFiles[name] === edition.files[name]) &&
         edition.node === process.version) {

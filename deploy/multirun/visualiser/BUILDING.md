@@ -418,3 +418,50 @@ Recovery rechecks the previous build and service health before resuming
 admissions. Keep the root-staged transaction directory for any outstanding
 installation or recovery. Completed transaction directories retain the other
 build for operator inspection.
+
+### Retirement and rollback storage
+
+The Visualiser Update tab offers **Retire revision…** beside an unused historical
+edition when all protected sources can be identified. Confirmation records the
+administrator, time and exact revision. The host checks usage again, commits
+the archive removal to the configured SimPaths branch, and uses the normal
+qualification and installation workflow. The commit removes the archived
+calculator files and records the retirement in `historical/approved.json`.
+Its checksums remain available for verifying rollback copies. The builder
+omits the retired calculator and its chart reader from subsequent releases.
+Git history retains the previous files.
+
+At deployment, apply JAS-mine-web migration 053 and install the matching host
+worker, admin application and GitHub workflow. The worker uses a separate
+project credential for retirement commits. Grant it **Contents · Read and write**
+on the deployment repository, with permission to commit on the deployment branch.
+Put it in a root-owned mode-0600 file under `/etc/credstore` and add the following
+to a `[Service]` drop-in for `simpaths-visualiser-update.service` before running
+`systemctl daemon-reload`:
+
+```ini
+LoadCredential=github-retirement-token:/etc/credstore/simpaths-github-retirement-token
+```
+
+The existing artifact credential retains read-only access. The rehearsal target
+is `rer98/SimPaths:add-web-files`. At handover, configure `simpaths/SimPaths:main`
+and its reporting environment. For a branch that requires pull requests, agree
+on a project publishing identity or a reviewed repository change with the
+maintainers before enabling one-click retirement. Reese's repository remains
+the source for the Visualiser itself.
+
+The admin page reports retirement after the host observes a verified installed
+build without the edition. Source counts are rechecked under the installation
+fence. A failed check leaves the installed edition available. The administrator
+can inspect the workflow result and retry once the cause has been addressed.
+If a retirement must be abandoned after publication, reverting its SimPaths
+commit restores the archive to future builds. A verified live reference is
+required by the workflow once every offline reference archive has retired.
+
+Once a later replacement is successfully installed, the previous transaction's
+full rollback bundle becomes eligible for deletion after 30 days. The latest
+verified replacement keeps its predecessor indefinitely. An already-installed
+check does not start an expiry period. Cleanup runs on idle installer ticks,
+pauses for installation and recovery, and leaves the installation records and
+small on-disk plans in place. Before deleting a bundle, the worker verifies that the immediate predecessor is intact.
+Current Visualiser files and experiment results are outside the rollback cleanup directory.

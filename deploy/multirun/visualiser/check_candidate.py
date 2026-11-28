@@ -123,8 +123,10 @@ def examine(args, output, work, report):
     changes = git(source, 'diff', '--no-renames', '--name-only', '-z', report['reference'], args.revision).decode().split('\0')
     report['changed_paths'] = sorted(filter(None, changes))
 
-    registry = json.loads((HERE / 'historical/approved.json').read_text())
+    registry = [row for row in json.loads((HERE / 'historical/approved.json').read_text())
+                if not row.get('retired')]
     readers = work / 'readers'
+    readers.mkdir()
     node = subprocess.check_output(['node', '--version'], text=True).strip()
     if node != reference['toolchain']['node']:
         raise ValueError('Qualifying a different Node runtime requires a separate compatibility check')

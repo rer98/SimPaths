@@ -62,7 +62,10 @@ if __name__ == '__main__':
     else:
         # Disconnected CI can exercise the pipeline with an explicitly identified archive.
         from ..visualiser_editions import REGISTRY
-        row = json.loads(REGISTRY.read_bytes())[-1]
+        available = [row for row in json.loads(REGISTRY.read_bytes()) if not row.get('retired')]
+        if not available:
+            raise ValueError('Configure a verified installation as the reference. All offline archives have retired.')
+        row = available[-1]
         archive = REGISTRY.parent/row['revision'][:8]
         manifest, digest, files = read_reference(archive)
         if digest != row['manifest_sha256'] or manifest['revision'] != row['revision']:

@@ -21,6 +21,10 @@ LEGACY_SOURCES = """FROM output_deletions d
 
 def calculator_usage(connection, pool, backend):
     """Count protected sources for the installed build using the retirement check's identity."""
+    return manifest_usage(connection, pool, backend.manifest, backend.identity['node'])
+
+
+def manifest_usage(connection, pool, manifest, node):
     rows = connection.execute(f"""SELECT s.summary_backend->'calculation'->'files' AS files,
             s.summary_backend->'calculation'->>'mode' AS mode,
             s.summary_backend->>'node' AS node, count(*) AS sources
@@ -28,16 +32,15 @@ def calculator_usage(connection, pool, backend):
         GROUP BY 1,2,3
         UNION ALL
         SELECT NULL, NULL, NULL, count(*) {LEGACY_SOURCES}""", (pool, pool)).fetchall()
-    current = backend.calculation_identity(backend.identity)['calculation']
-    manifest = backend.manifest
+    files = {name: manifest['files'][name] for name in CALCULATOR_FILES}
     editions = [dict(revision=manifest['revision'], current=True, sources=0)]
     history = historical_editions(manifest)
     editions.extend(dict(revision=edition['revision'], current=False, sources=0)
                     for edition, _ in history)
     unmatched = 0
     for row in rows:
-        matches_current = (row['files'] == current['files'] and row['mode'] == current['mode']
-                           and row['node'] == backend.identity['node'])
+        matches_current = (row['files'] == files and row['mode'] == manifest['mode']
+                           and row['node'] == node)
         if matches_current:
             editions[0]['sources'] += row['sources']
         matches_history = False

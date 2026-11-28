@@ -22,12 +22,20 @@ def revision(value):
 
 
 def rehearsal_revision(repo, branch, project_sha, head_commit):
-    """Identify the exact Visualiser revision requested by the tip of a rehearsal push."""
-    if (repo != 'rer98/SimPaths' or branch != 'add-web-files' or
-            not isinstance(head_commit, dict) or head_commit.get('id') != project_sha):
+    """Identify the Visualiser requested by a rehearsal or a retirement commit on its deployment branch."""
+    rehearsal = (repo,branch) == ('rer98/SimPaths','add-web-files')
+    if not rehearsal and (repo,branch) != ('simpaths/SimPaths','main'):
+        return None
+    if not isinstance(head_commit, dict) or head_commit.get('id') != project_sha:
         return None
     message = head_commit.get('message')
-    if isinstance(message, str):
+    if not isinstance(message, str):
+        return None
+    retirement = re.fullmatch(r'Retire Visualiser [0-9a-f]{40} from ([0-9a-f]{40})\n\n'
+                              r'MultiRun retirement [0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\n?', message)
+    if retirement:
+        return retirement.group(1)
+    if rehearsal:
         match = re.fullmatch(r'Rehearse Visualiser ([0-9a-f]{40})\n?', message)
         if match:
             return match.group(1)

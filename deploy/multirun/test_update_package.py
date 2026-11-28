@@ -367,7 +367,7 @@ class ApplicationPackageTests(unittest.TestCase):
         edition={k:row[k] for k in ('revision','node','files')}
         archive=edition['files']
         files=science|{'historical-'+name:digest for name,digest in archive.items()}
-        old=dict(mode='development-paired',files=files,historical=edition)
+        old=dict(revision='c'*40,mode='development-paired',files=files,historical=edition)
         (build/'build.json').write_text(json.dumps(old))
         candidate=self.source/'programs/visualiser/build.json'
         candidate.parent.mkdir()
@@ -376,11 +376,14 @@ class ApplicationPackageTests(unittest.TestCase):
         installer.plan={'targets':{'visualiser/build.json':dict(after=package.digest(body))}}
         with patch.object(self.q,'_connection') as connection:
             query=connection.return_value.__enter__.return_value
-            query.execute.return_value.fetchone.return_value={'sources':1}
-            with self.assertRaisesRegex(ValueError,'historical Visualiser calculator'):
+            source = dict(files=archive,mode=old['mode'],node=row['node'],sources=1)
+            query.execute.return_value.fetchall.return_value=[source]
+            with self.assertRaisesRegex(ValueError,'1 protected source'):
                 installer.check_visualiser_calculation()
-            self.assertEqual(json.loads(query.execute.call_args.args[1][1]),archive)
-            query.execute.return_value.fetchone.return_value={'sources':0}
+            query.execute.return_value.fetchall.return_value=[dict(source,files=None)]
+            with self.assertRaisesRegex(ValueError,'1 additional sources'):
+                installer.check_visualiser_calculation()
+            query.execute.return_value.fetchall.return_value=[]
             installer.check_visualiser_calculation()
 
     def test_retiring_one_of_two_editions_checks_just_its_protected_sources(self):
@@ -397,7 +400,7 @@ class ApplicationPackageTests(unittest.TestCase):
             for item in items:
                 prefix='historical-'+item['revision']+'-'
                 files.update({prefix+name:digest for name,digest in item['files'].items()})
-            return dict(mode='development-paired',files=files,historical_editions=items,
+            return dict(revision='c'*40,mode='development-paired',files=files,historical_editions=items,
                         toolchain=dict(node=editions[0]['node']))
         before=manifest(editions)
         self.assertEqual(len(historical_editions(before)),2)
@@ -414,12 +417,27 @@ class ApplicationPackageTests(unittest.TestCase):
         installer.plan={'targets':{'visualiser/build.json':dict(after=package.digest(body))}}
         with patch.object(self.q,'_connection') as connection:
             query=connection.return_value.__enter__.return_value
-            query.execute.return_value.fetchone.return_value={'sources':1}
+            sources = [dict(files=item['files'],mode=before['mode'],node=item['node'],sources=1)
+                       for item in editions]
+            query.execute.return_value.fetchall.return_value=sources
             with self.assertRaisesRegex(ValueError,'1 protected source'):
                 installer.check_visualiser_calculation()
-            self.assertEqual(json.loads(query.execute.call_args.args[1][1]),editions[0]['files'])
-            query.execute.return_value.fetchone.return_value={'sources':0}
+            query.execute.return_value.fetchall.return_value=sources[1:]
             installer.check_visualiser_calculation()
+
+    def test_new_candidate_cannot_restore_a_retired_edition_from_an_old_project_branch(self):
+        from .visualiser_editions import REGISTRY
+        edition, *_ = json.loads(REGISTRY.read_text())
+        current = dict(mode='development-paired',files=edition['files'],toolchain=dict(node=edition['node']))
+        installer = self.installation()
+        with patch.object(self.q,'_connection') as connection:
+            query=connection.return_value.__enter__.return_value
+            query.execute.return_value.fetchone.return_value={'exists':1}
+            with self.assertRaisesRegex(ValueError,'reintroduces a retired calculator'):
+                installer.check_retained_calculations(current,current,[],[(edition,'historical-')])
+            self.assertEqual(query.execute.call_args.args[1][1],[edition['revision']])
+            query.execute.return_value.fetchone.return_value=None
+            installer.check_retained_calculations(current,current,[],[(edition,'historical-')])
 
     def test_exact_same_schema_and_candidate_receipt_are_required(self):
         self.assertEqual(self.validate(),self.plan)

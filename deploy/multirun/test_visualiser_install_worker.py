@@ -2,6 +2,7 @@
 Verify the Visualiser worker's GitHub provenance, download and scientific baseline checks.
 @author ross richardson
 """
+from configparser import ConfigParser
 import json
 from pathlib import Path
 import tempfile
@@ -11,6 +12,16 @@ from unittest.mock import MagicMock, patch
 from .visualiser import github_artifact as api, install_worker as worker
 from .visualiser.report_workflow import WORKFLOW
 from .visualiser_editions import REGISTRY
+
+
+class InstallerServiceTests(unittest.TestCase):
+    def test_system_service_uses_default_identity_for_account_switches(self):
+        unit = ConfigParser(interpolation=None)
+        unit.read(Path(__file__).parent / 'vm' / 'simpaths-visualiser-update.service')
+        service = unit['Service']
+        # On Contabo an explicit User=root left the worker without effective CAP_SETUID.
+        self.assertNotIn('User', service)
+        self.assertTrue(service.getboolean('NoNewPrivileges'))
 
 
 class ProvenanceTests(unittest.TestCase):

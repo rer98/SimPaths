@@ -8,7 +8,6 @@ ConditionPathExists=/etc/simpaths-online/visualiser-updater.toml
 
 [Service]
 Type=oneshot
-User=root
 WorkingDirectory=/opt/simpaths-online/SimPaths
 ExecStart=/opt/simpaths-online/venv/bin/python -I -B -c "import sys;sys.path.insert(0,'/opt/simpaths-online/SimPaths');from deploy.multirun.visualiser.install_worker import main;main()"
 ExecStopPost=/usr/bin/systemctl --no-block start simpaths-visualiser-mail.service

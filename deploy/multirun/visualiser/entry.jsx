@@ -198,6 +198,7 @@ function Page({selection=null,receipt=null,onChoose=()=>{}}){
     hint:client.current.hint?.bind(client.current),cancelHint:client.current.cancelHint?.bind(client.current),
   }:undefined;},[catalogue,mode,reload]);
   const alternatives=catalogue?.configurations.filter(c=>c.role==='Scenario').length||0;
+  const openingOnline=onlineKey&&mode==='online'&&!catalogue;
   const controls=<>
     <p className="vm-source-help">{experiment?'Scenarios appear as their charts become ready. Scenarios you hide stay hidden. Paired differences appear when the baseline comparison is ready.':'View your selected online results, or select a local parent folder with a Baseline folder and one folder for each alternative scenario.'}</p>
     {onlineKey&&mode!=='online'&&<button className="vm-source-button" onClick={vm}>View Online Results</button>}
@@ -229,11 +230,17 @@ function Page({selection=null,receipt=null,onChoose=()=>{}}){
       <p className="vm-source-help">Recently viewed online charts are cached on this device for up to 12 hours. If charts appear incomplete or outdated, clear this comparison’s cached chart data and fetch it again. Server results and downloaded files are unchanged.</p>
       <button className="vm-source-button" onClick={()=>retryOnline(true)} disabled={processing}>Reload charts from server</button>
     </details>}
-    {message&&<p className="vm-source-message" role="status">{message} <a href="/">Return to SimPaths Online</a></p>}
+    {message&&<p className="vm-source-message" role="status">{message}
+      {!openingOnline&&<> <a href="/">Return to SimPaths Online</a></>}</p>}
     {alternatives>0&&<p className="vm-source-help">Use the scenario buttons to show or hide any of the {alternatives} selected alternatives. Charts load the data for your current selection.</p>}
   </>;
-  if(experiment&&!selection&&mode==='online'&&!experimentStatus&&message==='Loading online results…'&&!connectionIssue)
-    return <main className="vm-chooser"><p role="status">{message}</p></main>;
+  if(openingOnline)
+    return <main className="vm-opening">
+      <a href="/">Return to SimPaths Online</a>
+      {message==='Loading online results…'&&!connectionIssue
+        ?<p role="status">{message}</p>
+        :controls}
+    </main>;
   const revision=catalogue?.calculator_revision;
   const saved=mode==='saved'?client.current?.manifest?.provenance?.calculation_files:null;
   const hasFiles=saved&&Object.keys(saved).length>0;

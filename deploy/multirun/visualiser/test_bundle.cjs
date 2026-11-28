@@ -22,6 +22,47 @@ async function waitFor(check){
 }
 const manifest=JSON.parse(fs.readFileSync(path.join(build,'build.json'),'utf8'));
 const editions=manifest.historical_editions ?? (manifest.historical?[manifest.historical]:[]);
+for(const edition of editions)for(const included of [true,false]){
+  test('an experiment opens directly in the '+edition.revision.slice(0,8)+' reader with a '+(included?'combined':'separate')+' catalogue',async()=>{
+    const {fixture}=await import('./portable_fixture.mjs');
+    const experiment='00000000-0000-4000-8000-000000000001',url='/visualiser/experiment/'+experiment;
+    const catalogue={...fixture().catalogue,calculator_revision:edition.revision};
+    const dom=new JSDOM(fs.readFileSync(path.join(build,'index.html'),'utf8'),{
+      url:'https://localhost'+url,runScripts:'outside-only',pretendToBeVisual:true});
+    try{
+      Object.assign(dom.window,{TextEncoder,TextDecoder,URLSearchParams,scrollTo(){}});
+      let allowOpening;
+      const reads=[];
+      const gate=new Promise(resolve=>{allowOpening=resolve;});
+      dom.window.fetch=async(path,options)=>{
+        reads.push(path);
+        const api='/api/visualiser-experiments/'+experiment;
+        if(path===api+'/catalogue?publication='+catalogue.publication){
+          assert.equal(included,false);
+          await gate;return Response.json(catalogue);
+        }
+        assert.equal(path,api+'?opening=1');
+        assert.equal(options.headers?.Prefer,'include="catalogue"');
+        if(included)await gate;
+        const configurations=catalogue.configurations.map((c,i)=>({id:'00000000-0000-4000-8000-00000000000'+(i+2),
+          configuration:c.id,name:c.name,charts:'ready',state:'succeeded',comparison:i?'ready':'not_applicable'}));
+        return Response.json({format:'simpaths.visualiser.experiment.v1',experiment,url,configurations,
+          ready:configurations.length,total:configurations.length,publication:catalogue.publication,pending:false,retryable:false,
+          catalogue:included?catalogue:undefined});
+      };
+      const doc=dom.window.document;
+      new vm.Script(fs.readFileSync(path.join(build,'visualiser.js'),'utf8')).runInContext(dom.getInternalVMContext());
+      const expectedReads=included?1:2;
+      await waitFor(()=>reads.length===expectedReads);
+      assert.ok(doc.querySelector('main.vm-opening [role="status"]'));
+      assert.equal(doc.querySelector('[role="tab"],.folder-structure-help,.vm-folder-help'),null);
+      allowOpening();
+      await waitFor(()=>doc.querySelector('.vm-calculation-notice')&&doc.body.textContent.includes('Policy A'));
+      assert.equal(doc.querySelector('.vm-opening'),null);
+      assert.equal(reads.length,expectedReads);
+    }finally{dom.window.close();}
+  });
+}
 for(const [edition,deleted] of [[null,0],...editions.flatMap(e=>[0,1,3].map(n=>[e,n]))]){
 const historical=Boolean(edition);
 test('the '+(edition?edition.revision.slice(0,8):'current')+' reader draws the prepared paired charts with '+deleted+' raw outputs deleted',async()=>{
@@ -48,6 +89,8 @@ test('the '+(edition?edition.revision.slice(0,8):'current')+' reader draws the p
       variables:[{name:row('baseline',40).variable,module:'Health',years:[2019],
         views:[{stratifier:'Overall',kind:'levels',bytes:2000,rows:3}]}]};
     if(historical)metadata.calculator_revision=edition.revision;
+    let allowCatalogue;
+    const catalogueGate=new Promise(resolve=>{allowCatalogue=resolve;});
     w.fetch=async function(url,options={}){
       requests.push(url);
       if(url.startsWith('/visualiser-assets/')){
@@ -56,6 +99,7 @@ test('the '+(edition?edition.revision.slice(0,8):'current')+' reader draws the p
         assert.ok(file);return new Response(fs.readFileSync(path.join(build,file),'utf8'));
       }
       if(this?.document!==doc)throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
+      if(url==='/api/visualiser/'+key+'/catalogue')await catalogueGate;
       if(url==='/api/visualiser/'+key) return Response.json({recalculation:{available:deleted===0,deleted,state:'available',configurations:['base','a','b']}});
       if(url==='/api/session')return Response.json({signed_in:true,csrf:'test'});
       if(url.endsWith('/recalculate')){
@@ -72,6 +116,10 @@ test('the '+(edition?edition.revision.slice(0,8):'current')+' reader draws the p
         series:ids.map(id=>{const i=configs.findIndex(c=>c.id===id);return{configuration:id,rows:[row(i?'scenario':'baseline',40+5*i)]};})}));
     };
     new vm.Script(fs.readFileSync(path.join(build,'visualiser.js'),'utf8')).runInContext(dom.getInternalVMContext());
+    await waitFor(()=>requests.includes('/api/visualiser/'+key+'/catalogue'));
+    assert.ok(doc.querySelector('main.vm-opening [role="status"]'));
+    assert.equal(doc.querySelector('[role="tab"],.folder-structure-help,.vm-folder-help'),null);
+    allowCatalogue();
     await waitFor(()=>doc.body.textContent.includes('Policy B'));
     const button=text=>Array.from(doc.querySelectorAll('button')).find(b=>b.textContent.trim()===text);
     assert.equal(Boolean(doc.querySelector('.vm-calculation-notice')),historical);
@@ -121,11 +169,6 @@ test('the '+(edition?edition.revision.slice(0,8):'current')+' reader draws the p
     await waitFor(()=>doc.body.textContent.includes('uncertainty intervals use paired run differences'));
     assert.equal(requests.filter(url=>url.includes('/view?')).length,1);
     assert.ok(requests.every(url=>!url.endsWith('/data')));
-    denied=true;
-    button('Reload charts from server').click();
-    await waitFor(()=>doc.querySelector('.vm-source-message')?.textContent.includes('Sign in with an approved email'));
-    assert.equal(doc.querySelectorAll('svg path[stroke-dasharray]').length,0);
-    assert.equal(requests.at(-1),'/api/visualiser/'+key+'/catalogue');
     if(tab('interpreting-results')){
       tab('interpreting-results').click();
       const panel=page=>doc.querySelector('.sp-page[data-page="'+page+'.html"] .container');
@@ -135,7 +178,14 @@ test('the '+(edition?edition.revision.slice(0,8):'current')+' reader draws the p
       tab('funders').click();
       await waitFor(()=>panel('funders')?.querySelector('img[src$="UKRILogo.png"]'));
       assert.equal(tab('funders').getAttribute('aria-selected'),'true');
+      const home=Array.from(doc.querySelectorAll('[role="tab"]')).find(link=>link.textContent.trim()==='Visualiser');
+      home.click();await waitFor(()=>button('Reload charts from server'));
     }
+    denied=true;
+    button('Reload charts from server').click();
+    await waitFor(()=>doc.querySelector('.vm-source-message')?.textContent.includes('Sign in with an approved email'));
+    assert.equal(doc.querySelectorAll('svg path[stroke-dasharray]').length,0);
+    assert.equal(requests.at(-1),'/api/visualiser/'+key+'/catalogue');
     assert.deepEqual(errors,[]);
   }catch(error){
     error.message+='; fictional fixture state: '+JSON.stringify({errors,requests,

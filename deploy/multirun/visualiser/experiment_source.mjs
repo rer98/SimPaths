@@ -97,8 +97,10 @@ export class ExperimentSource extends SectionSource{
   async refreshOnce(signal,retry=true){
     try{
       const automatic=!this.selection&&!!this.onChooseRequired;
-      const response=await this.fetcher(automatic?this.url+'?opening=1':this.url,{credentials:'same-origin',cache:'no-store',signal});
-      const {value,bytes}=await boundedJSON(response,256*1024,signal);
+      const wantCatalogue=!this.catalogue;
+      const response=await this.fetcher(automatic?this.url+'?opening=1':this.url,{credentials:'same-origin',cache:'no-store',signal,
+        headers:wantCatalogue?{Prefer:'include="catalogue"'}:undefined});
+      const {value,bytes}=await boundedJSON(response,(wantCatalogue?768:256)*1024,signal);
       this.stats.bytes+=bytes;
       if(this.closed||signal?.aborted)throw new DOMException('Chart source closed.','AbortError');
       const scope=response.headers?.get('x-visualiser-cache-scope');
@@ -108,7 +110,7 @@ export class ExperimentSource extends SectionSource{
       if(automatic&&value?.format==='simpaths.visualiser.choose.v1'&&value.experiment===this.experiment){
         this.onChooseRequired();return null;
       }
-      const status=validateExperiment(value,this.experiment);
+      const {catalogue:included,...status}=validateExperiment(value,this.experiment);
       this.scope=hash(scope)?scope:null;
       this.diskActive=!!(this.scope&&this.disk&&await this.disk.activate(this.scope));
       const previous=this.status;this.status=status;this.onStatus(status,previous);
@@ -117,13 +119,19 @@ export class ExperimentSource extends SectionSource{
         return null;
       }
       if(this.catalogue?.publication===status.publication)return this.catalogue;
-      const result=await this.fetcher(this.url+'/catalogue?publication='+status.publication,
-        {credentials:'same-origin',cache:'no-store',signal});
-      const parsed=await boundedJSON(result,512*1024,signal),catalogue=validateCatalogue(parsed.value);
+      let metadata=included;
+      if(metadata===undefined){
+        // Older hosts and refreshes with a changed publication use the separate catalogue.
+        const result=await this.fetcher(this.url+'/catalogue?publication='+status.publication,
+          {credentials:'same-origin',cache:'no-store',signal});
+        const parsed=await boundedJSON(result,512*1024,signal);
+        this.stats.bytes+=parsed.bytes;metadata=parsed.value;
+      }
+      const catalogue=validateCatalogue(metadata);
       if(catalogue.publication!==status.publication)throw Error('Experiment chart metadata changed.');
       if(this.closed||signal?.aborted)throw new DOMException('Chart source closed.','AbortError');
       if(this.catalogue)await this.clear();
-      this.catalogue=catalogue;this.stats.catalogueRequests++;this.stats.bytes+=parsed.bytes;
+      this.catalogue=catalogue;this.stats.catalogueRequests++;
       this.onUpdated(catalogue);return catalogue;
     }catch(error){
       if(error.status===409&&retry)return this.refreshOnce(signal,false);

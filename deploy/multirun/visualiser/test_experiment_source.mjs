@@ -40,8 +40,25 @@ function fixture(options={}){
           module:'Health',variable:'First',variable_value:'Mean',stratifier:'Overall',stratifier_value:'Overall',metric_type:'mean',
           n_runs:1,total_sample:30,min_sample:30,mean_sample:30,mean_value:40,sd_value:null,lower_ci:null,upper_ci:null}]}))});
     },...options});
-  return {source,requests,updates,status,stage:v=>stage=v,deny:()=>denied=true,race:()=>race=true};
+  return {source,requests,updates,status,catalogue,stage:v=>stage=v,deny:()=>denied=true,race:()=>race=true};
 }
+test('ready historical experiment opens with one read and later polls request status only',async()=>{
+  const f=fixture(),revision='e'.repeat(40),calls=[];
+  f.source.fetcher=async(url,options)=>{
+    calls.push({url,prefer:options.headers?.Prefer});
+    const value=f.status();
+    if(options.headers?.Prefer)value.catalogue={...f.catalogue(),calculator_revision:revision};
+    return response(value);
+  };
+  try{
+    assert.equal((await f.source.refresh()).calculator_revision,revision);
+    assert.equal(calls.length,1);
+    assert.equal(calls[0].prefer,'include="catalogue"');
+    assert.equal((await f.source.refresh()).calculator_revision,revision);
+    assert.deepEqual(calls.map(c=>c.url),[f.source.url,f.source.url]);
+    assert.equal(calls[1].prefer,undefined);
+  }finally{f.source.close();}
+});
 test('one alternative opens first, later readiness updates the same source, and unchanged status does not reread indices',async()=>{
   const f=fixture();
   assert.deepEqual((await f.source.load(selection)).map(r=>r.scenario),['scenario_1']);
